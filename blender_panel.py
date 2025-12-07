@@ -131,67 +131,41 @@ class MTAR_PT_ImportPanel(Panel):
 
         # MTAR file picker
         mtar_box = import_box
-        mtar_box.label(text="MTAR File:", icon='ANIM')
         row = mtar_box.row(align=True)
-        row.prop(props, "import_mtar_filepath", text="")
+        row.prop(props, "import_mtar_filepath", text="", icon='ANIM')
         row.operator("mtar.select_import_mtar_file", text="", icon='FILE_FOLDER')
-        
-        import_box.separator()
 
         # FRIG file picker
         frig_box = import_box
-        frig_box.label(text="FRIG File (Optional):", icon='ARMATURE_DATA')
         row = frig_box.row(align=True)
-        row.prop(props, "import_frig_filepath", text="")
+        row.prop(props, "import_frig_filepath", text="", icon='OUTLINER_OB_ARMATURE')
         row.operator("mtar.select_frig_file", text="", icon='FILE_FOLDER')
         
         # Generate mapping file button
-        if props.import_frig_filepath:
-            col = frig_box.column()
-            col.scale_y = 1
-            col.operator("mtar.generate_track_mapping_template_file", text="Generate Mapping Template", icon='FILE_NEW')
-
-        import_box.separator()
+        col = frig_box.column()
+        col.enabled = bool(props.import_frig_filepath)
+        col.scale_y = 1
+        col.operator("mtar.generate_track_mapping_template_file", text="Generate Mapping Template", icon='TEXT')
 
         # Track mapping file picker
         mapping_box = import_box
-        mapping_box.label(text="Track Mapping (Optional):", icon='TEXT')
         row = mapping_box.row(align=True)
-        row.prop(props, "import_mapping_filepath", text="")
+        row.prop(props, "import_mapping_filepath", text="", icon='TEXT')
         row.operator("mtar.select_mapping_file", text="", icon='FILE_FOLDER')
-        
-        import_box.separator()
 
         # GANI index selector
         box = import_box
-        box.label(text="GANI File Selection:", icon='FILTER')
-        box.prop(props, "import_gani_index", text="Index (-1 = all)")
-        
-        import_box.separator()
+        box.prop(props, "import_gani_index", text="Anim Index", icon='FILTER')
 
         # Target rig selector
         box = import_box
-        box.label(text="Target Rigify Rig (Optional):", icon='ARMATURE_DATA')
-        box.prop(props, "import_target_rig", text="")
-        
-        import_box.separator()
-
-        # Info
-        box = import_box
-        box.label(text="Info:", icon='INFO')
-        if props.import_frig_filepath:
-            box.label(text="FRIG rig data will be used", icon='CHECKMARK')
-        else:
-            box.label(text="No rig data (FRIG optional)", icon='DOT')
-
-        import_box.separator()
+        box.prop(props, "import_target_rig", text="", icon='ARMATURE_DATA')
 
         # Import button
         col = import_box.column()
         col.scale_y = 1.5
          # Disable button if required fields are missing
-        can_import = bool(props.import_mtar_filepath)
-        col.enabled = can_import
+        col.enabled = bool(props.import_mtar_filepath)
         col.operator("mtar.import_animation", text="Import Animation", icon='IMPORT')
 
 
@@ -211,63 +185,40 @@ class MTAR_PT_ExportPanel(Panel):
 
         # Armature selector
         box = export_box
-        box.label(text="Export Armature or Rig:", icon='ARMATURE_DATA')
-        box.prop(props, "export_armature", text="")
-        
-        export_box.separator()
+        box.prop(props, "export_armature", text="", icon='ARMATURE_DATA')
 
         # Motion Points armature selector
         box = export_box
-        box.label(text="Motion Points Armature (Optional):", icon='ARMATURE_DATA')
-        box.prop(props, "export_motion_points_armature", text="")
-        
-        export_box.separator()
+        box.prop(props, "export_motion_points_armature", text="", icon='ARMATURE_DATA')
 
         # Mapping file (optional)
         box = export_box
-        box.label(text="Track Mapping (Optional):", icon='FILE_TEXT')
         row = box.row(align=True)
-        row.prop(props, "export_mapping_filepath", text="")
+        row.prop(props, "export_mapping_filepath", text="", icon='TEXT')
         row.operator("mtar.select_export_mapping_file", text="", icon='FILE_FOLDER')
-        
-        export_box.separator()
 
         # Export file picker
         box = export_box
-        box.label(text="Export File:", icon='FILE')
         row = box.row(align=True)
-        row.prop(props, "export_filepath", text="")
+        row.prop(props, "export_filepath", text="", icon='CURRENT_FILE')
         row.operator("mtar.select_export_file", text="", icon='FILE_FOLDER')
-        
-        export_box.separator()
 
         # Export options
         box = export_box
-        box.label(text="Export Options:", icon='ANIM')
         row = box.row()
-        row.prop(props, "export_use_nla")
+        row.prop(props, "export_use_nla", icon='OPTIONS')
         row = box.row()
-        row.prop(props, "export_use_evaluated")
+        row.prop(props, "export_use_evaluated", icon='OPTIONS')
         
-        export_box.separator()
-
         # Info
         box = export_box
-        box.label(text="Info:", icon='INFO')
-        if props.export_armature:
-            box.label(text=f"Armature: {props.export_armature.name}", icon='CHECKMARK')
-        else:
+        if not props.export_armature:
             box.label(text="No armature selected", icon='ERROR')
         
-        if props.export_filepath:
-            box.label(text=f"Export path: Set", icon='CHECKMARK')
-        else:
+        if not props.export_filepath:
             box.label(text="No export path set", icon='ERROR')
-        
-        # TODO: Add info about layout track action if found
-        box.label(text="Track structure: Auto-detected", icon='CHECKMARK')
 
-         # Show info about NLA status
+        # Show info about NLA status
         if props.export_armature and props.export_armature.animation_data:
             anim_data = props.export_armature.animation_data
             if anim_data.nla_tracks:
@@ -284,8 +235,6 @@ class MTAR_PT_ExportPanel(Panel):
             else:
                 box.label(text="No animation data", icon='ERROR')
 
-
-        export_box.separator()
 
         # Export button
         col = export_box.column()
@@ -311,8 +260,7 @@ class MTAR_PT_SettingsPanel(Panel):
         props = context.scene.mtar_properties
         
         box = layout.box()
-        box.label(text="Debug Options", icon='PREFERENCES')
-        box.prop(props, "enable_logging")
+        box.prop(props, "enable_logging", icon='PREFERENCES')
 
 
 # Registration

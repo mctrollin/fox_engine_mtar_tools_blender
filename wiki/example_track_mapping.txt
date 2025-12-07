@@ -1,0 +1,144 @@
+# Track Mapping File for MTAR Importer/Exporter
+# 
+# This file defines track metadata and bone transformations for MTAR animation.
+# 
+# ===== TRACK METADATA DIRECTIVES =====
+#
+# @track directives define the structure of animation tracks for export.
+# Format: @track <name> : type=<TYPE> ; [count=<n>] ; [flags=<flags>] ; [bits=<bits>]
+#
+# Parameters:
+#   type (required): Track type - determines segment structure automatically
+#                    Valid types: ROOT, ORIENTATION, LOCAL_ORIENTATION, TWO_BONE,
+#                                TRANSFORM, LOCAL_TRANSFORM, ARM, LIST, MULTI_LOCAL_ORIENTATION
+#   count (required for MULTI_LOCAL_ORIENTATION): Number of rotation segments
+#   flags (optional): Comma-separated flags (e.g., STATIC, COMPRESSED)
+#   bits (optional): Compression bits (12, 14, 16, 18, 20, 22, 24), default: 16
+#
+# Track Types and Their Segments:
+#   ROOT                    → (qd, vd)      Differential rotation + position
+#   ORIENTATION             → (q)           Single quaternion rotation
+#   LOCAL_ORIENTATION       → (q)           Local space quaternion
+#   TWO_BONE                → (v, q)        Position + rotation (IK)
+#   TRANSFORM               → (q, v)        Rotation + position
+#   LOCAL_TRANSFORM         → (q, v)        Local rotation + position
+#   ARM                     → (q, v, q)     Shoulder, hand, pole rotations
+#   LIST                    → (q)           Single quaternion
+#   MULTI_LOCAL_ORIENTATION → (q * count)   Multiple quaternions
+#
+# Examples:
+#   # Track 0 (qd, vd)
+#   @track Root : type=ROOT
+#
+#   # Track 5 (q)
+#   @track Head : type=ORIENTATION ; bits=14
+#
+#   # Track 16 (q * 16)
+#   @track LeftFingers : type=MULTI_LOCAL_ORIENTATION ; count=16
+#
+# ===== BONE MAPPING =====
+#
+# This file also defines transformations to apply to imported/exported animation tracks.
+# Transformations include: renaming, rotation offsets, axis mapping, world space constraints,
+# and directional vector IK for connecting to Rigify rigs.
+# 
+# Format: source_track_name : target_track_name ; param1=value1 ; param2=value2
+# 
+# Lines starting with # are comments and will be ignored
+# Empty lines are also ignored
+#
+# ===== ROTATION TRANSFORMATION PARAMETERS =====
+#
+#   offset_r: Rotation offset in degrees (format: x,y,z,order)
+#             Example: offset_r=90,0,0,XYZ
+#             Applies a base rotation offset to the track.
+#             Can be specified multiple times - offsets are applied in order of appearance.
+#             Applied in LOCAL SPACE, AFTER the keyframe rotation (pre-multiplied).
+#
+#   map_r: Rotation axis mapping/remapping (format: x,y,z or -x,y,z or y,-x,z etc.)
+#          Example: map_r=y,-x,z
+#          Remaps quaternion xyz components. Use minus sign to negate an axis.
+#          Useful for fixing axis orientation mismatches between Fox Engine and Blender rigs.
+#          Applied BEFORE rotation offsets.
+#
+# ===== CONSTRAINT PARAMETERS (for Rigify rig integration) =====
+#
+#   space_r: World space rotation constraint (format: ws or ws,custom_bone)
+#            Example: space_r=ws
+#            Example: space_r=ws,head
+#            Creates a Copy Rotation constraint on the target rig bone.
+#            Target: imported armature bone (world space)
+#            Owner: target rig bone (world space OR custom space if bone specified)
+#            If second parameter is provided, sets owner space to custom bone coordinate system.
+#
+#   space_l: World space location constraint (format: ws)
+#            Example: space_l=ws
+#            Creates a Copy Location constraint on the target rig bone.
+#            Target: imported armature bone (world space)
+#            Owner: target rig bone (world space)
+#
+#   as_ik_up: Convert rotation track to directional location IK
+#             Format: base_bone,axis,distance
+#             Example: as_ik_up=head,Z,2.0
+#             Converts quaternion rotation data to location by treating it as a directional vector.
+#             Creates two constraints on target rig bone:
+#               1. Copy Location (world space) from base_bone
+#               2. Transformation constraint (Add mix) from imported armature directional offset
+#             If space_r with custom bone is also specified, applies custom space to transformation.
+#             Rotation transformations (offset_r, map_r) are applied BEFORE conversion to location.
+#
+# ===== VALIDATION RULES =====
+#
+#   - Only one rotation track per target bone is allowed
+#   - Only one location track per target bone is allowed
+#   - as_ik_up is considered a rotation track (uses rotation source data)
+#
+# ===== EXAMPLES =====
+#
+# Track metadata with bone mappings:
+# # Track 0 (qd, vd)
+# @track Root : type=ROOT
+# Root : torso_root ; offset_r=0,0,180,zyx
+#
+# # Track 6 (q, v, q)
+# @track LArm : type=ARM ; bits=14
+# LArm_0 : shoulder.L ; space_r=ws,torso_root ; offset_r=0,0,-90,zyx
+# LArm_1 : hand_ik.L ; space_l=ws
+# LArm_2 : upper_arm_ik_target.L ; space_r=ws,torso_root ; as_ik_up=upper_arm_ik.L,x,1
+#
+# Basic renaming:
+# SKL_000_DEF1_JNT : Root
+# SKL_001_DEF1_JNT : Spine1
+#
+# With rotation offset:
+# SKL_002_DEF1_JNT : Spine2 ; offset_r=90,0,0,XYZ
+#
+# With axis remapping:
+# SKL_003_DEF1_JNT : LeftShoulder ; map_r=y,-x,z
+#
+# Multiple rotation offsets (applied in order):
+# SKL_004_DEF1_JNT : Hand ; offset_r=90,0,0,ZXY ; offset_r=45,0,0,XYZ
+#
+# World space rotation constraint:
+# Camera_Rot : camera_bone ; space_r=ws
+#
+# World space rotation with custom owner space:
+# Camera_Rot : camera_bone ; space_r=ws,head
+#
+# Separate rotation and location tracks to same bone:
+# Camera_Rot : camera_bone ; space_r=ws
+# Camera_Loc : camera_bone ; space_l=ws
+#
+# Directional vector IK (look-at target):
+# LookTarget_Rot : look_target ; as_ik_up=head,Z,2.0
+#
+# Directional IK with custom space and rotation offset:
+# LookTarget_Rot : look_target ; as_ik_up=head,Z,2.0 ; space_r=ws,torso ; offset_r=90,0,0,XYZ
+#
+# After rig unit type naming is applied (e.g., _0, _1 suffixes for ARM/TWO_BONE/LIST types):
+# SKL_005_ARM_JNT_0 : LeftShoulder ; offset_r=0,90,0,XYZ
+# SKL_005_ARM_JNT_1 : LeftElbow
+# SKL_005_ARM_JNT_2 : LeftWrist ; map_r=-z,-x,-y
+#
+# Complex example combining rotation transformations and constraints:
+# ComplexBone_Rot : hand_ik.L ; map_r=y,-x,z ; offset_r=90,0,0,XYZ ; space_r=ws,forearm.L
