@@ -115,13 +115,35 @@ def build_track_segment_bone_mapping_from_file(mapping_filepath: str, layout_act
                     distance=ik_data['distance']
                 )
             
+            # Extract custom_bone from space_r if present (convert dict to string)
+            space_r_value = None
+            if 'space_r' in fox_mapping and fox_mapping['space_r']:
+                space_r_dict = fox_mapping['space_r']
+                if isinstance(space_r_dict, dict):
+                    # Extract custom_bone if present, otherwise use 'ws' for world space
+                    space_r_value = space_r_dict.get('custom_bone', 'ws')
+                else:
+                    # Legacy format: already a string
+                    space_r_value = space_r_dict
+            
+            # Extract custom_bone from space_l if present (convert dict to string)
+            space_l_value = None
+            if 'space_l' in fox_mapping and fox_mapping['space_l']:
+                space_l_dict = fox_mapping['space_l']
+                if isinstance(space_l_dict, dict):
+                    # Extract custom_bone if present, otherwise use 'ws' for world space
+                    space_l_value = space_l_dict.get('custom_bone', 'ws')
+                else:
+                    # Legacy format: already a string
+                    space_l_value = space_l_dict
+            
             # Create BoneParameters instance
             bone_params = BoneParameters(
                 fox_name=fox_name,
                 rotation_offset=fox_mapping.get('rotation_offset'),
                 rotation_axis_map=fox_mapping.get('rotation_axis_map'),
-                space_r=fox_mapping.get('space_r'),
-                space_l=fox_mapping.get('space_l'),
+                space_r=space_r_value,
+                space_l=space_l_value,
                 as_ik_up=as_ik_up,
                 track_name=fox_mapping.get('track_name', '')
             )

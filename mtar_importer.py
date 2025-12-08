@@ -24,12 +24,13 @@ FPS_59_94: float = 59.94
 
 # Metadata Conversion Utilities #############################################################
 
-def create_track_metadata_from_layout(track_units: List[TrackUnit], track_name_prefix: str = "Track") -> List[TrackMetaData]:
+def create_track_metadata_from_layout(track_units: List[TrackUnit], track_name_prefix: str = "Track", gani_tracks: Optional[List[TrackUnitWrapper]] = None) -> List[TrackMetaData]:
     """Convert layout track units to TrackMetaData objects.
     
     Args:
         track_units: List of TrackUnit objects from layout track
         track_name_prefix: Prefix for generating track names (default: "Track")
+        gani_tracks: Optional list of GaniTracks with rig_unit_type populated from FRIG (for preserving rig type info)
         
     Returns:
         List of TrackMetaData objects
@@ -56,6 +57,11 @@ def create_track_metadata_from_layout(track_units: List[TrackUnit], track_name_p
             segment_types.append(track_data.td_type)
             component_bit_sizes.append(track_data.component_bit_size)
         
+        # Get rig_unit_type from corresponding GaniTrack if available (populated from FRIG)
+        rig_unit_type = None
+        if gani_tracks and track_idx < len(gani_tracks):
+            rig_unit_type = gani_tracks[track_idx].rig_unit_type
+        
         # Create TrackMetaData
         track_meta = TrackMetaData(
             track_name=track_name,
@@ -64,7 +70,7 @@ def create_track_metadata_from_layout(track_units: List[TrackUnit], track_name_p
             component_bit_sizes=component_bit_sizes,
             unit_flags=track_unit.unit_flags,
             flags_list=None,  # Will be derived from unit_flags
-            rig_unit_type=None  # Not available in layout track
+            rig_unit_type=rig_unit_type  # Preserved from FRIG if available
         )
         
         track_metadata_list.append(track_meta)
@@ -197,6 +203,10 @@ def store_track_metadata_on_action(
         # Build hash field (layout tracks only)
         if include_hash and track_meta.name_hash is not None and track_meta.name_hash != 0:
             metadata_parts.append(f"hash={track_meta.name_hash}")
+        
+        # Build type field (rig_unit_type)
+        if track_meta.rig_unit_type is not None:
+            metadata_parts.append(f"type={track_meta.rig_unit_type.name}")
         
         # Build final @track format string
         metadata_value = f"@track {track_name} : {' ; '.join(metadata_parts)}"
@@ -493,7 +503,9 @@ def create_animation_actions(
         layout_action.use_fake_user = True
         
         # Convert layout track to TrackMetaData and store metadata
-        track_metadata_list = create_track_metadata_from_layout(layout_track.track_units)
+        # Pass first gani_tracks (if available) to preserve rig_unit_type from FRIG
+        first_gani_tracks = all_gani_tracks[0] if all_gani_tracks and len(all_gani_tracks) > 0 else None
+        track_metadata_list = create_track_metadata_from_layout(layout_track.track_units, gani_tracks=first_gani_tracks)
         store_track_metadata_on_action(layout_action, track_metadata_list)
         
         # Store header properties separately

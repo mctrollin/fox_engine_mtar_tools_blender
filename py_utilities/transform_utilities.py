@@ -13,6 +13,7 @@ from mathutils import Vector, Quaternion, Euler
 
 from .logging_utilities import log_message
 
+# Directional location (for IK up vector) #############################################################
 
 def calculate_directional_location(bone_location: Vector, bone_rotation_quat: Quaternion, axis: str, distance: float) -> Vector:
     """Calculate a location by moving from a bone's location along one of its rotated axes.
@@ -98,6 +99,8 @@ def reverse_directional_location(location: Vector, base_location: Vector, axis: 
     
     return Quaternion(rotation_axis, angle)
 
+
+# Rotation offset (to cover differences in the ref pose and axis usage of Kojima Productions' rig and our custom blender rig) #############################################################
 
 def prepare_rotation_offset_quats(rotation_offset: Optional[List[dict]]) -> List[Quaternion]:
     """Convert rotation offset data to list of quaternions.
@@ -224,6 +227,8 @@ def apply_reverse_transforms(quat: Quaternion, rotation_offset: Optional[List[di
     return result_quat
 
 
+# Transform getter (to adhere to the mtar / gani format) #############################################################
+
 def get_local_space_transform(obj: bpy.types.Object, bone_name: str, frame: int, evaluated: bool = False) -> Tuple[Vector, Quaternion]:
     """Get local bone space transform (relative to parent) for a bone at a specific frame.
     
@@ -293,14 +298,18 @@ def get_world_space_transform(obj: bpy.types.Object, bone_name: str, frame: int,
         if space_bone:
             # Get transform in custom bone space (evaluated)
             space_pose_bone_eval = armature_eval.pose.bones[space_bone]
-            space_matrix = space_pose_bone_eval.matrix.inverted()
-            local_matrix = space_matrix @ pose_bone_eval.matrix
+            # True world matrix for both bones
+            bone_world_matrix = armature_eval.matrix_world @ pose_bone_eval.matrix
+            space_world_matrix = armature_eval.matrix_world @ space_pose_bone_eval.matrix
+            # Transform relative to custom space
+            local_matrix = space_world_matrix.inverted() @ bone_world_matrix
             location = local_matrix.to_translation()
             rotation = local_matrix.to_quaternion()
         else:
-            # World space (evaluated)
-            location = pose_bone_eval.matrix.to_translation()
-            rotation = pose_bone_eval.matrix.to_quaternion()
+            # True world space (evaluated) - accounts for armature's transform in scene
+            world_matrix = armature_eval.matrix_world @ pose_bone_eval.matrix
+            location = world_matrix.to_translation()
+            rotation = world_matrix.to_quaternion()
     else:
         # Get raw keyframe/matrix_basis transform (before constraints, IK, etc.)
         pose_bone = obj.pose.bones[bone_name]
@@ -308,17 +317,23 @@ def get_world_space_transform(obj: bpy.types.Object, bone_name: str, frame: int,
         if space_bone:
             # Get transform in custom bone space (non-evaluated)
             space_pose_bone = obj.pose.bones[space_bone]
-            space_matrix = space_pose_bone.matrix.inverted()
-            local_matrix = space_matrix @ pose_bone.matrix
+            # True world matrix for both bones
+            bone_world_matrix = obj.matrix_world @ pose_bone.matrix
+            space_world_matrix = obj.matrix_world @ space_pose_bone.matrix
+            # Transform relative to custom space
+            local_matrix = space_world_matrix.inverted() @ bone_world_matrix
             location = local_matrix.to_translation()
             rotation = local_matrix.to_quaternion()
         else:
-            # World space (non-evaluated)
-            location = pose_bone.matrix.to_translation()
-            rotation = pose_bone.matrix.to_quaternion()
+            # True world space (non-evaluated) - accounts for armature's transform in scene
+            world_matrix = obj.matrix_world @ pose_bone.matrix
+            location = world_matrix.to_translation()
+            rotation = world_matrix.to_quaternion()
     
     return location, rotation
 
+
+# Coordinate space transformations (blender <-> fox engine) #############################################################
 
 def apply_rotation_transforms(fox_quat: List[float], 
                              rotation_axis_map: Optional[List[Dict[str, Union[str, bool]]]] = None,

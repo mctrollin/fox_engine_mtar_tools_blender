@@ -41,7 +41,7 @@ class BoneParameters:
     
     Attributes:
         fox_name: Fox Engine bone name (required)
-        rotation_offset: Optional rotation offset parameters
+        rotation_offset: Optional list of rotation offset parameters (applied in order during import)
         rotation_axis_map: Optional axis mapping parameters
         space_r: Optional rotation space specification ('ws' or bone name)
         space_l: Optional location space specification ('ws' or bone name)
@@ -49,7 +49,7 @@ class BoneParameters:
         track_name: Optional track name from mapping file
     """
     fox_name: str
-    rotation_offset: Optional[dict] = None
+    rotation_offset: Optional[List[dict]] = None
     rotation_axis_map: Optional[List[Dict[str, str | bool]]] = None
     space_r: Optional[str] = None
     space_l: Optional[str] = None

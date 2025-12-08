@@ -975,22 +975,13 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
     # Check if we're in NLA tweak mode (happens when user double-clicks an NLA strip)
     # In tweak mode, the action attribute is read-only
     was_in_tweak_mode = False
-    original_action = None
-    
     if armature.animation_data:
         # Check if NLA is in tweak mode
         was_in_tweak_mode = armature.animation_data.use_tweak_mode
-        
         if was_in_tweak_mode:
             log_message("    Warning: Armature is in NLA tweak mode, exiting tweak mode temporarily")
             # Exit tweak mode to allow action changes
             armature.animation_data.use_tweak_mode = False
-        
-        # Store original action to restore later
-        original_action = armature.animation_data.action
-        
-        # Temporarily set this action as active to read its data
-        armature.animation_data.action = action
     
     try:
         gani_tracks = []
@@ -1079,17 +1070,14 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
         
         return gani_tracks
 
-        
     finally:
         # Restore original action and NLA state
         if armature.animation_data:
-            armature.animation_data.action = original_action
-            
             # Restore tweak mode if it was active
             if was_in_tweak_mode:
                 armature.animation_data.use_tweak_mode = True
 
-    
+
 
 # Motion Points #############################################################
 
