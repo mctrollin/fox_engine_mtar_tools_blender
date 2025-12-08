@@ -647,3 +647,27 @@ def merge_track_metadata(layout_meta: TrackMetaData, action_meta: Optional[Track
         result.as_ik_up = action_meta.as_ik_up
 
     return result
+
+
+def extract_space_bone(space_param: Optional[str]) -> Optional[str]:
+    """Extract the space bone name from a space parameter.
+    
+    Space parameters can be:
+    - None (use default world/local space)
+    - "ws" or "ws,bone_name" (world space, optionally with custom bone)
+    - "bone_name" (custom space bone)
+    
+    Args:
+        space_param: Space parameter string (typically from bone_params.space_r or space_l)
+        
+    Returns:
+        The custom space bone name if specified, None otherwise
+    """
+    if space_param:
+        # Handle string-format space parameters
+        if isinstance(space_param, str):
+            if not space_param.startswith('ws'):
+                # It's a custom bone name
+                return space_param
+    return None
+

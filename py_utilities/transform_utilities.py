@@ -162,8 +162,8 @@ def apply_reverse_transforms(quat: Quaternion, rotation_offset: Optional[List[di
             order = offset_data['order']
             
             # Convert degrees to radians
-            euler_radians = [math.radians(euler_degrees[0]), 
-                           math.radians(euler_degrees[1]), 
+            euler_radians = [math.radians(euler_degrees[0]),
+                           math.radians(euler_degrees[1]),
                            math.radians(euler_degrees[2])]
             
             # Create Euler and convert to Quaternion
