@@ -668,8 +668,8 @@ def export_rotation_segment(armature: bpy.types.Object, blender_bone_name: str,
             # Apply reverse transformations
             rotation_offset = bone_params.rotation_offset
             rotation_axis_map = bone_params.rotation_axis_map
-            # For regular rotation: offsets were applied last during import  
-            fox_quat = apply_reverse_transforms(blender_quat, rotation_offset, rotation_axis_map, offset_first=False)
+            # For regular rotation: offsets were applied last during import
+            fox_quat = apply_reverse_transforms(blender_quat, rotation_offset, rotation_axis_map, offset_first=True)
             
             # Convert to Fox Engine coordinate system
             fox_quat_final = blender_to_fox_quaternion(fox_quat)
