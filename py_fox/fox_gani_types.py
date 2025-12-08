@@ -25,7 +25,7 @@ from ..py_utilities.binary_utilities_write import (
     align_buffer,
     align_bytearray,
 )
-from ..py_utilities.logging_utilities import log_message
+from ..py_utilities.logging_utilities import Debug
 
 from .fox_misc_types import StrCode32
 from .fox_gani_enums import SegmentType, TrackUnitFlags
@@ -200,9 +200,9 @@ class AnimKeyframe:
                     
                     # Validate: frame_delta must be at least 1
                     if frame_delta < 1:
-                        log_message(f"  Warning: Invalid frame_delta {frame_delta} between keyframes {i-1} and {i}")
-                        log_message(f"  Keyframe {i-1}: frame_count={keyframes[i-1].frame_count}")
-                        log_message(f"  Keyframe {i}: frame_count={keyframes[i].frame_count}")
+                        Debug.log(f"  Warning: Invalid frame_delta {frame_delta} between keyframes {i-1} and {i}")
+                        Debug.log(f"  Keyframe {i-1}: frame_count={keyframes[i-1].frame_count}")
+                        Debug.log(f"  Keyframe {i}: frame_count={keyframes[i].frame_count}")
                         frame_delta = 1  # Clamp to minimum value
                     
                     # Write frame delta (8 bits)
@@ -238,9 +238,9 @@ class AnimKeyframe:
                     
                     # Validate: frame_delta must be at least 1
                     if frame_delta < 1:
-                        log_message(f"  Warning: Invalid frame_delta {frame_delta} between keyframes {i-1} and {i}")
-                        log_message(f"  Keyframe {i-1}: frame_count={keyframes[i-1].frame_count}")
-                        log_message(f"  Keyframe {i}: frame_count={keyframes[i].frame_count}")
+                        Debug.log(f"  Warning: Invalid frame_delta {frame_delta} between keyframes {i-1} and {i}")
+                        Debug.log(f"  Keyframe {i-1}: frame_count={keyframes[i-1].frame_count}")
+                        Debug.log(f"  Keyframe {i}: frame_count={keyframes[i].frame_count}")
                         frame_delta = 1  # Clamp to minimum value
                     
                     # Write frame delta (1 byte)
@@ -271,9 +271,9 @@ class AnimKeyframe:
                     
                     # Validate: frame_delta must be at least 1
                     if frame_delta < 1:
-                        log_message(f"  Warning: Invalid frame_delta {frame_delta} between keyframes {i-1} and {i}")
-                        log_message(f"  Keyframe {i-1}: frame_count={keyframes[i-1].frame_count}")
-                        log_message(f"  Keyframe {i}: frame_count={keyframes[i].frame_count}")
+                        Debug.log(f"  Warning: Invalid frame_delta {frame_delta} between keyframes {i-1} and {i}")
+                        Debug.log(f"  Keyframe {i-1}: frame_count={keyframes[i-1].frame_count}")
+                        Debug.log(f"  Keyframe {i}: frame_count={keyframes[i].frame_count}")
                         frame_delta = 1  # Clamp to minimum value
                     
                     # Write frame delta (1 byte)
@@ -304,9 +304,9 @@ class AnimKeyframe:
                     
                     # Validate: frame_delta must be at least 1
                     if frame_delta < 1:
-                        log_message(f"  Warning: Invalid frame_delta {frame_delta} between keyframes {i-1} and {i}")
-                        log_message(f"  Keyframe {i-1}: frame_count={keyframes[i-1].frame_count}")
-                        log_message(f"  Keyframe {i}: frame_count={keyframes[i].frame_count}")
+                        Debug.log(f"  Warning: Invalid frame_delta {frame_delta} between keyframes {i-1} and {i}")
+                        Debug.log(f"  Keyframe {i-1}: frame_count={keyframes[i-1].frame_count}")
+                        Debug.log(f"  Keyframe {i}: frame_count={keyframes[i].frame_count}")
                         frame_delta = 1  # Clamp to minimum value
                     
                     # Write frame delta (1 byte)
@@ -337,9 +337,9 @@ class AnimKeyframe:
                     
                     # Validate: frame_delta must be at least 1
                     if frame_delta < 1:
-                        log_message(f"  Warning: Invalid frame_delta {frame_delta} between keyframes {i-1} and {i}")
-                        log_message(f"  Keyframe {i-1}: frame_count={keyframes[i-1].frame_count}")
-                        log_message(f"  Keyframe {i}: frame_count={keyframes[i].frame_count}")
+                        Debug.log(f"  Warning: Invalid frame_delta {frame_delta} between keyframes {i-1} and {i}")
+                        Debug.log(f"  Keyframe {i-1}: frame_count={keyframes[i-1].frame_count}")
+                        Debug.log(f"  Keyframe {i}: frame_count={keyframes[i].frame_count}")
                         frame_delta = 1  # Clamp to minimum value
                     
                     # Write frame delta (1 byte)

@@ -7,7 +7,7 @@ This module handles writing GANI format animation data.
 import io
 from typing import List
 
-from ..py_utilities.logging_utilities import log_message
+from ..py_utilities.logging_utilities import Debug
 
 from ..py_fox.fox_gani_types import (
     Gani2TrackData,
@@ -52,11 +52,11 @@ class Gani2Writer:
                                   segment_bit_sizes_per_file=segment_bit_sizes_per_file)
         
         # Write to file
-        log_message("    Writing to file...")
+        Debug.log("    Writing to file...")
         with open(filepath, 'wb') as f:
             f.write(buffer.getvalue())
         
-        log_message(f"    GANI write complete: {len(buffer.getvalue())} bytes")
+        Debug.log(f"    GANI write complete: {len(buffer.getvalue())} bytes")
     
     def write_gani_to_buffer(self, buffer, gani_tracks: List['TrackUnitWrapper'], layout_track: 'Tracks', 
                              frame_count: int, frame_rate: int = 60, params: List[tuple] = None,
@@ -73,13 +73,13 @@ class Gani2Writer:
             frame_rate: Animation frame rate (default 60 fps)
             params: Optional list of (name, value) parameter tuples
         """
-        log_message("  Writing GANI data:")
-        log_message(f"    Track count: {len(gani_tracks)}")
-        log_message(f"    Frame count: {frame_count}")
-        log_message(f"    Frame rate: {frame_rate}")
+        Debug.log("  Writing GANI data:")
+        Debug.log(f"    Track count: {len(gani_tracks)}")
+        Debug.log(f"    Frame count: {frame_count}")
+        Debug.log(f"    Frame rate: {frame_rate}")
         
         if not gani_tracks:
-            log_message("    Warning: No tracks to write")
+            Debug.log("    Warning: No tracks to write")
             return
         
         # Initialize params if not provided
@@ -90,7 +90,7 @@ class Gani2Writer:
         track_count = layout_track.header.unit_count
         total_segment_count = layout_track.header.segment_count
         
-        log_message(f"    Segment count: {total_segment_count}")
+        Debug.log(f"    Segment count: {total_segment_count}")
         
         # Collect unit flags from tracks. Prefer per-file flags if provided, otherwise fall back to layout defaults
         unit_flags = []
@@ -133,7 +133,7 @@ class Gani2Writer:
         track_mini_header.write(buffer)
         
         # Write all tracks and get Gani2TrackData entries
-        log_message("    Writing tracks...")
+        Debug.log("    Writing tracks...")
         all_gani2_entries, _ = self.write_all_tracks_to_buffer(
             buffer, gani_tracks, layout_track, header_start, track_mini_header, track_count
         )
@@ -168,9 +168,9 @@ class Gani2Writer:
         # Calculate where segment headers start within the buffer
         segment_headers_start = header_start + track_mini_header.get_segment_headers_offset(unit_count)
         
-        log_message("      Writing all tracks:")
-        log_message(f"        Header start: 0x{header_start:X}")
-        log_message(f"        Segment headers start: 0x{segment_headers_start:X}")
+        Debug.log("      Writing all tracks:")
+        Debug.log(f"        Header start: 0x{header_start:X}")
+        Debug.log(f"        Segment headers start: 0x{segment_headers_start:X}")
         
         # PASS 1: Collect all segments and write keyframe blobs to calculate sizes
         segments_data = []  # List of (component_bit_size, keyframe_blob)
@@ -178,15 +178,15 @@ class Gani2Writer:
         
         for track_idx, gani_track in enumerate(gani_tracks):
             if track_idx >= len(layout_track.track_units):
-                log_message(f"        Warning: Track {track_idx} has no corresponding layout unit")
+                Debug.log(f"        Warning: Track {track_idx} has no corresponding layout unit")
                 continue
             
             track_unit = layout_track.track_units[track_idx]
-            log_message(f"        Processing track {track_idx}: '{gani_track.name}'")
+            Debug.log(f"        Processing track {track_idx}: '{gani_track.name}'")
             
             for segment_idx, keyframes_track in enumerate(gani_track.segments_track_data):
                 if segment_idx >= len(track_unit.segments_data):
-                    log_message(f"          Warning: Segment {segment_idx} ({segment_idx_abs}) has no corresponding track_data")
+                    Debug.log(f"          Warning: Segment {segment_idx} ({segment_idx_abs}) has no corresponding track_data")
                     continue
                 
                 track_data = track_unit.segments_data[segment_idx]
@@ -241,7 +241,7 @@ class Gani2Writer:
             segments_keyframes_blob_bytes.extend(segment_keyframes_blob_bytes)
         buffer.write(segments_keyframes_blob_bytes)
         
-        log_message(f"      Completed writing {len(gani_tracks)} track(s), {segments_count} segment(s)")
+        Debug.log(f"      Completed writing {len(gani_tracks)} track(s), {segments_count} segment(s)")
         return segment_headers, bytes(segments_keyframes_blob_bytes)
     
     def write_segment_to_bytes(self, keyframes_track: 'TrackDataBlobWrapper', track_data: 'TrackData', 
@@ -261,7 +261,7 @@ class Gani2Writer:
         # Get actual component_bit_size from action if available; allow override
         component_bit_size = component_bit_size_override if component_bit_size_override is not None else track_data.component_bit_size
         
-        log_message(f"          Segment {segment_idx}: type={track_data.td_type.name}, bits={component_bit_size}, frames={len(keyframes_track.data_blob.keyframes)}")
+        Debug.log(f"          Segment {segment_idx}: type={track_data.td_type.name}, bits={component_bit_size}, frames={len(keyframes_track.data_blob.keyframes)}")
         
         # Write keyframes for this segment using AnimKeyframe.write_list_to_bytes
         from ..py_fox.fox_gani_types import AnimKeyframe

@@ -5,7 +5,7 @@ FCurves, keyframes, and other animation-related structures.
 """
 from typing import TYPE_CHECKING
 
-from .logging_utilities import log_message
+from .logging_utilities import Debug
 
 if TYPE_CHECKING:
     import bpy
@@ -35,7 +35,7 @@ def configure_action(action: 'bpy.types.Action',
         action.use_frame_range = True
 
     if frame_end - frame_start <= 0:
-        log_message(f"Warning: Invalid frame range: '{frame_end - frame_start}'")
+        Debug.log(f"Warning: Invalid frame range: '{frame_end - frame_start}'")
 
 
 def add_dummy_keyframes_to_action(action: 'bpy.types.Action') -> None:
@@ -47,7 +47,7 @@ def add_dummy_keyframes_to_action(action: 'bpy.types.Action') -> None:
     Args:
         action: The layout track action to add keyframe to
     """
-    log_message(f"Adding dummy location keyframes to layout action '{action.name}'")
+    Debug.log(f"Adding dummy location keyframes to layout action '{action.name}'")
     
     # Create a single dummy location track at origin
     data_path = 'location'
@@ -62,4 +62,4 @@ def add_dummy_keyframes_to_action(action: 'bpy.types.Action') -> None:
         keyframe_end = fcurve.keyframe_points.insert(frame=-50.0, value=value)
         keyframe_end.interpolation = 'LINEAR'
     
-    log_message("    Added dummy location keyframes at frames -100 and -50: (0.0, 0.0, 0.0)")
+    Debug.log("    Added dummy location keyframes at frames -100 and -50: (0.0, 0.0, 0.0)")

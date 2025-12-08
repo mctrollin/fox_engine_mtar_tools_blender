@@ -108,10 +108,22 @@ class MTAR_PG_Properties(PropertyGroup):
     )
     
     # Debug settings
-    enable_logging: bpy.props.BoolProperty(
-        name="Enable Logging",
-        description="Enable detailed logging output for import/export operations",
-        default=True
+    log_verbosity: bpy.props.EnumProperty(
+        name="Log Verbosity",
+        description="Minimum log level to display (ERROR and above are always shown, lower levels add more detail)",
+        items=[
+            ('ERROR', "Errors", "Show only error messages", 0),
+            ('WARNING', "Warnings", "Show warnings and errors (default)", 1),
+            ('INFO', "Infos", "Show informational messages, warnings, and errors", 2),
+            ('DEBUG', "Debug", "Show all messages including debug output", 3),
+        ],
+        default='WARNING'
+    )
+    
+    enable_timer_logs: bpy.props.BoolProperty(
+        name="Log timings",
+        description="Log performance timing information for import/export operations",
+        default=False
     )
 
 
@@ -260,7 +272,9 @@ class MTAR_PT_SettingsPanel(Panel):
         props = context.scene.mtar_properties
         
         box = layout.box()
-        box.prop(props, "enable_logging", icon='PREFERENCES')
+        box.label(text="Logging", icon='PREFERENCES')
+        box.prop(props, "log_verbosity", text="", icon='INFO')
+        box.prop(props, "enable_timer_logs", toggle=True, icon='MOD_TIME')
 
 
 # Registration

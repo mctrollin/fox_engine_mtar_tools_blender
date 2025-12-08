@@ -10,7 +10,7 @@ import io
 
 import bpy
 
-from ..py_utilities.logging_utilities import log_message
+from ..py_utilities.logging_utilities import Debug
 from ..py_utilities.binary_utilities_write import align_buffer, write_padding
 
 from ..py_fox.fox_mtar_types import MtarHeader, MtarTableList2, MtarFlags, MtarMiniDataNode, MotionPointList2
@@ -88,14 +88,14 @@ class MtarWriter:
         This is the main entry point, mirroring MtarReader.read_all_tracks().
         Writes all contained GANI files and motion data to the MTAR format.
         """
-        log_message(f"Writing MTAR file: {self.filepath}")
+        Debug.log(f"Writing MTAR file: {self.filepath}")
         
         if not self.gani_data_list:
-            log_message("  Error: No GANI data to write")
+            Debug.log("  Error: No GANI data to write")
             return
         
         if not self.layout_track:
-            log_message("  Error: No layout track set")
+            Debug.log("  Error: No layout track set")
             return
         
         buffer = io.BytesIO()
@@ -110,18 +110,18 @@ class MtarWriter:
         if self.motion_points_list:
             motion_point_unit_count = self.motion_points_list.count
         
-        log_message(f"  File count: {file_count}")
-        log_message(f"  Track count: {track_count} (from layout track)")
-        log_message(f"  Segment count: {segment_count} (from layout track)")
-        log_message(f"  Motion point count: {motion_point_unit_count}")
+        Debug.log(f"  File count: {file_count}")
+        Debug.log(f"  Track count: {track_count} (from layout track)")
+        Debug.log(f"  Segment count: {segment_count} (from layout track)")
+        Debug.log(f"  Motion point count: {motion_point_unit_count}")
         
         # Convert all GaniData to bytes using the layout track
-        log_message(f"  Converting {len(self.gani_data_list)} GANI data object(s) to bytes...")
+        Debug.log(f"  Converting {len(self.gani_data_list)} GANI data object(s) to bytes...")
         gani_bytes_list = []
         for gani_data in self.gani_data_list:
             gani_bytes = gani_data.to_bytes(self.layout_track)
             gani_bytes_list.append(gani_bytes)
-            log_message(f"    {gani_data.name}: {len(gani_bytes)} bytes")
+            Debug.log(f"    {gani_data.name}: {len(gani_bytes)} bytes")
         
         # Determine flags (TODO: find out how to retrieve the flag value)
         flags = MtarFlags.New
@@ -156,12 +156,12 @@ class MtarWriter:
         buffer.seek(data_start)
         
         # Write CommonInfo section (mirrors reading CommonInfo in read_all_tracks)
-        log_message("  Writing CommonInfo...")
+        Debug.log("  Writing CommonInfo...")
         common_info_offset = buffer.tell()
         self._write_common_info(buffer)
         
         # Write all GANI files (mirrors processing file table in read_all_tracks)
-        log_message(f"  Writing {file_count} GANI file(s)...")
+        Debug.log(f"  Writing {file_count} GANI file(s)...")
         file_table_entries = self._write_all_gani_files(buffer, gani_bytes_list)
         
         # Update header with common_info_offset
@@ -175,11 +175,11 @@ class MtarWriter:
             entry.write(buffer)
         
         # Write to file
-        log_message("  Writing to disk...")
+        Debug.log("  Writing to disk...")
         with open(self.filepath, 'wb') as f:
             f.write(buffer.getvalue())
         
-        log_message(f"MTAR file written successfully: {len(buffer.getvalue())} bytes")
+        Debug.log(f"MTAR file written successfully: {len(buffer.getvalue())} bytes")
 
     def _write_all_gani_files(self, buffer: io.BytesIO, gani_bytes_list: List[bytes]) -> List['MtarTableList2']:
         """Write all GANI files and create file table entries.
@@ -197,7 +197,7 @@ class MtarWriter:
         file_table_entries = []
         
         # First pass: Write all Track GANIs and Motion Point GANIs in interleaved order
-        log_message("  Phase 1: Writing Track and Motion Point GANIs (interleaved)...")
+        Debug.log("  Phase 1: Writing Track and Motion Point GANIs (interleaved)...")
         for file_idx, gani_bytes in enumerate(gani_bytes_list):
             gani_name = self.gani_data_list[file_idx].name
             gani_data: GaniData = self.gani_data_list[file_idx]
@@ -205,7 +205,7 @@ class MtarWriter:
             # =============================
             # Write Track GANI
 
-            log_message(f"    Writing Track GANI #{file_idx}: {gani_name}")
+            Debug.log(f"    Writing Track GANI #{file_idx}: {gani_name}")
             
             # Record start offset
             gani_tracks_offset = buffer.tell()
@@ -223,7 +223,7 @@ class MtarWriter:
             gani_end = buffer.tell()
             gani_tracks_data_size = gani_end - gani_tracks_offset
             
-            log_message(f"      Track offset: 0x{gani_tracks_offset:08X}, Size: {gani_tracks_data_size} bytes")
+            Debug.log(f"      Track offset: 0x{gani_tracks_offset:08X}, Size: {gani_tracks_data_size} bytes")
             
             # =============================
             # Write MotionPointTracks GANI immediately after (if present)
@@ -232,7 +232,7 @@ class MtarWriter:
             motion_point_tracks_data_size = 0
             
             if gani_data.motion_points_data:
-                log_message(f"    Writing Motion Points GANI #{file_idx}: {gani_name}")
+                Debug.log(f"    Writing Motion Points GANI #{file_idx}: {gani_name}")
                 
                 # Calculate offset relative to tracks_offset (in 16-byte units)
                 motion_point_start = buffer.tell()
@@ -253,8 +253,8 @@ class MtarWriter:
                 motion_point_end = buffer.tell()
                 motion_point_tracks_data_size = motion_point_end - motion_point_start
                 
-                log_message(f"      Motion Points offset: 0x{motion_point_start:08X} (relative: 0x{motion_point_offset_from_tracks:08X})")
-                log_message(f"      Motion Points size: {motion_point_tracks_data_size} bytes")
+                Debug.log(f"      Motion Points offset: 0x{motion_point_start:08X} (relative: 0x{motion_point_offset_from_tracks:08X})")
+                Debug.log(f"      Motion Points size: {motion_point_tracks_data_size} bytes")
             
             # Get path hash from action if available, otherwise use 0
             path_hash = 0
@@ -262,9 +262,9 @@ class MtarWriter:
                 # PathCode64 is stored as string because it's too large for Blender's int type
                 path_hash_str = gani_data.tracks_data.action["gani_path_hash"]
                 path_hash = int(path_hash_str) if isinstance(path_hash_str, str) else int(path_hash_str)
-                log_message(f"      Using stored path hash: 0x{path_hash:016X}")
+                Debug.log(f"      Using stored path hash: 0x{path_hash:016X}")
             else:
-                log_message("      No path hash stored, using 0")
+                Debug.log("      No path hash stored, using 0")
             
             # Create file table entry (motion_events_offset will be set in second pass)
             entry = MtarTableList2(
@@ -282,11 +282,11 @@ class MtarWriter:
             file_table_entries.append(entry)
         
         # Second pass: Write all Motion Events GANIs
-        log_message("  Phase 2: Writing Motion Events GANIs...")
+        Debug.log("  Phase 2: Writing Motion Events GANIs...")
         for file_idx, gani_data in enumerate(self.gani_data_list):
             if gani_data.motion_events_data:
                 gani_name = gani_data.name
-                log_message(f"    Writing Motion Events GANI #{file_idx}: {gani_name}")
+                Debug.log(f"    Writing Motion Events GANI #{file_idx}: {gani_name}")
                 
                 # MotionEventsOffset is an ABSOLUTE offset
                 motion_events_start = buffer.tell()
@@ -302,8 +302,8 @@ class MtarWriter:
                 motion_events_end = buffer.tell()
                 motion_events_data_size = motion_events_end - motion_events_start
                 
-                log_message(f"      Motion Events offset: 0x{motion_events_start:08X} (absolute)")
-                log_message(f"      Motion Events size: {motion_events_data_size} bytes")
+                Debug.log(f"      Motion Events offset: 0x{motion_events_start:08X} (absolute)")
+                Debug.log(f"      Motion Events size: {motion_events_data_size} bytes")
                 
                 # Update the file table entry with motion events offset
                 file_table_entries[file_idx].motion_events_offset = motion_events_offset
@@ -368,7 +368,7 @@ class MtarWriter:
             
             # Write MotionPointList2 data
             motion_data_start = buffer.tell()
-            log_message(f"    Writing MotionPointsList: {self.motion_points_list.count} point(s)")
+            Debug.log(f"    Writing MotionPointsList: {self.motion_points_list.count} point(s)")
             self.motion_points_list.write(buffer)
             motion_data_end = buffer.tell()
             motion_data_size = motion_data_end - motion_data_start
@@ -376,7 +376,7 @@ class MtarWriter:
             # Align to 16-byte boundary after MotionPoints data
             align_buffer(buffer, 16)
         else:
-            log_message("    No motion points - skipping MotionPoints CommonInfo node")
+            Debug.log("    No motion points - skipping MotionPoints CommonInfo node")
         
         # === Update all nodes with correct offsets and sizes ===
         current_pos = buffer.tell()

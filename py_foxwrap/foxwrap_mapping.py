@@ -7,7 +7,7 @@ including renaming, rotation transformations, constraint setup, and more.
 
 from typing import Dict, Tuple, Optional
 
-from ..py_utilities.logging_utilities import log_message
+from ..py_utilities.logging_utilities import Debug
 
 from .foxwrap_metadata import (
     parse_track_metadata,
@@ -89,7 +89,7 @@ def parse_mapping_line(line: str, line_num: int) -> Optional[Tuple[str, dict]]:
     
     # Parse mapping: from_name : to_name ; param1=value1 ; param2=value2
     if ':' not in line:
-        log_message(f"  Warning: No ':' separator on line {line_num}: '{line}'")
+        Debug.log(f"  Warning: No ':' separator on line {line_num}: '{line}'")
         return None
     
     # Split by colon to get from_name and the rest
@@ -97,7 +97,7 @@ def parse_mapping_line(line: str, line_num: int) -> Optional[Tuple[str, dict]]:
     from_name = colon_parts[0].strip()
     
     if not from_name:
-        log_message(f"  Warning: Invalid mapping on line {line_num}: '{line}'")
+        Debug.log(f"  Warning: Invalid mapping on line {line_num}: '{line}'")
         return None
     
     # Split the rest by semicolon to get to_name and parameters
@@ -108,7 +108,7 @@ def parse_mapping_line(line: str, line_num: int) -> Optional[Tuple[str, dict]]:
     to_name = semicolon_parts[0].strip()
     
     if not to_name:
-        log_message(f"  Warning: Invalid mapping on line {line_num}: '{line}'")
+        Debug.log(f"  Warning: Invalid mapping on line {line_num}: '{line}'")
         return None
     
     # Initialize mapping data
@@ -122,7 +122,7 @@ def parse_mapping_line(line: str, line_num: int) -> Optional[Tuple[str, dict]]:
                 continue
             
             if '=' not in param_str:
-                log_message(f"  Warning: Invalid parameter format '{param_str}' on line {line_num}")
+                Debug.log(f"  Warning: Invalid parameter format '{param_str}' on line {line_num}")
                 continue
             
             param_parts = param_str.split('=', 1)
@@ -140,14 +140,14 @@ def parse_mapping_line(line: str, line_num: int) -> Optional[Tuple[str, dict]]:
                     euler = result['euler']
                     order = result['order']
                     offset_index = len(mapping_data['rotation_offset'])
-                    log_message(f"  Mapping '{from_name}' -> '{to_name}' with rotation offset #{offset_index}: ({euler[0]}, {euler[1]}, {euler[2]}) {order}")
+                    Debug.log(f"  Mapping '{from_name}' -> '{to_name}' with rotation offset #{offset_index}: ({euler[0]}, {euler[1]}, {euler[2]}) {order}")
             
             elif param_name == 'map_r':
                 result = parse_map_r_parameter(param_value)
                 if result:
                     mapping_data['rotation_axis_map'] = result
                     map_str = ','.join([('-' if m['negate'] else '') + m['axis'] for m in result])
-                    log_message(f"  Mapping '{from_name}' -> '{to_name}' with rotation axis map ({map_str})")
+                    Debug.log(f"  Mapping '{from_name}' -> '{to_name}' with rotation axis map ({map_str})")
             
             elif param_name == 'space_r':
                 result = parse_space_parameter(param_value)
@@ -155,26 +155,26 @@ def parse_mapping_line(line: str, line_num: int) -> Optional[Tuple[str, dict]]:
                     mapping_data['space_r'] = result
                     custom_bone = result.get('custom_bone')
                     if custom_bone:
-                        log_message(f"  Mapping '{from_name}' -> '{to_name}' with world space rotation constraint (custom space: '{custom_bone}')")
+                        Debug.log(f"  Mapping '{from_name}' -> '{to_name}' with world space rotation constraint (custom space: '{custom_bone}')")
                     else:
-                        log_message(f"  Mapping '{from_name}' -> '{to_name}' with world space rotation constraint")
+                        Debug.log(f"  Mapping '{from_name}' -> '{to_name}' with world space rotation constraint")
             
             elif param_name == 'space_l':
                 result = parse_space_parameter(param_value)
                 if result:
                     mapping_data['space_l'] = result
-                    log_message(f"  Mapping '{from_name}' -> '{to_name}' with world space location constraint")
+                    Debug.log(f"  Mapping '{from_name}' -> '{to_name}' with world space location constraint")
             
             elif param_name == 'as_ik_up':
                 result = parse_as_ik_up_parameter(param_value)
                 if result:
                     mapping_data['as_ik_up'] = result
-                    log_message(f"  Mapping '{from_name}' -> '{to_name}' as directional vector: base='{result['bone_base']}', axis={result['axis']}, distance={result['distance']}")
+                    Debug.log(f"  Mapping '{from_name}' -> '{to_name}' as directional vector: base='{result['bone_base']}', axis={result['axis']}, distance={result['distance']}")
             
             else:
                 # Unknown parameter - store it anyway for future extensibility
                 mapping_data[param_name] = param_value
-                log_message(f"  Mapping '{from_name}' -> '{to_name}' with {param_name}={param_value}")
+                Debug.log(f"  Mapping '{from_name}' -> '{to_name}' with {param_name}={param_value}")
     
     return (from_name, mapping_data)
 
@@ -216,14 +216,14 @@ def validate_track_mappings(track_mapping: Dict[str, dict]) -> None:
     # Check for rotation conflicts
     for target_name, source_names in target_to_rotation_sources.items():
         if len(source_names) > 1:
-            log_message(f"  ERROR: Multiple rotation tracks map to '{target_name}': {source_names}")
-            log_message("    Only one rotation track per target bone is allowed")
+            Debug.log(f"  ERROR: Multiple rotation tracks map to '{target_name}': {source_names}")
+            Debug.log("    Only one rotation track per target bone is allowed")
     
     # Check for location conflicts
     for target_name, source_names in target_to_location_sources.items():
         if len(source_names) > 1:
-            log_message(f"  ERROR: Multiple location tracks map to '{target_name}': {source_names}")
-            log_message("    Only one location track per target bone is allowed")
+            Debug.log(f"  ERROR: Multiple location tracks map to '{target_name}': {source_names}")
+            Debug.log("    Only one location track per target bone is allowed")
 
 def parse_track_mapping_file(filepath: str) -> TrackMappingData:
     """Parse a track mapping file into a TrackMappingData object.
@@ -295,7 +295,7 @@ def parse_track_mapping_file(filepath: str) -> TrackMappingData:
                     # Add to mapping data object
                     mapping_data.add_bone_mapping(source_name, blender_bone_name, bone_mapping_dict)
         
-        log_message(f"Loaded {len(mapping_data)} bone mapping(s) and {len(mapping_data.track_metadata)} track metadata entries from {filepath}")
+        Debug.log(f"Loaded {len(mapping_data)} bone mapping(s) and {len(mapping_data.track_metadata)} track metadata entries from {filepath}")
         
         # Validate track mappings
         validate_track_mappings(mapping_data.fox_to_blender)
@@ -303,6 +303,6 @@ def parse_track_mapping_file(filepath: str) -> TrackMappingData:
         return mapping_data
         
     except (OSError, ValueError) as e:
-        log_message(f"Error parsing track mapping file: {e}")
+        Debug.log(f"Error parsing track mapping file: {e}")
         return TrackMappingData()  # Return empty mapping data on error
 

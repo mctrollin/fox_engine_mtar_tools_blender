@@ -8,7 +8,7 @@ from typing import Optional, Dict, List, TYPE_CHECKING
 
 import bpy
 
-from .py_utilities.logging_utilities import log_message, start_timer, stop_timer
+from .py_utilities.logging_utilities import Debug, start_timer, stop_timer
 from .py_utilities.transform_utilities import reverse_directional_location, apply_reverse_transforms, get_local_space_transform, get_world_space_transform, blender_to_fox_vector, blender_to_fox_quaternion
 
 from .py_foxwrap.foxwrap_motionevent import read_motion_events_from_action
@@ -66,7 +66,7 @@ def get_track_metadata_from_action(layout_action: bpy.types.Action, fox_track_na
     
     # Parse @track format: @track <name> : segments=<segments> ; flags=<flags>
     if not isinstance(metadata_str, str) or not metadata_str.startswith('@track'):
-        log_message(f"      Warning: Custom property '{property_key}' is not in @track format")
+        Debug.log_warning(f"      Warning: Custom property '{property_key}' is not in @track format")
         return None
     
     # Split by colon to separate track name from parameters
@@ -107,7 +107,7 @@ def get_track_metadata_from_action(layout_action: bpy.types.Action, fox_track_na
                     elif code == 'f':
                         segment_types.append(SegmentType.FLOAT)
                     else:
-                        log_message(f"      Warning: Unknown segment code '{code}' in track '{fox_track_name}'")
+                        Debug.log_warning(f"      Warning: Unknown segment code '{code}' in track '{fox_track_name}'")
     
             elif key == 'bits' and value:
                 # Parse component bit sizes
@@ -116,7 +116,7 @@ def get_track_metadata_from_action(layout_action: bpy.types.Action, fox_track_na
                     try:
                         component_bit_sizes.append(int(bs_str))
                     except ValueError:
-                        log_message(f"      Warning: Invalid bit size '{bs_str}' in track '{fox_track_name}'")
+                        Debug.log_warning(f"      Warning: Invalid bit size '{bs_str}' in track '{fox_track_name}'")
                         component_bit_sizes.append(0)
     
             elif key == 'flags' and value:
@@ -127,7 +127,7 @@ def get_track_metadata_from_action(layout_action: bpy.types.Action, fox_track_na
                     try:
                         flag_enums.append(TrackUnitFlags[name])
                     except KeyError:
-                        log_message(f"      Warning: Unknown flag name '{name}' in track '{fox_track_name}'")
+                        Debug.log_warning(f"      Warning: Unknown flag name '{name}' in track '{fox_track_name}'")
                 
                 if flag_enums:
                     flags_value = TrackUnitFlags.track_unit_flags_to_int(flag_enums)
@@ -137,13 +137,13 @@ def get_track_metadata_from_action(layout_action: bpy.types.Action, fox_track_na
                 try:
                     name_hash = int(value)
                 except ValueError:
-                    log_message(f"      Warning: Invalid hash value '{value}' in track '{fox_track_name}'")
+                    Debug.log_warning(f"      Warning: Invalid hash value '{value}' in track '{fox_track_name}'")
     
             elif key == 'type' and value:
                 # Parse rig unit type
                 rig_unit_type = RigUnitType.parse_from_string(value)
                 if rig_unit_type is None:
-                    log_message(f"      Warning: Unknown rig unit type '{value}' in track '{fox_track_name}'")
+                    Debug.log_warning(f"      Warning: Unknown rig unit type '{value}' in track '{fox_track_name}'")
     
     # Return TrackMetaData object if we have all required data
     if segment_types and flags_value is not None:
@@ -155,7 +155,7 @@ def get_track_metadata_from_action(layout_action: bpy.types.Action, fox_track_na
             component_bit_sizes=component_bit_sizes if component_bit_sizes else None,
             rig_unit_type=rig_unit_type
         )
-        log_message(f"      Retrieved layout metadata for '{fox_track_name}': {len(segment_types)} segments, flags={flags_value}, hash={name_hash}, bits={component_bit_sizes}")
+        Debug.log(f"      Retrieved layout metadata for '{fox_track_name}': {len(segment_types)} segments, flags={flags_value}, hash={name_hash}, bits={component_bit_sizes}")
         return metadata
     
     # If layout-style parsing failed, try action-style parsing as a fallback
@@ -178,7 +178,7 @@ def get_track_metadata_from_action(layout_action: bpy.types.Action, fox_track_na
                 try:
                     flag_enums_action.append(TrackUnitFlags[name])
                 except KeyError:
-                    log_message(f"      Warning: Unknown flag name '{name}' in track '{fox_track_name}'")
+                    Debug.log_warning(f"      Warning: Unknown flag name '{name}' in track '{fox_track_name}'")
             if flag_enums_action:
                 unit_flags_action = TrackUnitFlags.track_unit_flags_to_int(flag_enums_action)
 
@@ -218,9 +218,9 @@ def get_all_track_metadata_from_action(action: bpy.types.Action) -> Dict[str, Tr
         metadata = get_track_metadata_from_action(action, fox_track_name)
         if metadata:
             metadata_dict[fox_track_name] = metadata
-            log_message(f"    Parsed track {track_idx}: {fox_track_name} ({len(metadata.segment_types)} segments)")
+            Debug.log(f"    Parsed track {track_idx}: {fox_track_name} ({len(metadata.segment_types)} segments)")
     
-    log_message(f"  Parsed {len(metadata_dict)} track(s) from layout action")
+    Debug.log(f"  Parsed {len(metadata_dict)} track(s) from layout action")
     return metadata_dict
 
 
@@ -252,12 +252,12 @@ def get_gani_unit_flags_from_action(action: bpy.types.Action, track_idx: int, fo
                     try:
                         flag_enums.append(TrackUnitFlags[name])
                     except KeyError:
-                        log_message(f"      Warning: Unknown flag name '{name}' in track '{fox_track_name}'")
+                        Debug.log_warning(f"      Warning: Unknown flag name '{name}' in track '{fox_track_name}'")
                 if flag_enums:
                     return TrackUnitFlags.track_unit_flags_to_int(flag_enums)
     
     # Fallback: no unit flags found for this track
-    log_message(f"  Warning: No unit_flags found for track {track_idx} in action {action.name}")
+    Debug.log_warning(f"  Warning: No unit_flags found for track {track_idx} in action {action.name}")
     return 0
 
 
@@ -273,10 +273,10 @@ def find_layout_track_action() -> Optional[bpy.types.Action]:
     for action in bpy.data.actions:
         # Check for layout track naming patterns
         if 'layout' in action.name.lower() or 'LAYOUT_TRACK' in action.name:
-            log_message(f"  Found layout track action: '{action.name}'")
+            Debug.log(f"  Found layout track action: '{action.name}'")
             return action
     
-    log_message("  Warning: No layout track action found")
+    Debug.log_warning("  Warning: No layout track action found")
     return None
 
 def build_layout_track_from_metadata(track_segment_bone_mapping: TrackSegmentBoneMapping, 
@@ -354,7 +354,7 @@ def build_layout_track_from_metadata(track_segment_bone_mapping: TrackSegmentBon
             total_segments += len(metadata.segment_types)
         else:
             # No metadata for this track - create empty track unit
-            log_message(f"    Warning: No metadata for fox track '{base_fox_track_name}' (blender bone: '{blender_bone_name}'), creating empty track unit")
+            Debug.log_warning(f"    Warning: No metadata for fox track '{base_fox_track_name}' (blender bone: '{blender_bone_name}'), creating empty track unit")
             track_unit = TrackUnit(
                 name=StrCode32(0),  # Convert int to StrCode32
                 segment_count=0,
@@ -367,7 +367,7 @@ def build_layout_track_from_metadata(track_segment_bone_mapping: TrackSegmentBon
     # Get header properties from layout_action if available
     header_props = read_track_header_properties_from_action(layout_action)
     
-    log_message(f"    Using layout header from action: t_id={header_props['t_id']}, unknown_a={header_props['unknown_a']}, unknown_b={header_props['unknown_b']}, frame_count={header_props['frame_count']}, frame_rate={header_props['frame_rate']}")
+    Debug.log(f"    Using layout header from action: t_id={header_props['t_id']}, unknown_a={header_props['unknown_a']}, unknown_b={header_props['unknown_b']}, frame_count={header_props['frame_count']}, frame_rate={header_props['frame_rate']}")
     
     # Create TrackHeader
     header = TrackHeader(
@@ -405,27 +405,27 @@ def collect_actions_for_export_from_armature(armature: bpy.types.Object, use_nla
     actions_to_export = []
     
     if not armature.animation_data:
-        log_message("  Warning: No animation data on armature")
+        Debug.log_warning("  Warning: No animation data on armature")
         return actions_to_export
     
     # Try to get actions from NLA tracks
     if use_nla and armature.animation_data.nla_tracks:
-        log_message("\nCollecting actions from NLA tracks:")
+        Debug.log("\nCollecting actions from NLA tracks:")
         
         for track_idx, track in enumerate(armature.animation_data.nla_tracks):
             if track.mute:
-                log_message(f"  Track {track_idx} '{track.name}': Muted (skipping)")
+                Debug.log(f"  Track {track_idx} '{track.name}': Muted (skipping)")
                 continue
             
-            log_message(f"  Track {track_idx} '{track.name}':")
+            Debug.log(f"  Track {track_idx} '{track.name}':")
             
             for strip_idx, strip in enumerate(track.strips):
                 if strip.mute:
-                    log_message(f"    Strip {strip_idx} '{strip.name}': Muted (skipping)")
+                    Debug.log(f"    Strip {strip_idx} '{strip.name}': Muted (skipping)")
                     continue
                 
                 if not strip.action:
-                    log_message(f"    Strip {strip_idx} '{strip.name}': No action (skipping)")
+                    Debug.log(f"    Strip {strip_idx} '{strip.name}': No action (skipping)")
                     continue
                 
                 # Calculate frame range (use strip's frame range)
@@ -444,13 +444,13 @@ def collect_actions_for_export_from_armature(armature: bpy.types.Object, use_nla
                 )
                 
                 actions_to_export.append(export_action)
-                log_message(f"    Strip {strip_idx}: {export_action.to_string()}")
+                Debug.log(f"    Strip {strip_idx}: {export_action.to_string()}")
         
         if actions_to_export:
-            log_message(f"\nFound {len(actions_to_export)} action(s) in NLA tracks")
+            Debug.log(f"\nFound {len(actions_to_export)} action(s) in NLA tracks")
             return actions_to_export
         else:
-            log_message("\nNo unmuted NLA strips found, falling back to active action")
+            Debug.log("\nNo unmuted NLA strips found, falling back to active action")
     
     # Fallback to active action
     if armature.animation_data.action:
@@ -467,9 +467,9 @@ def collect_actions_for_export_from_armature(armature: bpy.types.Object, use_nla
         )
         
         actions_to_export.append(export_action)
-        log_message(f"\nUsing active action: {export_action.to_string()}")
+        Debug.log(f"\nUsing active action: {export_action.to_string()}")
     else:
-        log_message("\n  Warning: No active action and no NLA strips found")
+        Debug.log_warning("\n  Warning: No active action and no NLA strips found")
     
     return actions_to_export
 
@@ -583,7 +583,7 @@ def export_keyframes_track(armature: bpy.types.Object, blender_bone_name: str,
         # Fallback: export all frames
         export_frames = list(range(frame_start, frame_end + 1))
     
-    log_message(f"    Collected keyed frames {len(export_frames)}")
+    Debug.log(f"    Collected keyed frames {len(export_frames)}")
 
     if segment_type in [SegmentType.QUAT, SegmentType.QUAT_DIFF]:
         # Rotation segment
@@ -601,7 +601,7 @@ def export_keyframes_track(armature: bpy.types.Object, blender_bone_name: str,
     
     else:
         # Unsupported segment type
-        log_message(f"    Warning: Unsupported segment type {segment_type}")
+        Debug.log_warning(f"    Warning: Unsupported segment type {segment_type}")
         return []
 
 def export_rotation_segment(armature: bpy.types.Object, blender_bone_name: str,
@@ -638,7 +638,7 @@ def export_rotation_segment(armature: bpy.types.Object, blender_bone_name: str,
             rotation_offset = bone_params.rotation_offset
             rotation_axis_map = bone_params.rotation_axis_map
             # For as_ik_up: offsets were applied first during import
-            fox_quat = apply_reverse_transforms(blender_quat, rotation_offset, rotation_axis_map, offset_first=True)
+            fox_quat = apply_reverse_transforms(blender_quat, rotation_offset, rotation_axis_map)
             
             # Convert to Fox Engine coordinate system
             fox_quat_final = blender_to_fox_quaternion(fox_quat)
@@ -669,7 +669,7 @@ def export_rotation_segment(armature: bpy.types.Object, blender_bone_name: str,
             rotation_offset = bone_params.rotation_offset
             rotation_axis_map = bone_params.rotation_axis_map
             # For regular rotation: offsets were applied last during import
-            fox_quat = apply_reverse_transforms(blender_quat, rotation_offset, rotation_axis_map, offset_first=True)
+            fox_quat = apply_reverse_transforms(blender_quat, rotation_offset, rotation_axis_map)
             
             # Convert to Fox Engine coordinate system
             fox_quat_final = blender_to_fox_quaternion(fox_quat)
@@ -794,7 +794,7 @@ def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
     # Get the base track info (first check if track exists at all)
     if not track_segment_bone_mapping.has_track(track_idx):
         # Create empty track - no metadata available
-        log_message(f"      Warning: No mapping for track {track_idx}, creating empty track")
+        Debug.log_warning(f"      Warning: No mapping for track {track_idx}, creating empty track")
         return TrackUnitWrapper(
             name=f"Track_{track_idx}",
             segments_track_data=[],
@@ -805,7 +805,7 @@ def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
     base_mapping = track_segment_bone_mapping.get_base_mapping(track_idx)
     if not base_mapping:
         # Create empty track - no base segment
-        log_message(f"      Warning: No base segment mapping for track {track_idx}, creating empty track")
+        Debug.log_warning(f"      Warning: No base segment mapping for track {track_idx}, creating empty track")
         return TrackUnitWrapper(
             name=f"Track_{track_idx}",
             segments_track_data=[],
@@ -838,7 +838,7 @@ def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
     
     if layout_metadata is None:
         # No metadata found - cannot export this track
-        log_message(f"      Error: No layout metadata found for fox track '{base_fox_track_name}' (blender bone: '{base_blender_bone_name}') in layout action")
+        Debug.log(f"      Error: No layout metadata found for fox track '{base_fox_track_name}' (blender bone: '{base_blender_bone_name}') in layout action")
         return TrackUnitWrapper(
             name=base_blender_bone_name,
             segments_track_data=[],
@@ -852,14 +852,14 @@ def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
     if action:
         action_meta = get_track_metadata_from_action(action, base_fox_track_name)
         if action_meta:
-            log_message(f"      Applying action-level overrides for track '{base_fox_track_name}' from action '{action.name}'")
+            Debug.log(f"      Applying action-level overrides for track '{base_fox_track_name}' from action '{action.name}'")
             merged_metadata = merge_track_metadata(layout_metadata, action_meta)
 
     # Use merged unit_flags in layout_metadata (action overrides applied if present)
     unit_flags_int = int(merged_metadata.unit_flags) if merged_metadata.unit_flags is not None else 0
     
     segment_types = merged_metadata.segment_types
-    log_message(f"      Exporting track {track_idx}: '{base_fox_track_name}' -> {len(segment_types)} segments, flags={unit_flags_int}")
+    Debug.log(f"      Exporting track {track_idx}: '{base_fox_track_name}' -> {len(segment_types)} segments, flags={unit_flags_int}")
     
     # Extract keyframes for each segment
     keyframes_tracks = []
@@ -877,11 +877,11 @@ def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
             # Segment-specific bone found
             segment_bone_name, segment_fox_mapping_params = segment_mapping
             segment_type_str = "multi-segment" if track_segment_bone_mapping.is_multi_segment_track(track_idx) else "single-segment"
-            log_message(f"        Segment {segment_idx}: '{segment_bone_name}' ({segment_type_str})")
+            Debug.log(f"        Segment {segment_idx}: '{segment_bone_name}' ({segment_type_str})")
         else:
             # Fallback to base bone (should not happen with proper mapping)
             segment_bone_name, segment_fox_mapping_params = base_blender_bone_name, base_fox_mapping_params
-            log_message(f"        Segment {segment_idx}: '{segment_bone_name}' (Warning: fallback to base (track) bone)")
+            Debug.log(f"        Segment {segment_idx}: '{segment_bone_name}' (Warning: fallback to base (track) bone)")
         
         # Check if this bone exists in the armature
         if segment_bone_name and segment_bone_name in armature.pose.bones:
@@ -914,7 +914,7 @@ def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
             keyframes_tracks.append(keyframes_track)
         else:
             # Missing bone - create empty keyframes track
-            log_message(f"        Warning: Bone '{segment_bone_name}' not found in armature, creating empty segment")
+            Debug.log_warning(f"        Warning: Bone '{segment_bone_name}' not found in armature, creating empty segment")
             
             # Get component_bit_size from metadata if available, otherwise use default
             component_bit_size = 16
@@ -970,7 +970,7 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
     frame_start = action_data.frame_start
     frame_end = action_data.frame_end
     
-    log_message(f"\n  Exporting action as gani: {action_data.to_string()}")
+    Debug.log(f"\n  Exporting action as gani: {action_data.to_string()}")
     
     # Check if we're in NLA tweak mode (happens when user double-clicks an NLA strip)
     # In tweak mode, the action attribute is read-only
@@ -979,7 +979,7 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
         # Check if NLA is in tweak mode
         was_in_tweak_mode = armature.animation_data.use_tweak_mode
         if was_in_tweak_mode:
-            log_message("    Warning: Armature is in NLA tweak mode, exiting tweak mode temporarily")
+            Debug.log_warning("    Warning: Armature is in NLA tweak mode, exiting tweak mode temporarily")
             # Exit tweak mode to allow action changes
             armature.animation_data.use_tweak_mode = False
     
@@ -990,7 +990,7 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
         if track_segment_bone_mapping and layout_metadata_dict:
             # Process each track in the mapping
             track_indices = track_segment_bone_mapping.get_track_indices()
-            log_message(f"    Processing {len(track_indices)} track(s)...")
+            Debug.log(f"    Processing {len(track_indices)} track(s)...")
             for track_idx in track_indices:
                 # Find base fox track name for this track index to lookup metadata
                 base_mapping = track_segment_bone_mapping.get_base_mapping(track_idx)
@@ -1017,7 +1017,7 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
         else:
             # Fallback: No mapping provided (e.g., exporting motion points)
             # Build a synthetic mapping and reuse export_gani_track_from_action()
-            log_message("    No mapping provided; exporting tracks from armature bones (fallback mode)")
+            Debug.log("    No mapping provided; exporting tracks from armature bones (fallback mode)")
             
             # Step 1: Build synthetic mapping and prepare metadata for all bones
             bones_iterable = armature.pose.bones if armature.pose else armature.data.bones
@@ -1056,7 +1056,7 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
                 bones_to_export.append((track_idx, bone_name, bone_metadata))
             
             # Step 2: Call export_gani_track_from_action for each bone
-            log_message(f"    Processing {len(bones_to_export)} bone(s) with fcurves...")
+            Debug.log(f"    Processing {len(bones_to_export)} bone(s) with fcurves...")
             for track_idx, bone_name, bone_metadata in bones_to_export:
                 gani_track = export_gani_track_from_action(
                     armature, track_idx,
@@ -1103,7 +1103,7 @@ def build_motion_points_list_from_armature(motion_points_armature: bpy.types.Obj
     if not motion_points_armature or motion_points_armature.type != 'ARMATURE':
         return MotionPointList2(count=0, entries=[])
     
-    log_message(f"\nBuilding MotionPointsList from armature '{motion_points_armature.name}'...")
+    Debug.log(f"\nBuilding MotionPointsList from armature '{motion_points_armature.name}'...")
     
     # First, identify which bones have animation data across all actions
     bones_with_animation = set()
@@ -1123,8 +1123,7 @@ def build_motion_points_list_from_armature(motion_points_armature: bpy.types.Obj
                                 bones_with_animation.add(bone_name)
     
     if not bones_with_animation:
-        log_message("  Warning: No bones with animation data found in motion points armature")
-        log_message("  All bones in the armature will be exported as motion points")
+        Debug.log_warning("  Warning: No bones with animation data found in motion points armature. All bones in the armature will be exported as motion points")
         # If no animation data, export all bones
         bones_with_animation = {bone.name for bone in motion_points_armature.data.bones}
     
@@ -1147,7 +1146,7 @@ def build_motion_points_list_from_armature(motion_points_armature: bpy.types.Obj
             parent_hash = StrCode32(int(bone.parent.name))
             parent_str = f"→ {bone.parent.name}"
         else:
-            log_message(f"  Warning: Motion point bone '{bone.name}' has no parent; writing empty parent hash")
+            Debug.log_warning(f"  Warning: Motion point bone '{bone.name}' has no parent; writing empty parent hash")
             parent_str = "(no parent - empty hash)"
         
         entry = MotionPointEntry(
@@ -1156,17 +1155,17 @@ def build_motion_points_list_from_armature(motion_points_armature: bpy.types.Obj
         )
         entries.append(entry)
         
-        log_message(f"  {bone.name} {parent_str} (hash: {name_hash}, parent_hash: {parent_hash})")
+        Debug.log(f"  {bone.name} {parent_str} (hash: {name_hash}, parent_hash: {parent_hash})")
     
     if parent_only_bones:
-        log_message(f"  Skipped {len(parent_only_bones)} parent-only bone(s): {', '.join(parent_only_bones)}")
+        Debug.log(f"  Skipped {len(parent_only_bones)} parent-only bone(s): {', '.join(parent_only_bones)}")
     
     motion_points_list = MotionPointList2(
         count=len(entries),
         entries=entries
     )
     
-    log_message(f"MotionPointsList built: {motion_points_list.count} point(s)")
+    Debug.log(f"MotionPointsList built: {motion_points_list.count} point(s)")
     
     return motion_points_list
 
@@ -1191,7 +1190,7 @@ def build_motion_point_metadata_dict(motion_points_armature: bpy.types.Object,
 
     # Action is now a required parameter. If None is passed anyway, return empty data with a warning.
     if not action:
-        log_message(f"  Warning: No action provided to build_motion_point_metadata_dict() for armature '{motion_points_armature.name}', returning empty metadata dict")
+        Debug.log_warning(f"  Warning: No action provided to build_motion_point_metadata_dict() for armature '{motion_points_armature.name}', returning empty metadata dict")
         return metadata_dict
     
     bones = motion_points_armature.data.bones
@@ -1274,7 +1273,7 @@ def build_motion_point_metadata_dict(motion_points_armature: bpy.types.Object,
     
     # Emit a consolidated warning if we couldn't find metadata for any bones
     if missing_metadata_bones:
-        log_message(f"  Warning: No metadata found for {len(missing_metadata_bones)} motion point(s) in armature '{motion_points_armature.name}': {', '.join(missing_metadata_bones)}")
+        Debug.log_warning(f"  Warning: No metadata found for {len(missing_metadata_bones)} motion point(s) in armature '{motion_points_armature.name}': {', '.join(missing_metadata_bones)}")
 
     return metadata_dict
 
@@ -1293,13 +1292,13 @@ def collect_motion_point_actions(motion_points_armature: bpy.types.Object, use_n
     if not motion_points_armature:
         return []
     
-    log_message(f"\nCollecting motion point actions from '{motion_points_armature.name}'...")
+    Debug.log(f"\nCollecting motion point actions from '{motion_points_armature.name}'...")
     
     actions = []
     
     if use_nla and motion_points_armature.animation_data and motion_points_armature.animation_data.nla_tracks:
         # Collect from NLA strips
-        log_message("  Using NLA strips for motion points")
+        Debug.log("  Using NLA strips for motion points")
         for track in motion_points_armature.animation_data.nla_tracks:
             if track.mute:
                 continue
@@ -1314,11 +1313,11 @@ def collect_motion_point_actions(motion_points_armature: bpy.types.Object, use_n
                     source=f"NLA strip '{strip.name}' on track '{track.name}'"
                 )
                 actions.append(action_data)
-                log_message(f"    {action_data.to_string()}")
+                Debug.log(f"    {action_data.to_string()}")
     
     elif motion_points_armature.animation_data and motion_points_armature.animation_data.action:
         # Use active action
-        log_message("  Using active action for motion points")
+        Debug.log("  Using active action for motion points")
         action = motion_points_armature.animation_data.action
         
         # Determine frame range from action
@@ -1336,10 +1335,10 @@ def collect_motion_point_actions(motion_points_armature: bpy.types.Object, use_n
             source="Active action"
         )
         actions.append(action_data)
-        log_message(f"    {action_data.to_string()}")
+        Debug.log(f"    {action_data.to_string()}")
     
     else:
-        log_message("  No motion point actions found")
+        Debug.log("  No motion point actions found")
     
     return actions
 
@@ -1368,61 +1367,61 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
     _ = context
     # Scene properties (export options) from the UI
     props = context.scene.mtar_properties
-    log_message("\n=== MTAR Data Export Started ===")
-    log_message(f"Export path: {filepath}\n")
+    Debug.log("\n=== MTAR Data Export Started ===")
+    Debug.log(f"Export path: {filepath}\n")
     
     if not armature:
-        log_message("  Error: No armature specified for export")
+        Debug.log_error("  Error: No armature specified for export")
         return {'CANCELLED': 'No armature specified'}
     
     if armature.type != 'ARMATURE':
-        log_message(f"  Error: Object '{armature.name}' is not an armature")
+        Debug.log_error(f"  Error: Object '{armature.name}' is not an armature")
         return {'CANCELLED': 'Object is not an armature'}
     
-    log_message(f"Exporting armature: {armature.name}")
+    Debug.log(f"Exporting armature: {armature.name}")
     
     # =============================
     # =============================
 
     # Mapping
-    log_message("\n1. Mapping ++++++++++++++++++++++++++++++++++++++++++++")
+    Debug.log("\n1. Mapping ++++++++++++++++++++++++++++++++++++++++++++")
     start_timer("1. Mapping")
 
     # Use provided track_segment_bone_mapping or create default mapping from armature
     if track_segment_bone_mapping is None:
         # No mapping provided - create default mapping using armature bone order
         track_segment_bone_mapping = TrackSegmentBoneMapping()
-        log_message("\nNo track mapping provided, using armature bone order...")
+        Debug.log("\nNo track mapping provided, using armature bone order...")
         for idx, bone in enumerate(armature.data.bones):
             bone_name = bone.name
             track_segment_bone_mapping.set_segment_mapping(idx, 0, bone_name, {})
-            log_message(f"  Track {idx}: {bone_name}")
+            Debug.log(f"  Track {idx}: {bone_name}")
     stop_timer("1. Mapping")
 
     # =============================
     # =============================
 
     # Meta Data 
-    log_message("\n2. Meta Data ++++++++++++++++++++++++++++++++++++++++++++")
+    Debug.log("\n2. Meta Data ++++++++++++++++++++++++++++++++++++++++++++")
     start_timer("2. Meta Data")
 
     # Find and parse layout track action
-    log_message("\nSearching for layout track action...")
+    Debug.log("\nSearching for layout track action...")
     layout_action = find_layout_track_action()
     metadata_dict = None
     
     if layout_action:
         # Parse metadata from layout track action
-        log_message("\nParsing layout track metadata...")
+        Debug.log("\nParsing layout track metadata...")
         metadata_dict = get_all_track_metadata_from_action(layout_action)
         
         # Build layout track from metadata (including header properties)
-        log_message("\nBuilding layout track structure...")
+        Debug.log("\nBuilding layout track structure...")
         layout_track = build_layout_track_from_metadata(track_segment_bone_mapping, metadata_dict, layout_action)
     else:
         # Create placeholder layout track without metadata
         
-        log_message("\nCreating placeholder layout track...")
+        Debug.log("\nCreating placeholder layout track...")
         # Count number of tracks
         track_count = track_segment_bone_mapping.get_total_track_count()
         placeholder_header = TrackHeader(
@@ -1444,10 +1443,10 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
     actions_to_export = collect_actions_for_export_from_armature(armature, use_nla)
     
     if not actions_to_export:
-        log_message("  Error: No actions found to export")
+        Debug.log_error("  Error: No actions found to export")
         return {'CANCELLED': 'No animation data'}
     
-    log_message(f"\n=== Exporting {len(actions_to_export)} action(s) ===")
+    Debug.log(f"\n=== Exporting {len(actions_to_export)} action(s) ===")
     
     # Create MTAR writer
     writer = MtarWriter(filepath)
@@ -1461,17 +1460,17 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
     # =============================
 
     # Motion Points
-    log_message("\n3. Motion Points ++++++++++++++++++++++++++++++++++++++++++++")
+    Debug.log("\n3. Motion Points ++++++++++++++++++++++++++++++++++++++++++++")
     start_timer("3. Motion Points")
 
     # Find motion points armature and collect motion point data
-    log_message("\n=== Motion Points Detection ===")
+    Debug.log("\n=== Motion Points Detection ===")
     motion_points_armature = props.export_motion_points_armature
     
     motion_point_actions_data: List[ExportActionData] = []
     
     if motion_points_armature:
-        log_message(f"Found motion points armature: {motion_points_armature.name}")
+        Debug.log(f"Found motion points armature: {motion_points_armature.name}")
         
         # Build MotionPointsList from armature bones
         motion_points_list : MotionPointList2 = build_motion_points_list_from_armature(motion_points_armature)
@@ -1481,15 +1480,15 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
         motion_point_actions_data = collect_motion_point_actions(motion_points_armature, use_nla)
         
         if motion_point_actions_data:
-            log_message(f"Found {len(motion_point_actions_data)} motion point action(s)")
+            Debug.log(f"Found {len(motion_point_actions_data)} motion point action(s)")
         else:
-            log_message("No motion point actions found (motion points list will be exported without animations)")
+            Debug.log("No motion point actions found (motion points list will be exported without animations)")
     else:
         if props.export_motion_points_armature:
-            log_message(f"The selected object is not a motion points armature or the armature is invalid: {props.export_motion_points_armature}")
+            Debug.log(f"The selected object is not a motion points armature or the armature is invalid: {props.export_motion_points_armature}")
         else:
-            log_message("No motion points armature selected")
-        log_message("Motion points will not be exported")
+            Debug.log("No motion points armature selected")
+        Debug.log("Motion points will not be exported")
     
     stop_timer("3. Motion Points")
 
@@ -1497,7 +1496,7 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
     # =============================
 
     # Export each action as a GaniData object
-    log_message("\n4. Animations ++++++++++++++++++++++++++++++++++++++++++++")
+    Debug.log("\n4. Animations ++++++++++++++++++++++++++++++++++++++++++++")
     start_timer("4. Animations")
 
     for action_idx, action_data in enumerate(actions_to_export):
@@ -1513,7 +1512,7 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
         # =============================
 
         # Main animation tracks
-        log_message(f"\n4.{action_idx}.1 Main Animation Tracks ----------------------------------------")
+        Debug.log(f"\n4.{action_idx}.1 Main Animation Tracks ----------------------------------------")
         start_timer(f"4.{action_idx}.1 Main Animation Tracks")
 
         gani_tracks: List[TrackUnitWrapper] = export_gani_tracks_from_action(
@@ -1531,21 +1530,21 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
         # =============================
         
         # Motion Points
-        log_message(f"\n4.{action_idx}.2 Motion Points ----------------------------------------")
+        Debug.log(f"\n4.{action_idx}.2 Motion Points ----------------------------------------")
         start_timer(f"4.{action_idx}.2 Motion Points")
 
         # Export motion point tracks for this GANI (if corresponding motion point action exists)
         motion_point_tracks: List[TrackUnitWrapper] = None
         if motion_point_actions_data and action_idx < len(motion_point_actions_data):
             motion_point_action_data: ExportActionData = motion_point_actions_data[action_idx]
-            log_message(f"\n  Exporting motion points for GANI #{action_idx}: {motion_point_action_data.action.name}")
+            Debug.log(f"\n  Exporting motion points for GANI #{action_idx}: {motion_point_action_data.action.name}")
             
             # MetaData: Build metadata dict for motion points by analyzing the action and armature
             motion_point_metadata_dict: Dict[str, TrackMetaData] = build_motion_point_metadata_dict(
                 motion_points_armature, 
                 motion_point_action_data.action
             )
-            log_message(f"    Built metadata from {len(motion_point_metadata_dict)} motion point bone(s)")
+            Debug.log(f"    Built metadata from {len(motion_point_metadata_dict)} motion point bone(s)")
             
             # Export motion point tracks
             motion_point_tracks = export_gani_tracks_from_action(
@@ -1555,7 +1554,7 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
                 motion_point_metadata_dict,  # Pass the built metadata dict
                 use_evaluated
             )
-            log_message(f"    Exported {len(motion_point_tracks)} motion point track(s)")
+            Debug.log(f"    Exported {len(motion_point_tracks)} motion point track(s)")
         
         motion_points_data = None
         if motion_point_tracks:
@@ -1569,7 +1568,7 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
         # =============================
         
         # Motion Events
-        log_message(f"\n4.{action_idx}.3 Motion Events ----------------------------------------")
+        Debug.log(f"\n4.{action_idx}.3 Motion Events ----------------------------------------")
         start_timer(f"4.{action_idx}.3 Motion Events")
 
         # Read motion events from the action if present
@@ -1581,13 +1580,13 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
                 motion_events=motion_events,
                 action=gani_action
             )
-            log_message(f"  Found {motion_events.count} motion event categor(ies) in action")
+            Debug.log(f"  Found {motion_events.count} motion event categor(ies) in action")
         
         stop_timer(f"4.{action_idx}.3 Motion Events")
 
         # =============================
 
-        log_message(f"\n4.{action_idx}.4 Storing Data ----------------------------------------")
+        Debug.log(f"\n4.{action_idx}.4 Storing Data ----------------------------------------")
 
         # Create GaniData object
         gani_data: GaniData = GaniData(
@@ -1604,20 +1603,20 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
         # Add to writer
         writer.add_gani_data(gani_data)
         if motion_point_tracks:
-            log_message(f"  Added GANI data: '{gani_name}' ({frame_count} frames) with {len(motion_point_tracks)} motion point track(s)")
+            Debug.log(f"  Added GANI data: '{gani_name}' ({frame_count} frames) with {len(motion_point_tracks)} motion point track(s)")
         else:
-            log_message(f"  Added GANI data: '{gani_name}' ({frame_count} frames)")
+            Debug.log(f"  Added GANI data: '{gani_name}' ({frame_count} frames)")
     
     stop_timer("4. Animations")
 
     # Write the MTAR file
-    log_message("\n5. Writing MTAR file... ++++++++++++++++++++++++++++++++++++++++++++")
+    Debug.log("\n5. Writing MTAR file... ++++++++++++++++++++++++++++++++++++++++++++")
     start_timer("5. Writing MTAR file")
     writer.write()
     stop_timer("5. Writing MTAR file")
     
-    log_message("\n=== MTAR Data Export Complete ===")
-    log_message(f"Exported {len(actions_to_export)} action(s) to {filepath}\n")
+    Debug.log("\n=== MTAR Data Export Complete ===")
+    Debug.log(f"Exported {len(actions_to_export)} action(s) to {filepath}\n")
     stop_timer("MTAR Export")
     
     return {'FINISHED': f'Exported to {filepath}'}

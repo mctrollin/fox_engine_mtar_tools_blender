@@ -7,7 +7,7 @@ This module provides functions to store motion events from MTAR files as:
 """
 from typing import List, Dict, Optional, TYPE_CHECKING
 
-from ..py_utilities.logging_utilities import log_message
+from ..py_utilities.logging_utilities import Debug
 from .foxwrap_metadata import make_event_property_key, iter_event_properties
 
 from ..py_fox.fox_gani_types import EvpHeader, EvpData, EventUnitInfo, TimeSection
@@ -34,7 +34,7 @@ def store_motion_events_on_action(action: 'bpy.types.Action', motion_events: Opt
     if not motion_events or motion_events.count == 0:
         return
     
-    log_message(f"Storing {motion_events.count} motion event categor(ies) on action '{action.name}'")
+    Debug.log(f"Storing {motion_events.count} motion event categor(ies) on action '{action.name}'")
     
     # Store version as a custom property
     action["motion_events_version"] = motion_events.version
@@ -46,7 +46,7 @@ def store_motion_events_on_action(action: 'bpy.types.Action', motion_events: Opt
     
     for category_data in motion_events.data:
         category_name = str(category_data.category_name)
-        log_message(f"  Category '{category_name}': {category_data.unit_count} event(s)")
+        Debug.log(f"  Category '{category_name}': {category_data.unit_count} event(s)")
         
         for event in category_data.events:
             event_name = str(event.name)
@@ -94,7 +94,7 @@ def store_motion_events_on_action(action: 'bpy.types.Action', motion_events: Opt
                 
                 # Handle infinite time sections (start < 0)
                 if start_frame < 0:
-                    log_message(f"    Warning: Skipping infinite time section for event '{event_name}' (start_frame={start_frame})")
+                    Debug.log(f"    Warning: Skipping infinite time section for event '{event_name}' (start_frame={start_frame})")
                     continue
                 
                 # Create marker name: <category>_<event_name> (include section index if multiple)
@@ -106,7 +106,7 @@ def store_motion_events_on_action(action: 'bpy.types.Action', motion_events: Opt
                 if end_frame <= -1:
                     marker = action.pose_markers.new(base_marker_name)
                     marker.frame = start_frame
-                    log_message(f"    Event '{event_name}': frame {start_frame} (marker: {base_marker_name})")
+                    Debug.log(f"    Event '{event_name}': frame {start_frame} (marker: {base_marker_name})")
                 else:
                     # Create start marker
                     start_marker_name = f"{base_marker_name}_start"
@@ -118,11 +118,11 @@ def store_motion_events_on_action(action: 'bpy.types.Action', motion_events: Opt
                     end_marker = action.pose_markers.new(end_marker_name)
                     end_marker.frame = end_frame
                     
-                    log_message(f"    Event '{event_name}': frames {start_frame}-{end_frame} (markers: {start_marker_name}, {end_marker_name})")
+                    Debug.log(f"    Event '{event_name}': frames {start_frame}-{end_frame} (markers: {start_marker_name}, {end_marker_name})")
             
             event_index += 1
     
-    log_message(f"Stored {event_index} motion event(s) with markers on action '{action.name}'")
+    Debug.log(f"Stored {event_index} motion event(s) with markers on action '{action.name}'")
 
 
 def read_motion_events_from_action(action: 'bpy.types.Action') -> Optional[EvpHeader]:
@@ -145,7 +145,7 @@ def read_motion_events_from_action(action: 'bpy.types.Action') -> Optional[EvpHe
     if not event_properties_list:
         return None
     
-    log_message(f"Reading {len(event_properties_list)} motion event(s) from action '{action.name}'")
+    Debug.log(f"Reading {len(event_properties_list)} motion event(s) from action '{action.name}'")
     
     # Group events by category
     categories: Dict[str, List[tuple]] = {}  # category -> list of (event_name, params, frames)
@@ -249,7 +249,7 @@ def read_motion_events_from_action(action: 'bpy.types.Action') -> Optional[EvpHe
         
         # Events without time sections are allowed (time_section_count = 0)
         if not time_sections:
-            log_message(f"  Info: Event '{category_name}_{event_name}' has no time sections (count=0)")
+            Debug.log(f"  Info: Event '{category_name}_{event_name}' has no time sections (count=0)")
         
         # Add to category
         if category_name not in categories:
@@ -303,7 +303,7 @@ def read_motion_events_from_action(action: 'bpy.types.Action') -> Optional[EvpHe
         evp_data_list.append(evp_data)
         entry_offsets.append(0)  # Offsets will be calculated during write
         
-        log_message(f"  Reconstructed category '{category_name}': {len(event_units)} event(s)")
+        Debug.log(f"  Reconstructed category '{category_name}': {len(event_units)} event(s)")
     
     # Read stored version from action, default to 201207030 if not found
     version = action.get("motion_events_version", 201207030)
@@ -317,6 +317,6 @@ def read_motion_events_from_action(action: 'bpy.types.Action') -> Optional[EvpHe
         data=evp_data_list
     )
     
-    log_message(f"Reconstructed EvpHeader with {evp_header.count} categor(ies), version={version}")
+    Debug.log(f"Reconstructed EvpHeader with {evp_header.count} categor(ies), version={version}")
     
     return evp_header

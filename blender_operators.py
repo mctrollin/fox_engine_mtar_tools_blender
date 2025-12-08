@@ -10,7 +10,7 @@ import bpy
 from bpy.types import Operator, Context, Event
 from bpy.props import StringProperty
 
-from .py_utilities.logging_utilities import log_message
+from .py_utilities.logging_utilities import Debug
 from .py_utilities.hash_utilities import unhash_rig_type
 
 from .py_fox.fox_mtar_types import MtarHeader
@@ -43,10 +43,10 @@ def build_track_segment_bone_mapping_from_file(mapping_filepath: str, layout_act
     """
     from collections import defaultdict
     
-    log_message(f"Loading bone mapping from: {mapping_filepath}")
+    Debug.log(f"Loading bone mapping from: {mapping_filepath}")
     mapping_data = parse_track_mapping_file(mapping_filepath)
     if mapping_data.blender_to_fox:
-        log_message(f"Loaded {len(mapping_data.blender_to_fox)} blender-to-fox bone mapping(s)")
+        Debug.log(f"Loaded {len(mapping_data.blender_to_fox)} blender-to-fox bone mapping(s)")
     
     # Build track_segment_bone_mapping using track indices from metadata
     # The mapping file defines fox_name -> blender_name mappings
@@ -54,16 +54,16 @@ def build_track_segment_bone_mapping_from_file(mapping_filepath: str, layout_act
     track_segment_bone_mapping = TrackSegmentBoneMapping()
     missing_bones = []
     
-    log_message("\nBuilding track mapping from mapping file and layout action metadata...")
+    Debug.log("\nBuilding track mapping from mapping file and layout action metadata...")
     
     # Parse track indices from layout action custom properties using utility function
     track_name_to_idx = {}
     for track_idx, track_name, _ in iter_track_properties(layout_action):
         track_name_to_idx[track_name] = track_idx
     
-    log_message(f"  Found {len(track_name_to_idx)} track(s) in layout action")
+    Debug.log(f"  Found {len(track_name_to_idx)} track(s) in layout action")
     for track_name, track_idx in sorted(track_name_to_idx.items(), key=lambda x: x[1]):
-        log_message(f"    Track {track_idx}: {track_name}")
+        Debug.log(f"    Track {track_idx}: {track_name}")
     
     # Build track_bone_mapping in the order defined by the layout action
     # The layout action stores track indices in property keys: "track_<padded_idx>_<track_name>"
@@ -74,7 +74,7 @@ def build_track_segment_bone_mapping_from_file(mapping_filepath: str, layout_act
     # First, group bones by their base track name
     track_segments = defaultdict(list)  # base_track_name -> [(segment_idx, blender_bone_name, fox_mapping)]
     
-    log_message(f"  Processing {len(mapping_data.fox_to_blender)} fox-to-blender mapping(s) from file...")
+    Debug.log(f"  Processing {len(mapping_data.fox_to_blender)} fox-to-blender mapping(s) from file...")
     
     # Use fox_to_blender to preserve all Fox bone names (multiple Fox bones can map to same Blender bone)
     for fox_name, fox_mapping in mapping_data.fox_to_blender.items():
@@ -100,7 +100,7 @@ def build_track_segment_bone_mapping_from_file(mapping_filepath: str, layout_act
         
         # Debug: Show what we're processing
         seg_info = f" (seg {segment_idx})" if segment_idx is not None else ""
-        log_message(f"    Mapping: {blender_bone_name} -> {fox_name} -> track: {base_track_name}{seg_info}")
+        Debug.log(f"    Mapping: {blender_bone_name} -> {fox_name} -> track: {base_track_name}{seg_info}")
         
         # Find the track index using the base track name
         if base_track_name in track_name_to_idx:
@@ -150,9 +150,9 @@ def build_track_segment_bone_mapping_from_file(mapping_filepath: str, layout_act
             
             track_segments[base_track_name].append((segment_idx if segment_idx is not None else 0, blender_bone_name, bone_params))
         else:
-            log_message(f"  Warning: Fox bone '{fox_name}' (base: '{base_track_name}') not found in layout action, skipping")
+            Debug.log_warning(f"  Warning: Fox bone '{fox_name}' (base: '{base_track_name}') not found in layout action, skipping")
     
-    log_message(f"  Collected segments for {len(track_segments)} base track(s)")
+    Debug.log(f"  Collected segments for {len(track_segments)} base track(s)")
     
     # Build unified track segment bone mapping
     # All segments use the same key format: (track_idx, segment_idx)
@@ -168,28 +168,28 @@ def build_track_segment_bone_mapping_from_file(mapping_filepath: str, layout_act
         
         if len(segments) > 1:
             segment_names = [f"{seg[1]} (seg {seg[0]})" for seg in segments]
-            log_message(f"  Track {track_idx}: {base_track_name} -> {len(segments)} segments: {', '.join(segment_names)}")
+            Debug.log(f"  Track {track_idx}: {base_track_name} -> {len(segments)} segments: {', '.join(segment_names)}")
         else:
-            log_message(f"  Track {track_idx}: {base_track_name} -> {segments[0][1]}")
+            Debug.log(f"  Track {track_idx}: {base_track_name} -> {segments[0][1]}")
     
     # Show which tracks from layout action are missing mappings
-    log_message("  Checking for unmapped tracks...")
+    Debug.log("  Checking for unmapped tracks...")
     for track_name, track_idx in sorted(track_name_to_idx.items(), key=lambda x: x[1]):
         if track_name not in track_segments:
-            log_message(f"    Warning: Layout track {track_idx} '{track_name}' has no mapping in mapping file")
+            Debug.log_warning(f"    Warning: Layout track {track_idx} '{track_name}' has no mapping in mapping file")
     
     # Parse layout metadata to get expected segment counts
-    log_message("  Parsing layout metadata for segment structure...")
+    Debug.log("  Parsing layout metadata for segment structure...")
     
     metadata_dict = get_all_track_metadata_from_action(layout_action)
     
     # Finalize mappings by populating missing segments using layout metadata
-    log_message("  Finalizing mappings with layout metadata...")
+    Debug.log("  Finalizing mappings with layout metadata...")
     track_segment_bone_mapping.finalize_with_layout_metadata(metadata_dict)
     
     # Report final track count
     track_count = track_segment_bone_mapping.get_total_track_count()
-    log_message(f"  Built {track_count} track mapping(s) for export")
+    Debug.log(f"  Built {track_count} track mapping(s) for export")
     
     return track_segment_bone_mapping, missing_bones
 
@@ -217,7 +217,7 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
         mtar_data = None
         if props.import_mtar_filepath and os.path.exists(props.import_mtar_filepath):
             try:
-                log_message(f"Reading MTAR file: {props.import_mtar_filepath}")
+                Debug.log(f"Reading MTAR file: {props.import_mtar_filepath}")
                 # Read MTAR to get CommonInfo with layout track
                 with open(props.import_mtar_filepath, 'rb') as f:
                     file_data = f.read()
@@ -229,16 +229,16 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
                             'header': header,
                             'common_info': CommonInfo.read(br, header)
                         }
-                        log_message(f"MTAR CommonInfo loaded: {header.track_count} tracks, {header.segment_count} segments")
+                        Debug.log(f"MTAR CommonInfo loaded: {header.track_count} tracks, {header.segment_count} segments")
             except (OSError, ValueError) as e:
-                log_message(f"  Warning: Could not read MTAR file: {e}")
+                Debug.log_warning(f"  Warning: Could not read MTAR file: {e}")
                 # Continue without MTAR data
         elif props.import_mtar_filepath:
-            log_message(f"  Warning: MTAR file not found: {props.import_mtar_filepath}")
+            Debug.log_warning(f"  Warning: MTAR file not found: {props.import_mtar_filepath}")
         
         try:
             # Read FRIG file
-            log_message(f"Reading FRIG file: {props.import_frig_filepath}")
+            Debug.log(f"Reading FRIG file: {props.import_frig_filepath}")
             with open(props.import_frig_filepath, 'rb') as f:
                 frig: FrigFile = FrigFile.read(f)
             
@@ -275,7 +275,7 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
                 layout_track_units = None
                 if mtar_data and mtar_data['common_info'] and mtar_data['common_info'].layout_track:
                     layout_track_units = mtar_data['common_info'].layout_track.track_units
-                    log_message(f"Using MTAR layout track with {len(layout_track_units)} units")
+                    Debug.log(f"Using MTAR layout track with {len(layout_track_units)} units")
                 
                 for track_idx, unit_def in enumerate(unit_defs):
                     # Get track name from layout track (MTAR) if available
@@ -309,7 +309,7 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
                     if layout_track_units and track_idx < len(layout_track_units):
                         layout_unit = layout_track_units[track_idx]
                         actual_segment_count = len(layout_unit.track_data)
-                        log_message(f"Track {track_idx}: MTAR reports {actual_segment_count} segments")
+                        Debug.log(f"Track {track_idx}: MTAR reports {actual_segment_count} segments")
                     
                     if track_type:
                         # For MULTI_LOCAL_ORIENTATION type, check if we can get segment count from unit_def or MTAR
@@ -344,7 +344,7 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
                                     segments_shorthand.append('?')
                             # Validate against MTAR if available
                             if actual_segment_count and len(segments_shorthand) != actual_segment_count:
-                                log_message(f"  Warning: Track {track_idx} type {track_type} expects {len(segments_shorthand)} segments, but MTAR has {actual_segment_count}")
+                                Debug.log_warning(f"  Warning: Track {track_idx} type {track_type} expects {len(segments_shorthand)} segments, but MTAR has {actual_segment_count}")
                                 # Use MTAR count as authoritative
                                 if actual_segment_count > len(segments_shorthand):
                                     segments_shorthand.extend(['?'] * (actual_segment_count - len(segments_shorthand)))
@@ -389,7 +389,7 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
                 f.write('\n'.join(lines))
             
             self.report({'INFO'}, f"Mapping file created: {output_path}")
-            log_message(f"Generated mapping file: {output_path}")
+            Debug.log(f"Generated mapping file: {output_path}")
             
             # Auto-fill the mapping file path
             props.import_mapping_filepath = output_path
@@ -398,7 +398,7 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
             
         except Exception as e:  # noqa: E722
             self.report({'ERROR'}, f"Failed to generate mapping file: {str(e)}")
-            log_message(f"Error generating mapping file: {e}")
+            Debug.log_error(f"Error generating mapping file: {e}")
             traceback.print_exc()
             return {'CANCELLED'}
 
@@ -412,7 +412,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
     
     def execute(self, context: Context) -> Set[str]:
 
-        log_message("========= STARTING IMPORT MTAR OPERATION =========")
+        Debug.log("========= STARTING IMPORT MTAR OPERATION =========")
 
         props = context.scene.mtar_properties
         
@@ -432,25 +432,25 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                 self.report({'WARNING'}, f"FRIG file not found: {props.import_frig_filepath}")
             else:
                 try:
-                    log_message(f"Loading FRIG file: {props.import_frig_filepath}")
+                    Debug.log(f"Loading FRIG file: {props.import_frig_filepath}")
                     with open(props.import_frig_filepath, 'rb') as f:
                         frig_data = FrigFile.read(f)
                     
-                        log_message("FRIG loaded successfully:")
-                    log_message(f"  - Version: {frig_data.header.version}")
-                    log_message(f"  - Rig units: {frig_data.header.rig_unit_count}")
-                    log_message(f"  - Bones: {frig_data.bone_list.bone_count}")
-                    log_message(f"  - Segments: {frig_data.header.segment_count}")
+                        Debug.log("FRIG loaded successfully:")
+                    Debug.log(f"  - Version: {frig_data.header.version}")
+                    Debug.log(f"  - Rig units: {frig_data.header.rig_unit_count}")
+                    Debug.log(f"  - Bones: {frig_data.bone_list.bone_count}")
+                    Debug.log(f"  - Segments: {frig_data.header.segment_count}")
                     
                 except (OSError, ValueError) as e:
                     self.report({'ERROR'}, f"Failed to load FRIG file: {str(e)}")
-                    log_message(f"FRIG load error: {e}")
+                    Debug.log(f"FRIG load error: {e}")
                     traceback.print_exc()
                     return {'CANCELLED'}
         else:
             # No FRIG file specified
             frig_data = None
-            log_message("No FRIG file specified, importing without rig data")
+            Debug.log("No FRIG file specified, importing without rig data")
         
         # Load track mapping file if provided
         track_mapping = None
@@ -462,12 +462,12 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                     mapping_data = parse_track_mapping_file(props.import_mapping_filepath)
                     track_mapping = mapping_data.fox_to_blender
                     if track_mapping:
-                        log_message(f"Loaded {len(track_mapping)} track mapping(s)")
+                        Debug.log(f"Loaded {len(track_mapping)} track mapping(s)")
                     if mapping_data.track_metadata:
-                        log_message(f"Loaded {len(mapping_data.track_metadata)} track metadata definition(s)")
+                        Debug.log(f"Loaded {len(mapping_data.track_metadata)} track metadata definition(s)")
                 except Exception as e:  # noqa: E722
                     self.report({'WARNING'}, f"Failed to load track mapping file: {str(e)}")
-                    log_message(f"Track mapping load error: {e}")
+                    Debug.log(f"Track mapping load error: {e}")
         
         # Get target rig if specified
         target_rig = props.import_target_rig if props.import_target_rig else None
@@ -476,7 +476,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
         try:
             result = import_mtar(context, props.import_mtar_filepath, frig_data, track_mapping, props.import_gani_index, target_rig)
             
-            log_message("\n========= Finished IMPORT MTAR OPERATION =========\n")
+            Debug.log("\n========= Finished IMPORT MTAR OPERATION =========\n")
 
             if result == {'FINISHED'}:
                 self.report({'INFO'}, "MTAR animation imported successfully")
@@ -487,7 +487,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                 
         except (OSError, ValueError) as e:  # noqa: E722
             self.report({'ERROR'}, f"Failed to import MTAR: {str(e)}")
-            log_message(f"MTAR import error: {e}")
+            Debug.log(f"MTAR import error: {e}")
             traceback.print_exc()
             return {'CANCELLED'}
 
@@ -501,7 +501,7 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
     
     def execute(self, context: Context) -> Set[str]:
 
-        log_message("\n========= STARTING EXPORT MTAR OPERATION =========\n")
+        Debug.log("\n========= STARTING EXPORT MTAR OPERATION =========\n")
 
         props = context.scene.mtar_properties
         
@@ -529,7 +529,7 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
                 
                 if not layout_action:
                     self.report({'ERROR'}, "No layout track action found. Cannot determine track indices for export.")
-                    log_message("  ERROR: Layout action is required for export to determine track order.")
+                    Debug.log_error("  ERROR: Layout action is required for export to determine track order.")
                     return {'CANCELLED'}
                 
                 # Build track mapping using utility function
@@ -539,9 +539,9 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
                 
                 if missing_bones:
                     self.report({'WARNING'}, f"Mapping references {len(missing_bones)} bone(s) not in armature: {', '.join(missing_bones[:5])}")
-                    log_message(f"  Warning: {len(missing_bones)} bone(s) in mapping not found in armature:")
+                    Debug.log_warning(f"  Warning: {len(missing_bones)} bone(s) in mapping not found in armature:")
                     for bone_name in missing_bones:
-                        log_message(f"  - {bone_name}")
+                        Debug.log(f"  - {bone_name}")
                 
                 if track_segment_bone_mapping.get_total_track_count() == 0:
                     self.report({'ERROR'}, "No valid track mappings found. Check that fox bone names in mapping file match layout action.")
@@ -549,7 +549,7 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
                 
             except Exception as e:  # noqa: E722
                 self.report({'ERROR'}, f"Failed to load mapping file: {str(e)}")
-                log_message(f"Mapping file load error: {e}")
+                Debug.log(f"Mapping file load error: {e}")
                 traceback.print_exc()
                 return {'CANCELLED'}
         else:
@@ -568,7 +568,7 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
                 use_evaluated=props.export_use_evaluated
             )
             
-            log_message("\n========= Finished EXPORT MTAR OPERATION =========\n")
+            Debug.log("\n========= Finished EXPORT MTAR OPERATION =========\n")
 
             # Result is a dict like {'FINISHED': 'message'} or {'CANCELLED': 'message'}
             if 'FINISHED' in result:

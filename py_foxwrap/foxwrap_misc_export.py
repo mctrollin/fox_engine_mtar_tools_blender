@@ -6,7 +6,7 @@ import io
 import copy
 from typing import Optional, List, Dict, Tuple, TYPE_CHECKING
 
-from ..py_utilities.logging_utilities import log_message
+from ..py_utilities.logging_utilities import Debug
 
 from ..py_fox.fox_gani_types import TrackUnitFlags, EvpHeader
 
@@ -415,7 +415,7 @@ class TrackSegmentBoneMapping:
                 populated_segments.append(segment_idx)
         
         if populated_segments:
-            log_message(f"    Track {track_idx}: Populated segments {populated_segments} with base mapping '{base_bone_name}'")
+            Debug.log(f"    Track {track_idx}: Populated segments {populated_segments} with base mapping '{base_bone_name}'")
     
     def finalize_with_layout_metadata(self, metadata_dict: Dict[str, 'TrackMetaData']) -> None:
         """Finalize mappings using layout metadata to populate missing segments.

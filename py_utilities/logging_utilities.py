@@ -1,42 +1,126 @@
-"""
-Logging utilities for MTAR plugin.
+"""Logging utilities for MTAR plugin.
 
-This module provides a centralized logging function that respects
-the plugin's logging settings, as well as performance timing utilities
-for measuring block execution times.
+Provides a small Unity-like Debug API and a simple verbosity filter.
+
+API:
+  Debug.log(msg)         -> informational message (INFO)
+  Debug.log_warning(msg) -> warning message (WARNING)
+  Debug.log_error(msg)   -> error message (ERROR)
+
+You can control the minimum shown level with set_log_level(). By default
+only WARNING and ERROR are shown.
 """
 import time
 from typing import Dict
+from enum import IntEnum
 
 import bpy
 
 
-def log_message(message: str, level: str = 'INFO') -> None:
-    """Print a log message if logging is enabled in plugin settings.
-    
+class _LogLevel(IntEnum):
+    ERROR = 0
+    WARNING = 1
+    INFO = 2
+    DEBUG = 3
+
+
+# Default: show WARNING and ERROR only
+_min_log_level = _LogLevel.WARNING
+
+
+def set_log_level(level: _LogLevel) -> None:
+    """Set the minimum log level to display.
+
     Args:
-        message: The message to log
-        level: Log level ('INFO', 'WARNING', 'ERROR', 'DEBUG')
+        level: Minimum log level (messages with numeric value <= level are shown)
     """
+    global _min_log_level
+    _min_log_level = level
+
+
+def get_log_level() -> _LogLevel:
+    """Return the current minimum log level."""
+    return _min_log_level
+
+
+def _should_log(level: _LogLevel) -> bool:
+    """Decide whether a message at `level` should be printed.
+
+    This checks both the configured minimum log level and the scene-level
+    `mtar_properties.log_verbosity` setting (if available).
+    """
+    if level > _min_log_level:
+        return False
+
     try:
-        # Try to get the plugin settings
         if hasattr(bpy.context, 'scene') and hasattr(bpy.context.scene, 'mtar_properties'):
             props = bpy.context.scene.mtar_properties
-            if hasattr(props, 'enable_logging') and not props.enable_logging:
-                return  # Logging is disabled
+            # Check panel log_verbosity setting (replaces old enable_logging)
+            if hasattr(props, 'log_verbosity'):
+                verbosity_str = props.log_verbosity
+                # Convert string to _LogLevel enum
+                level_map = {'ERROR': _LogLevel.ERROR, 'WARNING': _LogLevel.WARNING, 'INFO': _LogLevel.INFO, 'DEBUG': _LogLevel.DEBUG}
+                panel_level = level_map.get(verbosity_str, _LogLevel.WARNING)
+                if level > panel_level:
+                    return False
+           
     except (ImportError, AttributeError, RuntimeError):
-        # If we can't access Blender context (e.g., during testing), always log
+        # If we can't access Blender context, default to printing
+        pass
+
+    return True
+
+
+def _should_log_timers() -> bool:
+    """Decide whether to print timer output.
+    
+    Checks the scene-level `mtar_properties.enable_timer_logs` setting if available.
+    """
+    try:
+        if hasattr(bpy.context, 'scene') and hasattr(bpy.context.scene, 'mtar_properties'):
+            props = bpy.context.scene.mtar_properties
+            if hasattr(props, 'enable_timer_logs'):
+                return props.enable_timer_logs
+    except (ImportError, AttributeError, RuntimeError):
+        # If we can't access Blender context, default to not logging
         pass
     
-    # Print with level prefix
-    if level.upper() == 'ERROR':
-        print(f"[ERROR] {message}")
-    elif level.upper() == 'WARNING':
-        print(f"[WARNING] {message}")
-    elif level.upper() == 'DEBUG':
-        print(f"[DEBUG] {message}")
-    else:
+    return False
+
+
+class Debug:
+    """Static logging helpers.
+
+    Usage:
+        Debug.log("info")
+        Debug.log_warning("warn")
+        Debug.log_error("err")
+    """
+
+    @staticmethod
+    def log(message: str) -> None:
+        """Log an informational message (INFO).
+
+        These messages are shown when the global level is set to INFO or DEBUG.
+        """
+        if not _should_log(_LogLevel.INFO):
+            return
         print(message)
+
+    @staticmethod
+    def log_warning(message: str) -> None:
+        """Log a warning message (WARNING)."""
+        if not _should_log(_LogLevel.WARNING):
+            return
+        print(f"[WARNING] {message}")
+
+    @staticmethod
+    def log_error(message: str) -> None:
+        """Log an error message (ERROR)."""
+        if not _should_log(_LogLevel.ERROR):
+            return
+        print(f"[ERROR] {message}")
+
 
 
 def is_logging_enabled() -> bool:
@@ -64,8 +148,6 @@ _performance_timers: Dict[str, float] = {}
 def start_timer(block_name: str) -> None:
     """Start a performance timer for a named code block.
     
-    Always logs timing info regardless of log output setting.
-    
     Args:
         block_name: Name of the code block being timed
     """
@@ -73,9 +155,7 @@ def start_timer(block_name: str) -> None:
 
 
 def stop_timer(block_name: str) -> float:
-    """Stop a performance timer and log elapsed time.
-    
-    Always logs timing info regardless of log output setting.
+    """Stop a performance timer and log elapsed time if timer logging is enabled.
     
     Args:
         block_name: Name of the code block being timed
@@ -84,10 +164,14 @@ def stop_timer(block_name: str) -> float:
         Elapsed time in seconds
     """
     if block_name not in _performance_timers:
-        print(f"[TIMER] Warning: No timer started for '{block_name}'")
+        if _should_log_timers():
+            print(f"[TIMER] Warning: No timer started for '{block_name}'")
         return 0.0
     
     start_time = _performance_timers.pop(block_name)
     elapsed = time.time() - start_time
-    print(f"[TIMER] {block_name}: {elapsed:.3f} seconds")
+    
+    if _should_log_timers():
+        print(f"[TIMER] {block_name}: {elapsed:.3f} seconds")
+    
     return elapsed

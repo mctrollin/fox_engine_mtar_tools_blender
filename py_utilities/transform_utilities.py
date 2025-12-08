@@ -11,7 +11,7 @@ from typing import List, Optional, Tuple, Union, Dict
 import bpy
 from mathutils import Vector, Quaternion, Euler
 
-from .logging_utilities import log_message
+from .logging_utilities import Debug
 
 # Directional location (for IK up vector) #############################################################
 
@@ -127,21 +127,18 @@ def prepare_rotation_offset_quats(rotation_offset: Optional[List[dict]]) -> List
             # Create Euler and convert to Quaternion
             euler_offset = Euler(euler_radians, order)
             rotation_offset_quats.append(euler_offset.to_quaternion())
-            log_message(f"    Applying rotation offset transformation: ({euler_degrees[0]}, {euler_degrees[1]}, {euler_degrees[2]}) {order}")
+            Debug.log(f"    Applying rotation offset transformation: ({euler_degrees[0]}, {euler_degrees[1]}, {euler_degrees[2]}) {order}")
     
     return rotation_offset_quats
 
 def apply_reverse_transforms(quat: Quaternion, rotation_offset: Optional[List[dict]] = None,
-                            rotation_axis_map: Optional[List[dict]] = None,
-                            offset_first: bool = False) -> Quaternion:
+                            rotation_axis_map: Optional[List[dict]] = None) -> Quaternion:
     """Apply transformations in reverse order to convert from Blender to Fox Engine format.
     
     During import:
     1. Quaternion is loaded from Fox Engine
     2. Axis mapping is applied (if present)
-    3. Rotation offsets are applied (if present)
-       - as_ik_up: offset @ quat (offset first)
-       - regular: quat @ offset (offset last)
+    3. Rotation offsets are applied (if present) as offset @ quat (offset first)
     
     During export (reverse):
     1. Remove rotation offsets (apply inverse, respecting original order)
@@ -152,7 +149,6 @@ def apply_reverse_transforms(quat: Quaternion, rotation_offset: Optional[List[di
         quat: Blender quaternion
         rotation_offset: List of rotation offset dicts (applied in order during import)
         rotation_axis_map: Rotation axis mapping
-        offset_first: If True, offsets were applied first during import (as_ik_up case)
         
     Returns:
         Fox Engine quaternion
@@ -174,13 +170,10 @@ def apply_reverse_transforms(quat: Quaternion, rotation_offset: Optional[List[di
             euler_offset = Euler(euler_radians, order)
             offset_quat = euler_offset.to_quaternion()
             
-            # Apply inverse based on original application order
-            if offset_first:
-                # Import was: offset @ quat → reverse: quat @ offset.inverted()
-                result_quat = result_quat @ offset_quat.inverted()
-            else:
-                # Import was: quat @ offset → reverse: offset.inverted() @ quat  
-                result_quat = offset_quat.inverted() @ result_quat
+            # Apply inverse based on original application order (both for ik-up and general cases)
+            # as_ik_up import was: offset @ quat → reverse: quat @ offset.inverted()
+            # Regular import was: quat @ offset → reverse: offset.inverted() @ quat
+            result_quat = result_quat @ offset_quat.inverted()
     
     # Reverse axis mapping
     if rotation_axis_map:

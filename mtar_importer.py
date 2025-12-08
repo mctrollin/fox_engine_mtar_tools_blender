@@ -4,7 +4,7 @@ from typing import Optional, List, Dict, Union, Tuple
 import bpy
 from mathutils import Quaternion, Vector
 
-from .py_utilities.logging_utilities import log_message, start_timer, stop_timer
+from .py_utilities.logging_utilities import Debug, start_timer, stop_timer
 from .py_utilities.hash_utilities import unhash_rig_type
 from .py_utilities.transform_utilities import calculate_directional_location, prepare_rotation_offset_quats, apply_rotation_transforms, fox_to_blender_vector
 from .py_utilities.blender_animation_utilities import add_dummy_keyframes_to_action, configure_action
@@ -154,7 +154,7 @@ def store_track_metadata_on_action(
         include_hash: Whether to include name hash if present (True for layout tracks, False for GANI)
     """
     track_type = "layout" if include_segments else "GANI"
-    log_message(f"Storing {track_type} track metadata for {len(track_metadata_list)} track(s) on action '{action.name}'")
+    Debug.log(f"Storing {track_type} track metadata for {len(track_metadata_list)} track(s) on action '{action.name}'")
     
     for track_idx, track_meta in enumerate(track_metadata_list):
         track_name = track_meta.track_name
@@ -221,9 +221,9 @@ def store_track_metadata_on_action(
         )
         
         if include_segments:
-            log_message(f"  Stored: {property_key} = {metadata_value}")
+            Debug.log(f"  Stored: {property_key} = {metadata_value}")
         else:
-            log_message(f"  Track {track_idx} ({track_name}): bits=[{bit_sizes_str}], flags={flags_str}")
+            Debug.log(f"  Track {track_idx} ({track_name}): bits=[{bit_sizes_str}], flags={flags_str}")
 
 
 # Mapping #############################################################
@@ -246,7 +246,7 @@ def apply_track_mapping_transformation(track_blob: TrackDataBlobWrapper, mapping
         new_name: str = mapping_data.get('name', old_name)
     
     track_blob.name = new_name
-    log_message(f"  '{old_name}' -> '{new_name}'")
+    Debug.log(f"  '{old_name}' -> '{new_name}'")
     
     # Store rotation offset transformation if present (will be applied during import)
     if isinstance(mapping_data, dict) and 'rotation_offset' in mapping_data:
@@ -254,19 +254,19 @@ def apply_track_mapping_transformation(track_blob: TrackDataBlobWrapper, mapping
         # rotation_offset is now a list of offsets
         offset_list = mapping_data['rotation_offset']
         for i, offset in enumerate(offset_list, 1):
-            log_message(f"    Rotation offset #{i}: ({offset['euler'][0]}, {offset['euler'][1]}, {offset['euler'][2]}) {offset['order']}")
+            Debug.log(f"    Rotation offset #{i}: ({offset['euler'][0]}, {offset['euler'][1]}, {offset['euler'][2]}) {offset['order']}")
     
     # Store rotation axis mapping transformation if present (will be applied during import)
     if isinstance(mapping_data, dict) and 'rotation_axis_map' in mapping_data:
         track_blob.rotation_axis_map = mapping_data['rotation_axis_map']
         axis_str = ','.join([('-' if m['negate'] else '') + m['axis'] for m in mapping_data['rotation_axis_map']])
-        log_message(f"    Rotation axis mapping: {axis_str}")
+        Debug.log(f"    Rotation axis mapping: {axis_str}")
     
     # Store directional vector IK transformation if present (will be applied during import)
     if isinstance(mapping_data, dict) and 'as_ik_up' in mapping_data:
         track_blob.as_ik_up = mapping_data['as_ik_up']
         ik_data = mapping_data['as_ik_up']
-        log_message(f"    Directional vector IK: base='{ik_data['bone_base']}', axis={ik_data['axis']}, distance={ik_data['distance']}")
+        Debug.log(f"    Directional vector IK: base='{ik_data['bone_base']}', axis={ik_data['axis']}, distance={ik_data['distance']}")
 
 def apply_track_transformations(all_gani_tracks: List[List[TrackUnitWrapper]], track_mapping: Optional[Dict[str, dict]] = None) -> None:
     """Apply rig-based naming and track mapping transformations to all tracks.
@@ -281,7 +281,7 @@ def apply_track_transformations(all_gani_tracks: List[List[TrackUnitWrapper]], t
         all_gani_tracks: List of lists of GaniTrack objects
         track_mapping: Optional dictionary mapping source track name to transformation data dict
     """
-    log_message("Applying rig unit type based naming...")
+    Debug.log("Applying rig unit type based naming...")
     for gani_tracks in all_gani_tracks:
         for gani_track in gani_tracks:
             if gani_track.rig_unit_type:
@@ -293,11 +293,11 @@ def apply_track_transformations(all_gani_tracks: List[List[TrackUnitWrapper]], t
                         original_name: str = track_blob.name
                         modified_name: str = f"{original_name}_{segment_index}"
                         track_blob.name = modified_name
-                        log_message(f"  '{original_name}' -> '{modified_name}' (RigUnitType.{rig_type.name})")
+                        Debug.log(f"  '{original_name}' -> '{modified_name}' (RigUnitType.{rig_type.name})")
     
     # Apply track mapping transformations if provided
     if track_mapping:
-        log_message("Applying track mapping transformations...")
+        Debug.log("Applying track mapping transformations...")
         for gani_tracks in all_gani_tracks:
             for gani_track in gani_tracks:
                 for track_blob in gani_track.segments_track_data:
@@ -321,7 +321,7 @@ def import_keyframes_track(action: bpy.types.Action, keyframes_track: TrackDataB
     """
     max_frame: int = 0
     
-    log_message(f"  - Import Track '{keyframes_track.name}' ({keyframes_track.data_blob.type.name}): {len(keyframes_track.data_blob.keyframes)} keyframe(s)")
+    Debug.log(f"  - Import Track '{keyframes_track.name}' ({keyframes_track.data_blob.type.name}): {len(keyframes_track.data_blob.keyframes)} keyframe(s)")
     
     # Get or create FCurve group for this handle
     # Ensure group_name is always a string (keyframes_track.name can be an integer hash)
@@ -343,7 +343,7 @@ def import_keyframes_track(action: bpy.types.Action, keyframes_track: TrackDataB
         if keyframes_track.rotation_axis_map:
             rotation_axis_map = keyframes_track.rotation_axis_map
             axis_str = ','.join([('-' if m['negate'] else '') + m['axis'] for m in rotation_axis_map])
-            log_message(f"    Applying rotation axis mapping transformation: {axis_str}")    # Check if this is a directional vector track (quaternion converted to location)
+            Debug.log(f"    Applying rotation axis mapping transformation: {axis_str}")    # Check if this is a directional vector track (quaternion converted to location)
     
         # IK special case
         if keyframes_track.as_ik_up:
@@ -353,7 +353,7 @@ def import_keyframes_track(action: bpy.types.Action, keyframes_track: TrackDataB
             axis = ik_data['axis']
             distance = ik_data['distance']
             
-            log_message(f"    Converting rotation to directional location (axis={axis}, distance={distance})")
+            Debug.log(f"    Converting rotation to directional location (axis={axis}, distance={distance})")
             
             # Pre-convert all quaternions and calculate directional locations
             converted_locations = []
@@ -392,7 +392,7 @@ def import_keyframes_track(action: bpy.types.Action, keyframes_track: TrackDataB
                     kf_point: bpy.types.Keyframe = fcurve.keyframe_points.insert(frame_count, target_location[i])
                     kf_point.interpolation = 'LINEAR'
             
-            log_message(f"    Added directional location keyframes (frames 0-{max_frame})")
+            Debug.log(f"    Added directional location keyframes (frames 0-{max_frame})")
         
         # Normal rotation
         else:
@@ -424,7 +424,7 @@ def import_keyframes_track(action: bpy.types.Action, keyframes_track: TrackDataB
                     kf_point: bpy.types.Keyframe = fcurve.keyframe_points.insert(frame_count, quat_component)
                     kf_point.interpolation = 'LINEAR'
             
-            log_message(f"    Added quaternion rotation keyframes (frames 0-{max_frame})")
+            Debug.log(f"    Added quaternion rotation keyframes (frames 0-{max_frame})")
 
     elif keyframes_track.data_blob.type in [SegmentType.VECTOR3, SegmentType.VECTOR_DIFF]:
         # Create location curves
@@ -445,7 +445,7 @@ def import_keyframes_track(action: bpy.types.Action, keyframes_track: TrackDataB
                 
                 max_frame = max(max_frame, keyframe.frame_count)
         
-        log_message(f"    Added location keyframes (frames 0-{max_frame})")
+        Debug.log(f"    Added location keyframes (frames 0-{max_frame})")
     
     return max_frame
 
@@ -461,7 +461,7 @@ def import_gani_track(action: bpy.types.Action, gani_track: TrackUnitWrapper) ->
     """
     max_frame: int = 0
     
-    log_message(f"  - Import GaniTrack '{gani_track.name}' (RigUnitType: {gani_track.rig_unit_type.name if gani_track.rig_unit_type else 'None'}) Segments: {len(gani_track.segments_track_data)}")
+    Debug.log(f"  - Import GaniTrack '{gani_track.name}' (RigUnitType: {gani_track.rig_unit_type.name if gani_track.rig_unit_type else 'None'}) Segments: {len(gani_track.segments_track_data)}")
     
     # Process each keyframes track (segment) in the GaniTrack
     for keyframes_track in gani_track.segments_track_data:
@@ -497,7 +497,7 @@ def create_animation_actions(
     # Create layout track action to store metadata
     layout_action: Optional[bpy.types.Action] = None
     if layout_track and layout_track.track_units:
-        log_message("Creating layout track action for metadata storage...")
+        Debug.log("Creating layout track action for metadata storage...")
         layout_action_name = f"{mtar_file_name}_LayoutTrack"
         layout_action = bpy.data.actions.new(name=layout_action_name)
         layout_action.use_fake_user = True
@@ -515,22 +515,22 @@ def create_animation_actions(
         # Add dummy keyframes at frames -100 and -50
         add_dummy_keyframes_to_action(layout_action)
         
-        log_message(f"Created layout track action: {layout_action_name}")
+        Debug.log(f"Created layout track action: {layout_action_name}")
 
     # Process each GANI file individually to create actions
     gani_actions: List[bpy.types.Action] = []
     current_frame_offset: int = 0
     max_frame_end: int = 0
 
-    log_message(f"\nProcessing {len(all_gani_tracks)} GANI file(s)...")
+    Debug.log(f"\nProcessing {len(all_gani_tracks)} GANI file(s)...")
     for gani_index, gani_tracks in enumerate(all_gani_tracks):
-        log_message(f"\n--- GANI {gani_index + 1}/{len(all_gani_tracks)} ---")
+        Debug.log(f"\n--- GANI {gani_index + 1}/{len(all_gani_tracks)} ---")
         
         # Create one action per GANI file
         action_name: str = f"{mtar_file_name}_Gani_{gani_index:03d}"
         action: bpy.types.Action = bpy.data.actions.new(name=action_name)
         gani_actions.append(action)
-        log_message(f"Created action: {action_name}")
+        Debug.log(f"Created action: {action_name}")
         
         # =============================
 
@@ -548,7 +548,7 @@ def create_animation_actions(
             action.id_properties_ui("gani_path_hash").update(
                 description="PathCode64 hash from MTAR file header (stored as string)"
             )
-            log_message(f"  Stored path hash: 0x{file_header.path:016X}")
+            Debug.log(f"  Stored path hash: 0x{file_header.path:016X}")
 
         # Store motion events if present
         if gani_index < len(all_motion_events):
@@ -563,15 +563,15 @@ def create_animation_actions(
         gani_frame_count: int = track_mini_header.frame_count
 
         # Process each GaniTrack in this GANI file
-        log_message(f"Processing {len(gani_tracks)} GaniTrack(s)...")
+        Debug.log(f"Processing {len(gani_tracks)} GaniTrack(s)...")
         for gani_track in gani_tracks:
             import_gani_track(action, gani_track)
 
-        log_message(f"Track frame range: 0 - {gani_frame_count}")
+        Debug.log(f"Track frame range: 0 - {gani_frame_count}")
         
         # Configure action with frame range from MTAR file header
         configure_action(action, frame_start=0, frame_end=gani_frame_count)
-        log_message(f"  Configured action frame range: 0 - {gani_frame_count}")
+        Debug.log(f"  Configured action frame range: 0 - {gani_frame_count}")
         
         # Update offset for next strip (used for calculating total frame range)
         current_frame_offset += gani_frame_count
@@ -603,19 +603,19 @@ def create_motion_points_animation_actions(
     """
     motion_point_actions: List[bpy.types.Action] = []
     
-    log_message(f"\nProcessing {len(all_motion_point_gani_tracks)} GANI file(s) for motion points...")
+    Debug.log(f"\nProcessing {len(all_motion_point_gani_tracks)} GANI file(s) for motion points...")
     for gani_index, motion_point_tracks in enumerate(all_motion_point_gani_tracks):
         if not motion_point_tracks:
-            log_message(f"  GANI {gani_index + 1}: No motion point tracks")
+            Debug.log(f"  GANI {gani_index + 1}: No motion point tracks")
             continue
             
-        log_message(f"\n  --- Motion Points GANI {gani_index + 1}/{len(all_motion_point_gani_tracks)} ---")
+        Debug.log(f"\n  --- Motion Points GANI {gani_index + 1}/{len(all_motion_point_gani_tracks)} ---")
         
         # Create action for this GANI file's motion point animation
         action_name: str = f"{mtar_file_name}_MotionPoints_Gani_{gani_index:03d}"
         action: bpy.types.Action = bpy.data.actions.new(name=action_name)
         motion_point_actions.append(action)
-        log_message(f"  Created action: {action_name}")
+        Debug.log(f"  Created action: {action_name}")
         
         # =============================
 
@@ -636,17 +636,17 @@ def create_motion_points_animation_actions(
         # Get frame count from TrackHeader (imported from MTAR file)
         gani_frame_count: int = motion_point_track_header.frame_count if motion_point_track_header is not None else 0
 
-        log_message(f"  Processing {len(motion_point_tracks)} motion point track(s)...")
+        Debug.log(f"  Processing {len(motion_point_tracks)} motion point track(s)...")
         for gani_track in motion_point_tracks:
             track_max_frame: int = import_gani_track(action, gani_track)
             if motion_point_track_header is None:
                 gani_frame_count = max(gani_frame_count, track_max_frame)
         
-        log_message(f"  Motion point frame range: 0 - {gani_frame_count}")
+        Debug.log(f"  Motion point frame range: 0 - {gani_frame_count}")
         
         # Configure action with frame range from MTAR file header
         configure_action(action, frame_start=0, frame_end=gani_frame_count)
-        log_message(f"  Configured motion point action frame range: 0 - {gani_frame_count}")
+        Debug.log(f"  Configured motion point action frame range: 0 - {gani_frame_count}")
     
     return motion_point_actions
 
@@ -689,19 +689,19 @@ def setup_rig(imported_armature: bpy.types.Object, target_rig: bpy.types.Object,
         return
     
     if target_rig.type != 'ARMATURE' or imported_armature.type != 'ARMATURE':
-        log_message("  Error: Both objects must be armatures")
+        Debug.log_error("  Error: Both objects must be armatures")
         return
     
-    log_message("\n=== Setting up Rigify constraints ===")
-    log_message(f"Source armature: {imported_armature.name}")
-    log_message(f"Target rig: {target_rig.name}")
+    Debug.log("\n=== Setting up Rigify constraints ===")
+    Debug.log(f"Source armature: {imported_armature.name}")
+    Debug.log(f"Target rig: {target_rig.name}")
     
     if not track_mapping:
-        log_message("No track mapping provided - skipping constraint setup")
+        Debug.log("No track mapping provided - skipping constraint setup")
         return
     
     # First pass: Set rotation mode to QUATERNION for bones with rotation tracks
-    log_message("\n--- Setting rotation modes ---")
+    Debug.log("\n--- Setting rotation modes ---")
     rotation_modes_changed = 0
     
     for source_name, mapping_data in track_mapping.items():
@@ -732,12 +732,12 @@ def setup_rig(imported_armature: bpy.types.Object, target_rig: bpy.types.Object,
         if has_rotation and target_bone.rotation_mode != 'QUATERNION':
             target_bone.rotation_mode = 'QUATERNION'
             rotation_modes_changed += 1
-            log_message(f"  Set '{target_bone_name}' to QUATERNION rotation mode")
+            Debug.log(f"  Set '{target_bone_name}' to QUATERNION rotation mode")
     
-    log_message(f"Changed rotation mode for {rotation_modes_changed} bones")
+    Debug.log(f"Changed rotation mode for {rotation_modes_changed} bones")
     
     # Second pass: Process track_mapping to create constraints based on parameters
-    log_message("\n--- Creating constraints ---")
+    Debug.log("\n--- Creating constraints ---")
     constraints_added = 0
     
     for source_name, mapping_data in track_mapping.items():
@@ -751,7 +751,7 @@ def setup_rig(imported_armature: bpy.types.Object, target_rig: bpy.types.Object,
         
         # Check if target bone exists in rig
         if target_bone_name not in target_rig.pose.bones:
-            log_message(f"  Warning: Target bone '{target_bone_name}' not found in target rig, skipping")
+            Debug.log_warning(f"  Warning: Target bone '{target_bone_name}' not found in target rig, skipping")
             continue
         
         # Check for space_r and space_l parameters (world space constraints)
@@ -765,7 +765,7 @@ def setup_rig(imported_armature: bpy.types.Object, target_rig: bpy.types.Object,
         if has_space_r or has_space_l:
             # World space constraint: check if imported armature has bone with exact renamed name
             if target_bone_name not in imported_armature.pose.bones:
-                log_message(f"  Warning: World space constraint requires bone '{target_bone_name}' in imported armature, not found")
+                Debug.log_warning(f"  Warning: World space constraint requires bone '{target_bone_name}' in imported armature, not found")
                 continue
             
             # Get target pose bone
@@ -776,9 +776,9 @@ def setup_rig(imported_armature: bpy.types.Object, target_rig: bpy.types.Object,
                 custom_bone = space_r.get('custom_bone')
                 
                 if custom_bone:
-                    log_message(f"  Creating world space Copy Rotation constraint: {target_rig.name}['{target_bone_name}'] <- {imported_armature.name}['{target_bone_name}'] (custom space: '{custom_bone}')")
+                    Debug.log(f"  Creating world space Copy Rotation constraint: {target_rig.name}['{target_bone_name}'] <- {imported_armature.name}['{target_bone_name}'] (custom space: '{custom_bone}')")
                 else:
-                    log_message(f"  Creating world space Copy Rotation constraint: {target_rig.name}['{target_bone_name}'] <- {imported_armature.name}['{target_bone_name}']")
+                    Debug.log(f"  Creating world space Copy Rotation constraint: {target_rig.name}['{target_bone_name}'] <- {imported_armature.name}['{target_bone_name}']")
                 
                 constraint = target_pose_bone.constraints.new('COPY_ROTATION')
                 constraint.name = f"MTAR_WS_Rot_{target_bone_name}"
@@ -792,7 +792,7 @@ def setup_rig(imported_armature: bpy.types.Object, target_rig: bpy.types.Object,
                 if custom_bone:
                     # Validate custom bone exists
                     if custom_bone not in target_rig.pose.bones:
-                        log_message(f"    Warning: Custom space bone '{custom_bone}' not found in target rig, using world space")
+                        Debug.log_warning(f"    Warning: Custom space bone '{custom_bone}' not found in target rig, using world space")
                         constraint.owner_space = 'WORLD'
                     else:
                         constraint.owner_space = 'CUSTOM'
@@ -810,7 +810,7 @@ def setup_rig(imported_armature: bpy.types.Object, target_rig: bpy.types.Object,
             
             # Create Copy Location constraint if space_l is set
             if has_space_l:
-                log_message(f"  Creating world space Copy Location constraint: {target_rig.name}['{target_bone_name}'] <- {imported_armature.name}['{target_bone_name}']")
+                Debug.log(f"  Creating world space Copy Location constraint: {target_rig.name}['{target_bone_name}'] <- {imported_armature.name}['{target_bone_name}']")
                 
                 constraint = target_pose_bone.constraints.new('COPY_LOCATION')
                 constraint.name = f"MTAR_WS_Loc_{target_bone_name}"
@@ -832,18 +832,18 @@ def setup_rig(imported_armature: bpy.types.Object, target_rig: bpy.types.Object,
             
             # Check if base bone exists in target rig
             if bone_base not in target_rig.pose.bones:
-                log_message(f"  Warning: as_ik_up base bone '{bone_base}' not found in target rig")
+                Debug.log_warning(f"  Warning: as_ik_up base bone '{bone_base}' not found in target rig")
                 continue
             
             # Check if target bone exists in imported armature (should have location animation)
             if target_bone_name not in imported_armature.pose.bones:
-                log_message(f"  Warning: as_ik_up target bone '{target_bone_name}' not found in imported armature")
+                Debug.log_warning(f"  Warning: as_ik_up target bone '{target_bone_name}' not found in imported armature")
                 continue
             
             # Get target pose bone
             target_pose_bone = target_rig.pose.bones[target_bone_name]
             
-            log_message(f"  Creating directional IK constraints for '{target_bone_name}': base='{bone_base}', axis={as_ik_up['axis']}, distance={as_ik_up['distance']}")
+            Debug.log(f"  Creating directional IK constraints for '{target_bone_name}': base='{bone_base}', axis={as_ik_up['axis']}, distance={as_ik_up['distance']}")
             
             # Constraint 1: Copy Location (World Space) from base bone
             constraint1 = target_pose_bone.constraints.new('COPY_LOCATION')
@@ -871,13 +871,13 @@ def setup_rig(imported_armature: bpy.types.Object, target_rig: bpy.types.Object,
             if custom_bone:
                 # Validate custom bone exists
                 if custom_bone not in target_rig.pose.bones:
-                    log_message(f"    Warning: Custom space bone '{custom_bone}' not found in target rig, using world space for transformation")
+                    Debug.log(f"    Warning: Custom space bone '{custom_bone}' not found in target rig, using world space for transformation")
                     constraint2.owner_space = 'WORLD'
                 else:
                     constraint2.owner_space = 'CUSTOM'
                     constraint2.space_object = target_rig
                     constraint2.space_subtarget = custom_bone
-                    log_message(f"    Using custom space '{custom_bone}' for transformation constraint")
+                    Debug.log(f"    Using custom space '{custom_bone}' for transformation constraint")
             else:
                 constraint2.owner_space = 'WORLD'
             
@@ -906,7 +906,7 @@ def setup_rig(imported_armature: bpy.types.Object, target_rig: bpy.types.Object,
             
             constraints_added += 1
     
-    log_message(f"Constraints setup complete: {constraints_added} constraint(s) added")
+    Debug.log(f"Constraints setup complete: {constraints_added} constraint(s) added")
 
 def create_and_setup_armature(
     context: bpy.types.Context,
@@ -938,13 +938,13 @@ def create_and_setup_armature(
         Main armature object
     """
     # Create fresh armature (Blender will auto-rename if name already exists)
-    log_message(f"Creating new armature: {mtar_file_name}")
+    Debug.log(f"Creating new armature: {mtar_file_name}")
     arm_data: bpy.types.Armature = bpy.data.armatures.new(name=mtar_file_name)
     armature: bpy.types.Object = bpy.data.objects.new(mtar_file_name, arm_data)
     context.scene.collection.objects.link(armature)
 
     # Set armature as active object and enter edit mode
-    log_message("Setting up armature bones...")
+    Debug.log("Setting up armature bones...")
     context.view_layer.objects.active = armature
     bpy.ops.object.mode_set(mode='EDIT')
 
@@ -955,7 +955,7 @@ def create_and_setup_armature(
             for keyframes_track in gani_track.segments_track_data:
                 all_bone_names.add(keyframes_track.name)
     
-    log_message(f"Found {len(all_bone_names)} unique handle(s)")
+    Debug.log(f"Found {len(all_bone_names)} unique handle(s)")
 
     # Create armature bones if they don't exist
     bones_created: int = 0
@@ -968,24 +968,24 @@ def create_and_setup_armature(
             bones_created += 1
     
     if bones_created > 0:
-        log_message(f"Created {bones_created} new armature bone(s)")
+        Debug.log(f"Created {bones_created} new armature bone(s)")
 
     # Exit edit mode
     bpy.ops.object.mode_set(mode='OBJECT')
 
     # Create animation data on imported armature (optional secondary task)
-    log_message("Setting up animation data on armature...")
+    Debug.log("Setting up animation data on armature...")
     if not armature.animation_data:
         armature.animation_data_create()
 
     # Create NLA tracks for organizing strips on imported armature
     nla_track: bpy.types.NlaTrack = armature.animation_data.nla_tracks.new()
     nla_track.name = f"{mtar_file_name}_Animations"
-    log_message(f"Created NLA track on imported armature: {nla_track.name}")
+    Debug.log(f"Created NLA track on imported armature: {nla_track.name}")
     
     # Add layout track action as NLA strip at frames -100 to -50
     if layout_action:
-        log_message("Adding layout track action to NLA...")
+        Debug.log("Adding layout track action to NLA...")
         layout_strip: bpy.types.NlaStrip = nla_track.strips.new(
             name=f"{mtar_file_name}_LayoutTrack",
             start=-100,
@@ -995,17 +995,17 @@ def create_and_setup_armature(
         layout_strip.frame_start = -100
         layout_strip.frame_end = -50
         layout_strip.blend_type = 'REPLACE'
-        log_message("    Layout strip placed at frames -100 to -50")
+        Debug.log("    Layout strip placed at frames -100 to -50")
     
     # Also create NLA track on target rig if provided
     target_nla_track: Optional[bpy.types.NlaTrack] = None
     if target_rig:
-        log_message(f"Setting up animation data on target rig: {target_rig.name}")
+        Debug.log(f"Setting up animation data on target rig: {target_rig.name}")
         if not target_rig.animation_data:
             target_rig.animation_data_create()
         target_nla_track = target_rig.animation_data.nla_tracks.new()
         target_nla_track.name = f"{mtar_file_name}_Animations"
-        log_message(f"Created NLA track on target rig: {target_nla_track.name}")
+        Debug.log(f"Created NLA track on target rig: {target_nla_track.name}")
 
     current_frame_offset: int = 0
 
@@ -1033,7 +1033,7 @@ def create_and_setup_armature(
             strip.action_frame_start = 0
             strip.action_frame_end = action_frame_end
             
-            log_message(f"Created NLA strip on imported armature at frame {current_frame_offset} (length: {action_frame_end})")
+            Debug.log(f"Created NLA strip on imported armature at frame {current_frame_offset} (length: {action_frame_end})")
             
             # Also create NLA strip on target rig if provided
             if target_nla_track:
@@ -1047,7 +1047,7 @@ def create_and_setup_armature(
                 target_strip.action_frame_start = 0
                 target_strip.action_frame_end = action_frame_end
                 
-                log_message(f"Created NLA strip on target rig at frame {current_frame_offset} (length: {action_frame_end})")
+                Debug.log(f"Created NLA strip on target rig at frame {current_frame_offset} (length: {action_frame_end})")
             
             # Update offset for next strip
             current_frame_offset += action_frame_end
@@ -1055,7 +1055,7 @@ def create_and_setup_armature(
     # Update scene frame range
     if max_frame_end > 0:
         context.scene.frame_end = int(max_frame_end)
-        log_message(f"\nSet scene frame range: 0 - {max_frame_end}")
+        Debug.log(f"\nSet scene frame range: 0 - {max_frame_end}")
 
     return armature
 
@@ -1083,11 +1083,11 @@ def create_and_setup_motion_points_armature(
     if not motion_points or motion_points.count == 0:
         return None
     
-    log_message("\nCreating motion points armature...")
+    Debug.log("\nCreating motion points armature...")
     
     # Create armature with '_MotionPoints' suffix
     armature_name = f"{mtar_file_name}_MotionPoints"
-    log_message(f"  Creating motion points armature: {armature_name}")
+    Debug.log(f"  Creating motion points armature: {armature_name}")
     
     arm_data: bpy.types.Armature = bpy.data.armatures.new(name=armature_name)
     armature: bpy.types.Object = bpy.data.objects.new(armature_name, arm_data)
@@ -1120,7 +1120,7 @@ def create_and_setup_motion_points_armature(
         edit_bone.tail = (0, 0.1, 0)  # Small default length
         
         created_bones[point_hash] = edit_bone
-        log_message(f"    Created motion point bone: {bone_name}")
+        Debug.log(f"    Created motion point bone: {bone_name}")
     
     # Set up parent relationships
     # If parent is a motion point in this armature, use it.
@@ -1134,7 +1134,7 @@ def create_and_setup_motion_points_armature(
             edit_bone = created_bones[point_hash]
             parent_bone = created_bones[parent_hash]
             edit_bone.parent = parent_bone
-            log_message(f"    Set parent: {bone_name} -> {parent_bone.name} (motion point)")
+            Debug.log(f"    Set parent: {bone_name} -> {parent_bone.name} (motion point)")
         else:
             # Parent is not a motion point - create a parent bone from the hash
             parent_hash_int = parent_hash.to_int() if hasattr(parent_hash, 'to_int') else int(parent_hash)
@@ -1149,23 +1149,23 @@ def create_and_setup_motion_points_armature(
                 parent_edit_bone.head = (0, 0, 0)
                 parent_edit_bone.tail = (0, 0.1, 0)
                 created_bones[parent_hash] = parent_edit_bone
-                log_message(f"    Created parent bone from hash: {parent_bone_name} (hash: {parent_hash})")
+                Debug.log(f"    Created parent bone from hash: {parent_bone_name} (hash: {parent_hash})")
             
             # Set parent
             edit_bone = created_bones[point_hash]
             parent_bone = created_bones[parent_hash]
             edit_bone.parent = parent_bone
-            log_message(f"    Set parent: {bone_name} -> {parent_bone.name} (from parent hash)")
+            Debug.log(f"    Set parent: {bone_name} -> {parent_bone.name} (from parent hash)")
     
     # Exit edit mode
     bpy.ops.object.mode_set(mode='OBJECT')
     
-    log_message(f"Motion points armature created with {len(motion_points.entries)} point(s)")
+    Debug.log(f"Motion points armature created with {len(motion_points.entries)} point(s)")
     
     # Process motion point animations using pre-created actions
     if motion_point_actions:
-        log_message("\n=== Processing Motion Point Animations ===")
-        log_message(f"Importing animations to motion points armature: {armature.name}")
+        Debug.log("\n=== Processing Motion Point Animations ===")
+        Debug.log(f"Importing animations to motion points armature: {armature.name}")
         
         # Create animation data if needed
         if not armature.animation_data:
@@ -1174,7 +1174,7 @@ def create_and_setup_motion_points_armature(
         # Create NLA track for motion point animations
         nla_track: bpy.types.NlaTrack = armature.animation_data.nla_tracks.new()
         nla_track.name = f"{mtar_file_name}_MotionPoints_Animations"
-        log_message(f"Created NLA track: {nla_track.name}")
+        Debug.log(f"Created NLA track: {nla_track.name}")
         
         current_frame_offset: int = 0
         
@@ -1202,12 +1202,12 @@ def create_and_setup_motion_points_armature(
                 strip.action_frame_start = 0
                 strip.action_frame_end = action_frame_end
                 
-                log_message(f"  Created NLA strip at frame {current_frame_offset} (length: {action_frame_end})")
+                Debug.log(f"  Created NLA strip at frame {current_frame_offset} (length: {action_frame_end})")
                 
                 # Update offset for next strip
                 current_frame_offset += action_frame_end
         
-        log_message("Motion point animations import complete")
+        Debug.log("Motion point animations import complete")
     
     return armature
 
@@ -1257,15 +1257,15 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
     """
     start_timer("MTAR Import")
     
-    log_message("=== MTAR Import Started ===")
-    log_message(f"File: {filepath}")
+    Debug.log("=== MTAR Import Started ===")
+    Debug.log(f"File: {filepath}")
     if frig:
-        log_message(f"Using FRIG data: {frig.header.rig_unit_count} rig units, {frig.bone_list.bone_count} bones")
+        Debug.log(f"Using FRIG data: {frig.header.rig_unit_count} rig units, {frig.bone_list.bone_count} bones")
     
     reader: MtarReader = MtarReader(filepath)
 
     # Read all animation tracks, motion point tracks, and events
-    log_message("Reading MTAR file data...")
+    Debug.log("Reading MTAR file data...")
     all_gani_tracks: List[List[TrackUnitWrapper]]
     all_motion_point_gani_tracks: List[List[TrackUnitWrapper]]  # Motion point animation tracks
     all_motion_events: List[Optional['EvpHeader']]  # Motion events for each GANI
@@ -1274,26 +1274,26 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
     all_file_headers: List[MtarTableList2]  # List of MtarTableList2 objects with path hash
     all_motion_point_track_headers: List[Optional['TrackHeader']]  # List of TrackHeader objects for motion points
     all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers = reader.read_all_tracks()
-    log_message(f"Found {len(all_gani_tracks)} GANI file(s)")
+    Debug.log(f"Found {len(all_gani_tracks)} GANI file(s)")
     
     # Get layout track for metadata storage
     layout_track = None
     motion_points = None
     if reader.common_info and reader.common_info.layout_track:
         layout_track = reader.common_info.layout_track
-        log_message(f"Layout track has {len(layout_track.track_units)} track units")
+        Debug.log(f"Layout track has {len(layout_track.track_units)} track units")
     
     # Get motion points if present
     if reader.common_info and reader.common_info.motion_points:
         motion_points = reader.common_info.motion_points
-        log_message(f"Motion points found: {motion_points.count} point(s)")
+        Debug.log(f"Motion points found: {motion_points.count} point(s)")
         for entry in motion_points.entries:
-            log_message(f"  MotionPoint {entry.name}: name={str(entry.name)}, parent={str(entry.parent_name)}")
+            Debug.log(f"  MotionPoint {entry.name}: name={str(entry.name)}, parent={str(entry.parent_name)}")
     
     # Filter to specific GANI index if requested
     if gani_index >= 0:
         if gani_index < len(all_gani_tracks):
-            log_message(f"Importing only GANI index {gani_index}")
+            Debug.log(f"Importing only GANI index {gani_index}")
             all_gani_tracks = [all_gani_tracks[gani_index]]
             # Also filter motion point data to match the selected GANI
             if gani_index < len(all_motion_point_gani_tracks):
@@ -1326,7 +1326,7 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
             else:
                 all_file_headers = []
         else:
-            log_message(f"  Warning: GANI index {gani_index} out of range (0-{len(all_gani_tracks)-1}), importing nothing")
+            Debug.log(f"  Warning: GANI index {gani_index} out of range (0-{len(all_gani_tracks)-1}), importing nothing")
             all_gani_tracks = []
             all_motion_point_gani_tracks = []
             all_motion_point_layouts = []
@@ -1338,16 +1338,16 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
     # If FRIG data is available, set rig_unit_type for each GaniTrack
     # The index of gani_tracks correlates with the rig unit defs in the FRIG file
     if frig:
-        log_message("Mapping FRIG rig unit types to GaniTracks...")
+        Debug.log("Mapping FRIG rig unit types to GaniTracks...")
         for gani_tracks in all_gani_tracks:
             for gani_track_index, gani_track in enumerate(gani_tracks):
                 # Check if we have a corresponding rig unit def
                 if gani_track_index < len(frig.rig_def.unit_defs):
                     rig_unit_def = frig.rig_def.unit_defs[gani_track_index]
                     gani_track.rig_unit_type = rig_unit_def.unit_type
-                    log_message(f"  GaniTrack {gani_track_index} '{gani_track.name}' -> RigUnitType.{gani_track.rig_unit_type.name}")
+                    Debug.log(f"  GaniTrack {gani_track_index} '{gani_track.name}' -> RigUnitType.{gani_track.rig_unit_type.name}")
                 else:
-                    log_message(f"  Warning: No rig unit def for GaniTrack {gani_track_index} '{gani_track.name}'")
+                    Debug.log(f"  Warning: No rig unit def for GaniTrack {gani_track_index} '{gani_track.name}'")
     
     # Modify keyframes track names based on rig unit type and apply track mapping transformations
     apply_track_transformations(all_gani_tracks, track_mapping)
@@ -1392,6 +1392,6 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
         motion_point_actions
     )
     
-    log_message("\n=== MTAR Import Completed Successfully ===")
+    Debug.log("\n=== MTAR Import Completed Successfully ===")
     stop_timer("MTAR Import")
     return {'FINISHED'}, armature

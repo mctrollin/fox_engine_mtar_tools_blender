@@ -4,7 +4,7 @@ GANI2 animation data import functionality for Metal Gear Solid V files.
 import io
 from typing import List, Optional, Tuple
 
-from ..py_utilities.logging_utilities import log_message
+from ..py_utilities.logging_utilities import Debug
 from ..py_utilities.hash_utilities import unhash_rig_type
 from ..py_utilities.binary_utilities_write import align_length
 
@@ -92,10 +92,10 @@ class Gani2Reader:
 
 
     def read_gani(self, file_data: bytes, layout_track: Tracks, file_header: MtarTableList2, track_count: int, is_new_format: bool) -> Tuple[List[TrackUnitWrapper], List[TrackUnitWrapper], Optional[EvpHeader], TrackMiniHeader, Optional[Tracks], Optional[TrackHeader]]:
-        log_message("  Reading GANI data:")
-        log_message(f"    Track count: {track_count}")
-        log_message(f"    Tracks offset: 0x{file_header.tracks_offset:X}")
-        log_message(f"    New format: {is_new_format}")
+        Debug.log("  Reading GANI data:")
+        Debug.log(f"    Track count: {track_count}")
+        Debug.log(f"    Tracks offset: 0x{file_header.tracks_offset:X}")
+        Debug.log(f"    New format: {is_new_format}")
 
         # Tracks: Let gani_reader handle the track data reading
         gani_tracks, track_mini_header = self.read_all_tracks(
@@ -104,7 +104,7 @@ class Gani2Reader:
             track_count,
             layout_track
         )
-        log_message(f"    Read {len(gani_tracks)} track(s)")
+        Debug.log(f"    Read {len(gani_tracks)} track(s)")
 
         # Initialize motion point tracks as empty list
         motion_point_gani_tracks: List[TrackUnitWrapper] = []
@@ -116,11 +116,11 @@ class Gani2Reader:
 
         motion_events: Optional[EvpHeader] = None
         if is_new_format:
-            log_message("    Processing new format sections...")
+            Debug.log("    Processing new format sections...")
 
             # MotionPointTracks: Handle motion point tracks if present (new format only)
             if file_header.motion_point_tracks_offset != 0:
-                log_message(f"      Motion point tracks offset: 0x{file_header.motion_point_tracks_offset:X}")
+                Debug.log(f"      Motion point tracks offset: 0x{file_header.motion_point_tracks_offset:X}")
                 motion_ptr = file_header.tracks_offset + file_header.motion_point_tracks_offset
                 br = io.BytesIO(file_data)
                 br.seek(motion_ptr)
@@ -128,15 +128,15 @@ class Gani2Reader:
                 # Read motion point tracks - they use Tracks structure (like layout tracks)
                 # Unlike layout tracks, motion point tracks have actual data blobs
                 motion_point_layout = Tracks.read(br, file_data=file_data, read_data_blobs=True)
-                log_message(f"      Motion point layout: {motion_point_layout.header.unit_count} unit(s), {motion_point_layout.header.segment_count} segment(s)")
-                log_message(f"        Frame count: {motion_point_layout.header.frame_count}, Frame rate: {motion_point_layout.header.frame_rate}")
+                Debug.log(f"      Motion point layout: {motion_point_layout.header.unit_count} unit(s), {motion_point_layout.header.segment_count} segment(s)")
+                Debug.log(f"        Frame count: {motion_point_layout.header.frame_count}, Frame rate: {motion_point_layout.header.frame_rate}")
                 
                 # Store the TrackHeader for later use
                 motion_point_track_header = motion_point_layout.header
                 
                 # Convert TrackUnits with data_blobs to GaniTrack format
                 motion_point_gani_tracks_raw = self.convert_tracks_to_gani_tracks(motion_point_layout)
-                log_message(f"      Read {len(motion_point_gani_tracks_raw)} motion point track(s)")
+                Debug.log(f"      Read {len(motion_point_gani_tracks_raw)} motion point track(s)")
                 
                 # Apply naming resolution to motion point tracks
                 motion_point_gani_tracks = apply_track_naming(motion_point_gani_tracks_raw, prefix="")
@@ -144,12 +144,12 @@ class Gani2Reader:
             # MotionEvents: Handle motion events if present
             br = io.BytesIO(file_data)
             if file_header.motion_events_offset != 0:
-                log_message(f"      Motion events offset: 0x{file_header.motion_events_offset:X}")
+                Debug.log(f"      Motion events offset: 0x{file_header.motion_events_offset:X}")
                 br.seek(file_header.motion_events_offset)
                 motion_events = EvpHeader.read(br)
-                log_message(f"      Read motion events: {motion_events.count} event(s)")
+                Debug.log(f"      Read motion events: {motion_events.count} event(s)")
 
-        log_message(f"    GANI read complete: {len(named_gani_tracks)} named track(s)")
+        Debug.log(f"    GANI read complete: {len(named_gani_tracks)} named track(s)")
         return named_gani_tracks, motion_point_gani_tracks, motion_events, track_mini_header, motion_point_layout, motion_point_track_header
 
     # read gani2 tracks
@@ -158,10 +158,10 @@ class Gani2Reader:
 
         Returns a tuple of (gani_tracks_list, mini_header_object).
         """
-        log_message("      Reading all tracks:")
-        log_message(f"        Track header ptr: 0x{track_header_ptr:X}")
-        log_message(f"        Track count: {track_count}")
-        log_message(f"        Segment count: {layout_track.header.segment_count}")
+        Debug.log("      Reading all tracks:")
+        Debug.log(f"        Track header ptr: 0x{track_header_ptr:X}")
+        Debug.log(f"        Track count: {track_count}")
+        Debug.log(f"        Segment count: {layout_track.header.segment_count}")
         
         br = io.BytesIO(file_data)
 
@@ -171,13 +171,13 @@ class Gani2Reader:
         # Now read the TrackMiniHeader which follows the GANI2 header
         # Includes UnitFlags and SegmentHeaders
         track_mini_header = TrackMiniHeader.read(br, unit_count=track_count, segment_count=layout_track.header.segment_count)
-        log_message(f"        Read TrackMiniHeader: frame_count={track_mini_header.frame_count}, param_count={track_mini_header.param_count}")
+        Debug.log(f"        Read TrackMiniHeader: frame_count={track_mini_header.frame_count}, param_count={track_mini_header.param_count}")
 
         # Calculate GANI2 animation_track data array start location
         param_end_ptr = track_header_ptr + TrackMiniHeader.BASE_SIZE + track_mini_header.param_count * 8 + track_count * 1
         # align up to 4 bytes
         gani2_trackdata_base = align_length(param_end_ptr, 4)
-        log_message(f"        Track data base: 0x{gani2_trackdata_base:X}")
+        Debug.log(f"        Track data base: 0x{gani2_trackdata_base:X}")
 
         # Process each animation_track unit
 
@@ -197,7 +197,7 @@ class Gani2Reader:
             # Add the GaniTrack to the list
             gani_tracks.append(gani_track)
 
-        log_message(f"      Completed reading {len(gani_tracks)} track(s)")
+        Debug.log(f"      Completed reading {len(gani_tracks)} track(s)")
         return gani_tracks, track_mini_header
 
     # read gani2 track
@@ -211,9 +211,9 @@ class Gani2Reader:
         unit_flags_int = track_mini_header.unit_flags[track_index]
         unit_flags_list = TrackUnitFlags.int_to_track_unit_flags(unit_flags_int)
         
-        log_message(f"        Reading track {track_index}: '{track_unit.name}'")
-        log_message(f"          Segment count: {track_unit.segment_count}")
-        log_message(f"          Unit flags: {unit_flags_int} ({unit_flags_list})")
+        Debug.log(f"        Reading track {track_index}: '{track_unit.name}'")
+        Debug.log(f"          Segment count: {track_unit.segment_count}")
+        Debug.log(f"          Unit flags: {unit_flags_int} ({unit_flags_list})")
 
         # Read each segment in this animation_track unit
         for segment_index in range(track_unit.segment_count):
@@ -221,7 +221,7 @@ class Gani2Reader:
             # Get header
             segment_track_data: TrackData = track_unit.segments_data[segment_index]
             
-            log_message(f"          Segment {segment_index}: type={segment_track_data.td_type.name}, component_bits={segment_track_data.component_bit_size}")
+            Debug.log(f"          Segment {segment_index}: type={segment_track_data.td_type.name}, component_bits={segment_track_data.component_bit_size}")
             
             # Read segment into keyframes
             br.seek(segment_track_data.data_offset)
@@ -247,7 +247,7 @@ class Gani2Reader:
             rig_unit_type=None  # Will be filled in later when FRIG data is available
         )
 
-        log_message(f"          Track complete: {len(keyframes_tracks)} segment(s)")
+        Debug.log(f"          Track complete: {len(keyframes_tracks)} segment(s)")
         return gani_track, keyframes_track_index_abs
 
     # read gani2 track segment
