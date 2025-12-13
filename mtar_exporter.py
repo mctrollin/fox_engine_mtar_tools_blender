@@ -5,13 +5,14 @@ This module handles the export of Blender animation data to MTAR format.
 """
 
 from typing import Optional, Dict, List, TYPE_CHECKING
+from pathlib import Path
 
 import bpy
 from mathutils import Quaternion
 
-from .py_utilities.logging_utilities import Debug, start_timer, stop_timer
-from .py_utilities.transform_utilities import reverse_directional_location, apply_reverse_transforms, get_local_space_transform, get_world_space_transform, blender_to_fox_vector, blender_to_fox_quaternion
-from .py_utilities.blender_animation_utilities import FCurveCache
+from .py_utilities.utilities_logging import Debug, start_timer, stop_timer
+from .py_utilities.utilities_transforms import reverse_directional_location, apply_reverse_transforms, get_local_space_transform, get_world_space_transform, blender_to_fox_vector, blender_to_fox_quaternion
+from .py_utilities.utilities_blender_animation_ import FCurveCache
 
 from .py_foxwrap.foxwrap_motionevent import read_motion_events_from_action
 from .py_foxwrap.foxwrap_metadata import parse_action_track_metadata, read_track_header_properties_from_action
@@ -1258,6 +1259,23 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
     
     Debug.log(f"\n=== Exporting {len(actions_to_export)} action(s) ===")
     
+    # Collect animation names for info file
+    animation_names = []
+    for action_data in actions_to_export:
+        # Extract NLA track and strip names from the source string
+        source = action_data.source  # Format: 'NLA Track "track_name" Strip "strip_name"'
+        if source and source.startswith('NLA Track'):
+            # Parse: NLA Track "track_name" Strip "strip_name"
+            parts = source.split('"')
+            if len(parts) >= 4:
+                track_name = parts[1]  # Text between first pair of quotes
+                strip_name = parts[3]  # Text between second pair of quotes
+                base = props.export_custom_path_base if props.export_custom_path_hashes else ''
+                animation_names.append(f"{base}{track_name}/{strip_name}")
+        else:
+            # Fallback: use action name
+            animation_names.append(action_data.action.name)
+    
     # Create MTAR writer
     writer = MtarWriter(filepath)
     
@@ -1424,6 +1442,26 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
     start_timer("5. Writing MTAR file")
     writer.write()
     stop_timer("5. Writing MTAR file")
+    
+    # Write the info file with animation names
+    Debug.log("\n6. Writing animation info file... ++++++++++++++++++++++++++++++++++++++++++++")
+    start_timer("6. Writing animation info file")
+    
+    # Only write the info file if the export setting is enabled
+    if props.export_info_file:
+        mtar_path = Path(filepath)
+        info_filepath = mtar_path.with_name(f"{mtar_path.stem}.mtar.info.txt")
+        try:
+            with open(info_filepath, 'w', encoding='utf-8') as info_file:
+                for anim_name in animation_names:
+                    info_file.write(f"{anim_name}\n")
+            Debug.log(f"  Wrote {len(animation_names)} animation name(s) to {info_filepath}")
+        except (IOError, OSError) as e:
+            Debug.log_error(f"  Error writing info file: {e}")
+    else:
+        Debug.log("  Skipping info file export (disabled in export settings)")
+    
+    stop_timer("6. Writing animation info file")
     
     Debug.log("\n=== MTAR Data Export Complete ===")
     Debug.log(f"Exported {len(actions_to_export)} action(s) to {filepath}\n")

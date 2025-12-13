@@ -7,7 +7,7 @@ This module provides functions to store motion events from MTAR files as:
 """
 from typing import List, Dict, Optional, TYPE_CHECKING
 
-from ..py_utilities.logging_utilities import Debug
+from ..py_utilities.utilities_logging import Debug
 from .foxwrap_metadata import make_event_property_key, iter_event_properties
 
 from ..py_fox.fox_gani_types import EvpHeader, EvpData, EventUnitInfo, TimeSection

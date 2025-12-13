@@ -119,6 +119,25 @@ class MTAR_PG_Properties(PropertyGroup):
         default=False
     )
 
+    export_custom_path_hashes: bpy.props.BoolProperty(
+        name="Export Custom Path Hashes",
+        description="Also export hashes for a custom base path",
+        default=False
+    )
+
+    export_custom_path_base: StringProperty(
+        name="Hash Base Path",
+        description="Base path to use for custom path hashes",
+        default="/Assets/tpp/",
+        maxlen=1024
+    )
+
+    export_info_file: bpy.props.BoolProperty(
+        name="Export Info File",
+        description="Write a '<mtar file name>.mtar.info.txt' file containing exported GANI names or hashes",
+        default=True
+    )
+
     export_motion_points_armature: PointerProperty(
         name="Motion Points Armature",
         description="Optional armature that contains motion point bones to export (name should match <base>_MotionPoints if auto-detected).",
@@ -281,6 +300,17 @@ class MTAR_PT_ExportPanel(Panel):
         draw_bool_prop_checkbox_icon(row, props, "export_use_nla")
         row = box.row()
         draw_bool_prop_checkbox_icon(row, props, "export_use_evaluated")
+        # Custom path hash export option
+        row = box.row()
+        draw_bool_prop_checkbox_icon(row, props, "export_custom_path_hashes")
+        if props.export_custom_path_hashes:
+            # Show base path text field with required label
+            row = box.row()
+            row.prop(props, "export_custom_path_base", text="")
+
+        # Export info file option
+        row = box.row()
+        draw_bool_prop_checkbox_icon(row, props, "export_info_file")
         
         # Info
         box = export_box

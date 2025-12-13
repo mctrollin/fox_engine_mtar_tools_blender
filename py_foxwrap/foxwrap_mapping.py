@@ -7,7 +7,7 @@ including renaming, rotation transformations, constraint setup, and more.
 
 from typing import Dict, Tuple, Optional
 
-from ..py_utilities.logging_utilities import Debug
+from ..py_utilities.utilities_logging import Debug
 
 from .foxwrap_metadata import (
     parse_track_metadata,

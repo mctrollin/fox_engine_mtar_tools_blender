@@ -10,8 +10,8 @@ import io
 
 import bpy
 
-from ..py_utilities.logging_utilities import Debug
-from ..py_utilities.binary_utilities_write import align_buffer, write_padding
+from ..py_utilities.utilities_logging import Debug
+from ..py_utilities.utilities_binary_write import align_buffer, write_padding
 
 from ..py_fox.fox_mtar_types import MtarHeader, MtarTableList2, MtarFlags, MtarMiniDataNode, MotionPointList2
 from ..py_fox.fox_gani_enums import CommonInfoNodeType, TrackUnitFlags

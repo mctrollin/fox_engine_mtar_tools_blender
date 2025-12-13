@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from typing import BinaryIO, List, Optional
 import struct
 
-from ..py_utilities.binary_utilities_write import write_padding, align_length
-from ..py_utilities.binary_utilities_read import (
+from ..py_utilities.utilities_binary_write import write_padding, align_length
+from ..py_utilities.utilities_binary_read import (
     read_unaligned_bits,
     read_unaligned_quaternion,
     read_float,
@@ -15,7 +15,7 @@ from ..py_utilities.binary_utilities_read import (
     read_vector3,
     read_vector4,
 )
-from ..py_utilities.binary_utilities_write import (
+from ..py_utilities.utilities_binary_write import (
     write_unaligned_bits,
     write_unaligned_quaternion,
     write_float,
@@ -25,7 +25,7 @@ from ..py_utilities.binary_utilities_write import (
     align_buffer,
     align_bytearray,
 )
-from ..py_utilities.logging_utilities import Debug
+from ..py_utilities.utilities_logging import Debug
 
 from .fox_misc_types import StrCode32
 from .fox_gani_enums import SegmentType, TrackUnitFlags

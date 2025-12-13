@@ -4,10 +4,10 @@ from typing import Optional, List, Dict, Union, Tuple
 import bpy
 from mathutils import Quaternion, Vector
 
-from .py_utilities.logging_utilities import Debug, start_timer, stop_timer
-from .py_utilities.hash_utilities import unhash_rig_type
-from .py_utilities.transform_utilities import calculate_directional_location, prepare_rotation_offset_quats, apply_rotation_transforms, fox_to_blender_vector
-from .py_utilities.blender_animation_utilities import add_dummy_keyframes_to_action, configure_action
+from .py_utilities.utilities_logging import Debug, start_timer, stop_timer
+from .py_utilities.utilities_rig_hash import unhash_rig_type
+from .py_utilities.utilities_transforms import calculate_directional_location, prepare_rotation_offset_quats, apply_rotation_transforms, fox_to_blender_vector
+from .py_utilities.utilities_blender_animation_ import add_dummy_keyframes_to_action, configure_action
 
 from .py_foxwrap.foxwrap_metadata import store_track_header_properties_on_action, TrackMetaData, make_track_property_key
 from .py_foxwrap.foxwrap_misc import TrackUnitWrapper, TrackDataBlobWrapper, Tracks

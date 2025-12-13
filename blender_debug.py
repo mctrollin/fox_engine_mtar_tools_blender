@@ -11,8 +11,8 @@ import bpy
 from bpy.types import Operator, Panel, PropertyGroup, Context
 from bpy.props import PointerProperty, BoolProperty, StringProperty
 
-from .py_utilities.transform_utilities import get_world_space_transform, get_local_space_transform
-from .py_utilities.logging_utilities import Debug
+from .py_utilities.utilities_transforms import get_world_space_transform, get_local_space_transform
+from .py_utilities.utilities_logging import Debug
 
 if TYPE_CHECKING:
     from bpy.types import Object
@@ -603,7 +603,7 @@ class MTAR_OT_ConvertWithExternalExe(Operator):
     
     def execute(self, context: Context) -> set:
         """Execute the hash conversion."""
-        from .py_tools.external_converter import hash_filename_all_modes
+        from .py_tools.tools_hash_generator import hash_filename_all_modes
         
         props = context.scene.mtar_converter_properties
         
@@ -859,7 +859,7 @@ class MTAR_OT_ValidateConverterExe(Operator):
     
     def execute(self, context: Context) -> set:
         """Execute the validation."""
-        from .py_tools.external_converter import validate_executable_path
+        from .py_tools.tools_hash_generator import validate_executable_path
         
         props = context.scene.mtar_converter_properties
         

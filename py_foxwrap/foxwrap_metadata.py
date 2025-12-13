@@ -15,7 +15,7 @@ from ..py_fox.fox_gani_types import SegmentType, TrackHeader, TrackUnitFlags, Tr
 from ..py_fox.fox_frig_types import RigUnitType
 from ..py_fox.fox_misc_types import StrCode32
 from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper
-from ..py_utilities.logging_utilities import Debug
+from ..py_utilities.utilities_logging import Debug
 
 
 # Custom Property Key Utilities #############################################################
@@ -714,7 +714,7 @@ class TrackMetaData:
         Returns:
             List of TrackMetaData objects
         """
-        from ..py_utilities.hash_utilities import unhash_rig_type
+        from ..py_utilities.utilities_rig_hash import unhash_rig_type
         
         track_metadata_list: List['TrackMetaData'] = []
         

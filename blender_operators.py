@@ -10,8 +10,8 @@ import bpy
 from bpy.types import Operator, Context, Event
 from bpy.props import StringProperty
 
-from .py_utilities.logging_utilities import Debug
-from .py_utilities.hash_utilities import unhash_rig_type
+from .py_utilities.utilities_logging import Debug
+from .py_utilities.utilities_rig_hash import unhash_rig_type
 
 from .py_fox.fox_mtar_types import MtarHeader
 from .py_fox.fox_frig_types import FrigFile, RigUnitDef
@@ -24,7 +24,7 @@ from .py_foxwrap.foxwrap_metadata import get_all_track_metadata_from_action
 
 from .mtar_importer import import_mtar
 from .mtar_exporter import export_mtar, find_layout_track_action
-from .py_tools.bake_armature import bake_armature_action, bake_armature_nla_strips
+from .py_tools.tools_blender_animation_bake import bake_armature_action, bake_armature_nla_strips
 
 if TYPE_CHECKING:
     from bpy.types import Object

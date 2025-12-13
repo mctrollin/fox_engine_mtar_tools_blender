@@ -4,7 +4,7 @@ Shared fake types used by both import and export.
 from dataclasses import dataclass
 from typing import BinaryIO, List, Optional
 
-from ..py_utilities.binary_utilities_write import write_padding, align_length
+from ..py_utilities.utilities_binary_write import write_padding, align_length
 
 from ..py_fox.fox_gani_types import TrackHeader, TrackUnit, TrackUnitFlags, TrackData, TrackDataBlob, AnimKeyframe
 from ..py_fox.fox_frig_types import RigUnitType

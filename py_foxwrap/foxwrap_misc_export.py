@@ -6,7 +6,7 @@ import io
 import copy
 from typing import Optional, List, Dict, Tuple, TYPE_CHECKING
 
-from ..py_utilities.logging_utilities import Debug
+from ..py_utilities.utilities_logging import Debug
 
 from ..py_fox.fox_gani_types import TrackUnitFlags, EvpHeader
 
