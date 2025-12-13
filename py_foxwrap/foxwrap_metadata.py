@@ -5,19 +5,20 @@ This module contains helper functions used throughout the importer and
 exporter for parsing @track metadata strings stored either in mapping files
 or on Blender action properties.
 """
-from typing import List, Optional, Dict, Any, Tuple, TYPE_CHECKING
+from typing import List, Optional, Dict, Any, Tuple
 from dataclasses import dataclass, field
 import copy
 
-from ..py_fox.fox_gani_types import SegmentType, TrackHeader
-from ..py_fox.fox_gani_types import TrackUnitFlags
+import bpy
+
+from ..py_fox.fox_gani_types import SegmentType, TrackHeader, TrackUnitFlags, TrackUnit, Gani2TrackData
+from ..py_fox.fox_frig_types import RigUnitType
 from ..py_fox.fox_misc_types import StrCode32
+from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper
+from ..py_utilities.logging_utilities import Debug
 
-if TYPE_CHECKING:
-    import bpy
 
-
-# ========== Custom Property Key Utilities ==========
+# Custom Property Key Utilities #############################################################
 
 def make_track_property_key(track_idx: int, track_name: str) -> str:
     """Create a custom property key for track metadata.
@@ -97,7 +98,7 @@ def parse_event_property_key(key: str) -> Optional[Tuple[int, str]]:
     return None
 
 
-def iter_track_properties(action: 'bpy.types.Action') -> List[Tuple[int, str, str]]:
+def iter_track_properties(action: bpy.types.Action) -> List[Tuple[int, str, str]]:
     """Iterate through all track metadata properties on an action.
     
     Args:
@@ -118,7 +119,7 @@ def iter_track_properties(action: 'bpy.types.Action') -> List[Tuple[int, str, st
     return results
 
 
-def iter_event_properties(action: 'bpy.types.Action') -> List[Tuple[int, str, str]]:
+def iter_event_properties(action: bpy.types.Action) -> List[Tuple[int, str, str]]:
     """Iterate through all motion event properties on an action.
     
     Args:
@@ -139,9 +140,9 @@ def iter_event_properties(action: 'bpy.types.Action') -> List[Tuple[int, str, st
     return results
 
 
-# ========== Track Header Properties ==========
+# Track Header Properties #############################################################
 
-def store_track_header_properties_on_action(action: 'bpy.types.Action', track_header: TrackHeader) -> None:
+def store_track_header_properties_on_action(action: bpy.types.Action, track_header: TrackHeader) -> None:
     """Store TrackHeader fields as custom properties on an action.
     
     Note: frame_count is NOT stored as a custom property - it's stored in action.frame_end
@@ -172,7 +173,7 @@ def store_track_header_properties_on_action(action: 'bpy.types.Action', track_he
     )
 
 
-def read_track_header_properties_from_action(action: Optional['bpy.types.Action']) -> Dict[str, int]:
+def read_track_header_properties_from_action(action: Optional[bpy.types.Action]) -> Dict[str, int]:
     """Read TrackHeader fields from action custom properties.
     
     Note: frame_count is read from action.frame_end (manual frame range) instead of 
@@ -459,6 +460,8 @@ def parse_as_ik_up_parameter(param_value: str) -> Optional[dict]:
         return None
 
 
+# Track MetaData wrapper #############################################################
+
 @dataclass
 class TrackMetaData:
     """Container for metadata for a single track.
@@ -486,82 +489,351 @@ class TrackMetaData:
     space_r: Optional[Dict[str, Any]] = None
     as_ik_up: Optional[Dict[str, Any]] = None
 
-    @classmethod
-    def from_layout_metadata(cls, layout_meta: dict) -> Optional['TrackMetaData']:
-        """Build a TrackMetadata instance from layout metadata dictionary.
-
-        The input `layout_meta` is expected to be in the format returned by
-        `parse_track_metadata()` (keys: name, type, count, bits, segments, flags).
+    @staticmethod
+    def from_action(layout_action: bpy.types.Action, fox_track_name: str) -> Optional['TrackMetaData']:
+        """Retrieve track structure metadata from layout action custom properties.
+        
+        The layout action stores the track structure (segments, track names) that is shared
+        across all animations in the MTAR file.
+        
+        Property key format: track_<padded_idx>_<fox_track_name>
+        Property value format: @track <name> : segments=<segments> ; flags=<flags>
+        
+        Args:
+            layout_action: The layout action containing track structure metadata
+            fox_track_name: Fox track name to get metadata for (e.g., "LArm", "Root", "SKL_002_NECK1")
+            
+        Returns:
+            TrackMetaData object if found, None otherwise
         """
-        if not layout_meta:
+        # Search for custom property matching the track name
+        metadata_str = None
+        property_key = None
+        
+        for key in layout_action.keys():
+            parsed = parse_track_property_key(key)
+            if parsed:
+                track_idx, track_name = parsed
+                if track_name == fox_track_name:
+                    property_key = key
+                    metadata_str = layout_action[key]
+                    break
+        
+        if metadata_str is None:
             return None
-        track_name = layout_meta.get('name', '')
-        tm = cls(track_name=track_name)
-        tm.rig_unit_type = layout_meta.get('type')
-        tm.name_hash = None
-        # Build segments if present
-        # Convert the layout segments to a list of SegmentType enums if possible
-        segments = layout_meta.get('segments', [])
-        tm.segment_types = []
-        if segments:
-            for seg in segments:
-                # segment may be a dict with 'data_type' or a SegmentType enum already
-                if isinstance(seg, dict):
-                    dtype = seg.get('data_type', '').lower()
-                    if dtype in ('quat', 'quaternion'):
-                        tm.segment_types.append(SegmentType.QUAT)
-                    elif dtype in ('quatdiff', 'qd'):
-                        tm.segment_types.append(SegmentType.QUAT_DIFF)
-                    elif dtype in ('vec3', 'vector3', 'v'):
-                        tm.segment_types.append(SegmentType.VECTOR3)
-                    elif dtype in ('vec3diff', 'vxd', 'vd', 'vectordiff'):
-                        tm.segment_types.append(SegmentType.VECTOR_DIFF)
-                    elif dtype in ('float', 'f'):
-                        tm.segment_types.append(SegmentType.FLOAT)
-                    else:
-                        # Unknown - skip
-                        continue
-                elif isinstance(seg, SegmentType):
-                    tm.segment_types.append(seg)
-        # If flags exist, they will be processed by caller into unit_flags
-        tm.component_bit_sizes = None
-        return tm
+        
+        # Parse @track format: @track <name> : segments=<segments> ; flags=<flags>
+        if not isinstance(metadata_str, str) or not metadata_str.startswith('@track'):
+            Debug.log_warning(f"      Warning: Custom property '{property_key}' is not in @track format")
+            return None
+        
+        # Split by colon to separate track name from parameters
+        parts = metadata_str.split(':', 1)
+        if len(parts) < 2:
+            return None
+        
+        # Extract track name from @track directive
+        track_name_from_metadata = parts[0].replace('@track', '').strip()
+        params_str = parts[1].strip()
+        
+        # Parse parameters (segments, bits, flags, hash, type)
+        segment_types = []
+        component_bit_sizes = []
+        flags_value = None
+        name_hash = 0
+        rig_unit_type = None
+        
+        for param in params_str.split(';'):
+            param = param.strip()
+            if '=' in param:
+                key, value = param.split('=', 1)
+                key = key.strip()
+                value = value.strip()
+                
+                if key == 'segments' and value:
+                    # Parse segment type codes: q, qd, v, vd, f
+                    segment_codes = [code.strip() for code in value.split(',') if code.strip()]
+                    for code in segment_codes:
+                        if code == 'q':
+                            segment_types.append(SegmentType.QUAT)
+                        elif code == 'qd':
+                            segment_types.append(SegmentType.QUAT_DIFF)
+                        elif code == 'v':
+                            segment_types.append(SegmentType.VECTOR3)
+                        elif code == 'vd':
+                            segment_types.append(SegmentType.VECTOR_DIFF)
+                        elif code == 'f':
+                            segment_types.append(SegmentType.FLOAT)
+                        else:
+                            Debug.log_warning(f"      Warning: Unknown segment code '{code}' in track '{fox_track_name}'")
+        
+                elif key == 'bits' and value:
+                    # Parse component bit sizes
+                    bit_size_strs = [bs.strip() for bs in value.split(',') if bs.strip()]
+                    for bs_str in bit_size_strs:
+                        try:
+                            component_bit_sizes.append(int(bs_str))
+                        except ValueError:
+                            Debug.log_warning(f"      Warning: Invalid bit size '{bs_str}' in track '{fox_track_name}'")
+                            component_bit_sizes.append(0)
+        
+                elif key == 'flags' and value:
+                    # Convert flag names to enum values, then to integer
+                    flag_names = [name.strip() for name in value.split(',') if name.strip()]
+                    flag_enums = []
+                    for name in flag_names:
+                        try:
+                            flag_enums.append(TrackUnitFlags[name])
+                        except KeyError:
+                            Debug.log_warning(f"      Warning: Unknown flag name '{name}' in track '{fox_track_name}'")
+                    
+                    if flag_enums:
+                        flags_value = TrackUnitFlags.track_unit_flags_to_int(flag_enums)
+        
+                elif key == 'hash' and value:
+                    # Parse track name hash (StrCode32)
+                    try:
+                        name_hash = int(value)
+                    except ValueError:
+                        Debug.log_warning(f"      Warning: Invalid hash value '{value}' in track '{fox_track_name}'")
+        
+                elif key == 'type' and value:
+                    # Parse rig unit type
+                    rig_unit_type = RigUnitType.parse_from_string(value)
+                    if rig_unit_type is None:
+                        Debug.log_warning(f"      Warning: Unknown rig unit type '{value}' in track '{fox_track_name}'")
+        
+        # Return TrackMetaData object if we have all required data
+        if segment_types and flags_value is not None:
+            metadata = TrackMetaData(
+                track_name=track_name_from_metadata,
+                segment_types=segment_types,
+                unit_flags=flags_value,
+                name_hash=name_hash,
+                component_bit_sizes=component_bit_sizes if component_bit_sizes else None,
+                rig_unit_type=rig_unit_type
+            )
+            Debug.log(f"      Retrieved layout metadata for '{fox_track_name}': {len(segment_types)} segments, flags={flags_value}, hash={name_hash}, bits={component_bit_sizes}")
+            return metadata
+        
+        # If layout-style parsing failed, try action-style parsing as a fallback
+        # This handles the case where actions store per-track overrides with '@track' format
+        try:
+            params_parsed_action = parse_action_track_metadata(metadata_str)
+        except Exception:
+            params_parsed_action = None
 
-    def apply_action_override(self, action_meta_str: str) -> None:
-        """Apply per-action overrides to this TrackMetadata instance.
+        if params_parsed_action:
+            track_name_from_action = params_parsed_action.get('track_name', fox_track_name)
+            component_bit_sizes_action = params_parsed_action.get('component_bit_sizes')
+            flags_list_action = params_parsed_action.get('flags') or []
+            rig_type_action = params_parsed_action.get('type')
 
-        The action_meta_str is expected to be the full '@track' metadata string
-        (e.g. "@track Root : bits=24 ; flags=IS_STATIC ; type=ROOT").
-        Only the parsed fields will be used to override values in-place.
+            unit_flags_action = None
+            if flags_list_action:
+                flag_enums_action = []
+                for name in flags_list_action:
+                    try:
+                        flag_enums_action.append(TrackUnitFlags[name])
+                    except KeyError:
+                        Debug.log_warning(f"      Warning: Unknown flag name '{name}' in track '{fox_track_name}'")
+                if flag_enums_action:
+                    unit_flags_action = TrackUnitFlags.track_unit_flags_to_int(flag_enums_action)
+
+            tm = TrackMetaData(
+                track_name=track_name_from_action,
+                name_hash=StrCode32.from_string(track_name_from_action).to_int() if track_name_from_action else None,
+                segment_types=[],
+                component_bit_sizes=component_bit_sizes_action if component_bit_sizes_action else None,
+                unit_flags=unit_flags_action,
+                flags_list=flags_list_action if flags_list_action else None,
+                rig_unit_type=rig_type_action
+            )
+            return tm
+
+        return None
+    
+    @staticmethod
+    def from_fcurves(bone_name: str, action: bpy.types.Action) -> Optional['TrackMetaData']:
+        """Build minimal TrackMetaData by analyzing fcurves when no metadata is available.
+        
+        This is a helper function for the fallback export path when no layout metadata exists.
+        It determines segment types by checking which fcurve data paths exist for the bone.
+        
+        Args:
+            bone_name: Name of the bone to analyze
+            action: Action containing fcurves to analyze
+            
+        Returns:
+            TrackMetaData with segment_types inferred from fcurves, or None if no fcurves found
         """
-        parsed = parse_action_track_metadata(action_meta_str)
-        if not parsed:
-            return
-        # Override component bit sizes if provided
-        cbs = parsed.get('component_bit_sizes')
-        if cbs:
-            self.component_bit_sizes = cbs
-        # Override flags: we store as list here; conversion to int occurs elsewhere
-        flags = parsed.get('flags')
-        if flags is not None and flags != []:
-            # Keep flag names list for later conversion
-            self.flags_list = flags
-            # Convert to unit_flags int using TrackUnitFlags if possible
-            try:
-                flag_enums = [TrackUnitFlags[name] for name in flags if name in TrackUnitFlags.__members__]
-                if flag_enums:
-                    # Convert list of enums to int bitfield
-                    bit_value = 0
-                    for fe in flag_enums:
-                        bit_value |= int(fe)
-                    self.unit_flags = bit_value
-            except KeyError:
-                # If conversion fails, leave unit_flags as 0 or None
-                self.unit_flags = 0
-        # Override rig type
-        rtype = parsed.get('type')
-        if rtype:
-            self.rig_unit_type = rtype
+        if not action or not action.fcurves:
+            return None
+        
+        # Check which fcurve types exist for this bone
+        has_rotation = any(
+            fc.data_path in [f'pose.bones["{bone_name}"].rotation_quaternion', 
+                            f'pose.bones["{bone_name}"].rotation_euler']
+            for fc in action.fcurves
+        )
+        has_location = any(
+            fc.data_path == f'pose.bones["{bone_name}"].location'
+            for fc in action.fcurves
+        )
+        
+        # Build segment types list
+        segment_types = []
+        if has_rotation:
+            segment_types.append(SegmentType.QUAT)
+        if has_location:
+            segment_types.append(SegmentType.VECTOR3)
+        
+        # If no segments found, return None
+        if not segment_types:
+            return None
+        
+        # Create minimal metadata
+        return TrackMetaData(
+            track_name=bone_name,
+            segment_types=segment_types,
+            unit_flags=0,  # No special flags
+            name_hash=StrCode32.from_string(bone_name).to_int(),
+            component_bit_sizes=None,  # Use defaults
+            rig_unit_type=None
+        )
+
+    @staticmethod
+    def from_layout_track_units(track_units: List[TrackUnit], track_name_prefix: str = "Track", gani_tracks: Optional[List[TrackUnitWrapper]] = None) -> List['TrackMetaData']:
+        """Convert layout track units to TrackMetaData objects.
+        
+        Args:
+            track_units: List of TrackUnit objects from layout track
+            track_name_prefix: Prefix for generating track names (default: "Track")
+            gani_tracks: Optional list of GaniTracks with rig_unit_type populated from FRIG (for preserving rig type info)
+            
+        Returns:
+            List of TrackMetaData objects
+        """
+        from ..py_utilities.hash_utilities import unhash_rig_type
+        
+        track_metadata_list: List['TrackMetaData'] = []
+        
+        for track_idx, track_unit in enumerate(track_units):
+            # Resolve track name from hash
+            track_name: str = f"{track_name_prefix}{track_idx}"
+            name_hash: int = 0
+            if track_unit.name:
+                name_hash = track_unit.name.to_int() if hasattr(track_unit.name, 'to_int') else int(track_unit.name)
+                resolved_name: Optional[str] = unhash_rig_type(name_hash)
+                if resolved_name:
+                    track_name = resolved_name
+                else:
+                    # If unhashing fails, use string representation of hash (matches bone creation)
+                    track_name = str(track_unit.name)
+            
+            # Build segment types list
+            segment_types: List[SegmentType] = []
+            component_bit_sizes: List[int] = []
+            for track_data in track_unit.segments_data:
+                segment_types.append(track_data.td_type)
+                component_bit_sizes.append(track_data.component_bit_size)
+            
+            # Get rig_unit_type from corresponding GaniTrack if available (populated from FRIG)
+            rig_unit_type: Optional[RigUnitType] = None
+            if gani_tracks and track_idx < len(gani_tracks):
+                rig_unit_type = gani_tracks[track_idx].rig_unit_type
+            
+            # Create TrackMetaData
+            track_meta: TrackMetaData = TrackMetaData(
+                track_name=track_name,
+                name_hash=name_hash if name_hash != 0 else None,
+                segment_types=segment_types,
+                component_bit_sizes=component_bit_sizes,
+                unit_flags=track_unit.unit_flags,
+                flags_list=None,  # Will be derived from unit_flags
+                rig_unit_type=rig_unit_type  # Preserved from FRIG if available
+            )
+            
+            track_metadata_list.append(track_meta)
+        
+        return track_metadata_list
+
+    @staticmethod
+    def from_gani_tracks(gani_tracks: List[TrackUnitWrapper], segment_headers: List[Gani2TrackData]) -> List['TrackMetaData']:
+        """Convert GANI tracks and segment headers to TrackMetaData objects.
+        
+        Args:
+            gani_tracks: List of GaniTrack objects containing animation data
+            segment_headers: List of segment header objects with component_bit_size
+            
+        Returns:
+            List of TrackMetaData objects
+        """
+        track_metadata_list: List['TrackMetaData'] = []
+        segment_idx_abs: int = 0
+        
+        for track_idx, gani_track in enumerate(gani_tracks):
+            track_name: str = gani_track.name
+            
+            # Extract unit flags
+            unit_flags: Optional[int] = None
+            if gani_track.unit_flags:
+                unit_flags = TrackUnitFlags.track_unit_flags_to_int(gani_track.unit_flags)
+            
+            # Collect component bit sizes and segment types
+            segment_count: int = len(gani_track.segments_track_data)
+            bit_sizes: List[int] = []
+            segment_types: List[SegmentType] = []
+            
+            for seg_idx in range(segment_count):
+                abs_idx: int = segment_idx_abs + seg_idx
+                if abs_idx < len(segment_headers):
+                    bit_sizes.append(segment_headers[abs_idx].component_bit_size)
+                else:
+                    bit_sizes.append(0)
+                
+                # Get segment type from the track data blob
+                if seg_idx < len(gani_track.segments_track_data):
+                    segment_types.append(gani_track.segments_track_data[seg_idx].data_blob.type)
+            
+            # Create TrackMetaData
+            track_meta: TrackMetaData = TrackMetaData(
+                track_name=track_name,
+                name_hash=None,  # Not stored in GANI tracks
+                segment_types=segment_types,
+                component_bit_sizes=bit_sizes,
+                unit_flags=unit_flags,
+                flags_list=None,
+                rig_unit_type=None  # Not directly available
+            )
+            
+            track_metadata_list.append(track_meta)
+            segment_idx_abs += segment_count
+        
+        return track_metadata_list
+
+    @staticmethod
+    def extract_space_bone(space_param: Optional[str]) -> Optional[str]:
+        """Extract the space bone name from a space parameter.
+        
+        Space parameters can be:
+        - None (use default world/local space)
+        - "ws" or "ws,bone_name" (world space, optionally with custom bone)
+        - "bone_name" (custom space bone)
+        
+        Args:
+            space_param: Space parameter string (typically from bone_params.space_r or space_l)
+            
+        Returns:
+            The custom space bone name if specified, None otherwise
+        """
+        if space_param:
+            # Handle string-format space parameters
+            if isinstance(space_param, str):
+                if not space_param.startswith('ws'):
+                    # It's a custom bone name
+                    return space_param
+        return None
 
     def to_dict(self) -> Dict[str, Any]:
         """Return a serialization-ready dict representing the metadata."""
@@ -648,26 +920,30 @@ def merge_track_metadata(layout_meta: TrackMetaData, action_meta: Optional[Track
 
     return result
 
-
-def extract_space_bone(space_param: Optional[str]) -> Optional[str]:
-    """Extract the space bone name from a space parameter.
+def get_all_track_metadata_from_action(action: bpy.types.Action) -> Dict[str, TrackMetaData]:
+    """Parse all track structure metadata from layout track action.
     
-    Space parameters can be:
-    - None (use default world/local space)
-    - "ws" or "ws,bone_name" (world space, optionally with custom bone)
-    - "bone_name" (custom space bone)
+    The layout track defines the shared structure for all animations:
+    - Track names and order
+    - Segment types per track
+    - Default unit flags
     
     Args:
-        space_param: Space parameter string (typically from bone_params.space_r or space_l)
+        layout_action: The layout track action containing structure metadata
         
     Returns:
-        The custom space bone name if specified, None otherwise
+        Dictionary mapping fox_track_name -> TrackMetaData
     """
-    if space_param:
-        # Handle string-format space parameters
-        if isinstance(space_param, str):
-            if not space_param.startswith('ws'):
-                # It's a custom bone name
-                return space_param
-    return None
-
+    metadata_dict = {}
+    
+    # Iterate through track properties using utility function
+    for track_idx, fox_track_name, metadata_str in iter_track_properties(action):
+        # We already have the metadata_str, but get_track_metadata_from_action does the parsing
+        # Call it to parse the metadata string
+        metadata = TrackMetaData.from_action(action, fox_track_name)
+        if metadata:
+            metadata_dict[fox_track_name] = metadata
+            Debug.log(f"    Parsed track {track_idx}: {fox_track_name} ({len(metadata.segment_types)} segments)")
+    
+    Debug.log(f"  Parsed {len(metadata_dict)} track(s) from layout action")
+    return metadata_dict

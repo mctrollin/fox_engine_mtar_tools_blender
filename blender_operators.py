@@ -20,10 +20,11 @@ from .py_foxwrap.foxwrap_misc_import import CommonInfo
 from .py_foxwrap.foxwrap_misc_export import TrackSegmentBoneMapping, BoneParameters, IkUpParameters
 from .py_foxwrap.foxwrap_mapping import parse_track_mapping_file
 from .py_foxwrap.foxwrap_metadata import get_segments_for_track_type, iter_track_properties
+from .py_foxwrap.foxwrap_metadata import get_all_track_metadata_from_action
 
 from .mtar_importer import import_mtar
 from .mtar_exporter import export_mtar, find_layout_track_action
-from .mtar_exporter import get_all_track_metadata_from_action
+from .py_tools.bake_armature import bake_armature_action, bake_armature_nla_strips
 
 if TYPE_CHECKING:
     from bpy.types import Object
@@ -474,12 +475,101 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
         
         # Import MTAR animation
         try:
-            result = import_mtar(context, props.import_mtar_filepath, frig_data, track_mapping, props.import_gani_index, target_rig)
+            import_result = import_mtar(context, props.import_mtar_filepath, frig_data, track_mapping, props.import_gani_index, target_rig)
+            
+            # Extract result and imported armature
+            if isinstance(import_result, tuple):
+                result, imported_armature = import_result
+            else:
+                result = import_result
+                imported_armature = None
             
             Debug.log("\n========= Finished IMPORT MTAR OPERATION =========\n")
 
             if result == {'FINISHED'}:
                 self.report({'INFO'}, "MTAR animation imported successfully")
+                
+                # Bake target rig if requested
+                if props.import_bake_after_import and target_rig:
+                    try:
+                        Debug.log("\n========= STARTING BAKE OPERATION =========\n")
+                        
+                        # Check if target rig has NLA tracks (common after import)
+                        if target_rig.animation_data and target_rig.animation_data.nla_tracks:
+                            Debug.log("Baking NLA strips...")
+                            bake_result = bake_armature_nla_strips(
+                                target_rig, 
+                                remove_constraints=True,
+                                new_action_suffix="_baked",
+                                only_unmuted=True,
+                                source_armature=imported_armature,
+                                create_new_action=not props.delete_import_armature
+                            )
+                            
+                            if bake_result['success']:
+                                Debug.log(bake_result['message'])
+                                self.report({'INFO'}, f"Bake completed: {bake_result['message']}")
+                                
+                                if bake_result['failed_strips']:
+                                    Debug.log_warning(f"  Failed strips: {', '.join(bake_result['failed_strips'])}")
+                                    self.report({'WARNING'}, f"{len(bake_result['failed_strips'])} strip(s) failed to bake")
+                                # Optionally delete the imported armature after successful bake
+                                if props.delete_import_armature and imported_armature and imported_armature != target_rig:
+                                    try:
+                                        # Unlink from any collections first
+                                        for col in list(imported_armature.users_collection):
+                                            col.objects.unlink(imported_armature)
+                                        bpy.data.objects.remove(imported_armature, do_unlink=True)
+                                        Debug.log(f"Deleted imported armature: {imported_armature.name}")
+                                        self.report({'INFO'}, "Deleted imported armature after bake")
+                                    except Exception as e:  # noqa: E722
+                                        Debug.log_warning(f"Failed to delete imported armature: {e}")
+                                        self.report({'WARNING'}, f"Failed to delete imported armature: {str(e)}")
+                            else:
+                                Debug.log_warning(f"Bake failed: {bake_result['message']}")
+                                self.report({'WARNING'}, f"Bake failed: {bake_result['message']}")
+                        
+                        # Fall back to baking active action if no NLA tracks
+                        elif target_rig.animation_data and target_rig.animation_data.action:
+                            Debug.log("Baking active action...")
+                            bake_result = bake_armature_action(
+                                target_rig, 
+                                target_rig.animation_data.action, 
+                                remove_constraints=True,
+                                create_new_action=True,
+                                new_action_suffix="_baked",
+                                source_armature=imported_armature
+                            )
+                            
+                            if bake_result['success']:
+                                Debug.log(bake_result['message'])
+                                self.report({'INFO'}, f"Bake completed: {bake_result['message']}")
+                                # Optionally delete the imported armature after successful bake
+                                if props.delete_import_armature and imported_armature and imported_armature != target_rig:
+                                    try:
+                                        for col in list(imported_armature.users_collection):
+                                            col.objects.unlink(imported_armature)
+                                        bpy.data.objects.remove(imported_armature, do_unlink=True)
+                                        Debug.log(f"Deleted imported armature: {imported_armature.name}")
+                                        self.report({'INFO'}, "Deleted imported armature after bake")
+                                    except Exception as e:  # noqa: E722
+                                        Debug.log_warning(f"Failed to delete imported armature: {e}")
+                                        self.report({'WARNING'}, f"Failed to delete imported armature: {str(e)}")
+                            else:
+                                Debug.log_warning(f"Bake failed: {bake_result['message']}")
+                                self.report({'WARNING'}, f"Bake failed: {bake_result['message']}")
+                        else:
+                            self.report({'WARNING'}, "Target rig has no NLA tracks or active action to bake")
+                            Debug.log_warning("Target rig has no NLA tracks or active action to bake")
+                        
+                        Debug.log("\n========= Finished BAKE OPERATION =========\n")
+                        
+                    except Exception as e:  # noqa: E722
+                        self.report({'ERROR'}, f"Failed to bake target rig: {str(e)}")
+                        Debug.log_error(f"Bake error: {e}")
+                        traceback.print_exc()
+                        # Continue regardless of bake failure
+                
                 return {'FINISHED'}
             else:
                 self.report({'WARNING'}, "MTAR import completed with warnings")

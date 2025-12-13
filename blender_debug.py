@@ -512,9 +512,371 @@ class MTAR_PT_DebugPanel(Panel):
             results_box.operator("mtar.copy_transform_debug_results", text="Copy All Results", icon='COPYDOWN')
 
 
+# External Converter Panel ####################################################################
+
+class MTAR_PG_ConverterProperties(PropertyGroup):
+    """Property group for external converter settings."""
+    
+    converter_exe_path: StringProperty(
+        name="Executable Path",
+        description="Path to the hash converter executable",
+        default="",
+        maxlen=1024,
+        subtype='FILE_PATH'
+    )
+    
+    converter_input: StringProperty(
+        name="Input",
+        description="Input filename (with or without extension)",
+        default="",
+        maxlen=4096
+    )
+    
+    # Results for each hash mode
+    converter_hash_filename: StringProperty(
+        name="Hash Filename",
+        description="Hashed filename without extension (-d -h)",
+        default="",
+        maxlen=4096
+    )
+    
+    converter_hash_extension: StringProperty(
+        name="Hash Extension",
+        description="Hashed extension digits (-d -he)",
+        default="",
+        maxlen=4096
+    )
+    
+    converter_hash_with_extension: StringProperty(
+        name="Hash With Extension",
+        description="Hashed filename with extension (-d -hwe)",
+        default="",
+        maxlen=4096
+    )
+    
+    converter_hash_legacy: StringProperty(
+        name="Hash Legacy",
+        description="Legacy hash function (-d -hl)",
+        default="",
+        maxlen=4096
+    )
+    
+    converter_error: StringProperty(
+        name="Error",
+        description="Error message if conversion failed",
+        default="",
+        maxlen=4096
+    )
+
+    # Decimal representations
+    converter_hash_filename_dec: StringProperty(
+        name="Hash Filename (dec)",
+        description="Decimal representation of hashed filename",
+        default="",
+        maxlen=4096
+    )
+    converter_hash_extension_dec: StringProperty(
+        name="Hash Extension (dec)",
+        description="Decimal representation of hashed extension",
+        default="",
+        maxlen=4096
+    )
+    converter_hash_with_extension_dec: StringProperty(
+        name="Hash With Extension (dec)",
+        description="Decimal representation of hashed filename with extension",
+        default="",
+        maxlen=4096
+    )
+    converter_hash_legacy_dec: StringProperty(
+        name="Hash Legacy (dec)",
+        description="Decimal representation of legacy hash",
+        default="",
+        maxlen=4096
+    )
+
+
+class MTAR_OT_ConvertWithExternalExe(Operator):
+    """Hash input filename using external executable."""
+    bl_idname = "mtar.convert_with_external_exe"
+    bl_label = "Hash"
+    bl_description = "Hash input filename using the specified external executable (all modes)"
+    
+    def execute(self, context: Context) -> set:
+        """Execute the hash conversion."""
+        from .py_tools.external_converter import hash_filename_all_modes
+        
+        props = context.scene.mtar_converter_properties
+        
+        # Validate inputs
+        if not props.converter_exe_path:
+            self.report({'ERROR'}, "No executable path specified")
+            props.converter_error = "No executable path specified"
+            self._clear_results(props)
+            return {'CANCELLED'}
+        
+        if not props.converter_input:
+            self.report({'ERROR'}, "No input filename provided")
+            props.converter_error = "No input filename provided"
+            self._clear_results(props)
+            return {'CANCELLED'}
+        
+        # Run hash conversion (all modes)
+        success, results, error = hash_filename_all_modes(
+            props.converter_exe_path,
+            props.converter_input
+        )
+        
+        # Store results
+        props.converter_hash_filename = results.get('filename', '')
+        props.converter_hash_extension = results.get('extension', '')
+        props.converter_hash_with_extension = results.get('with_extension', '')
+        props.converter_hash_legacy = results.get('legacy', '')
+        # Decimal representations (may be empty strings if parsing failed)
+        props.converter_hash_filename_dec = results.get('filename_dec', '')
+        props.converter_hash_extension_dec = results.get('extension_dec', '')
+        props.converter_hash_with_extension_dec = results.get('with_extension_dec', '')
+        props.converter_hash_legacy_dec = results.get('legacy_dec', '')
+        
+        if success:
+            props.converter_error = ""
+            self.report({'INFO'}, "Hash conversion successful")
+            return {'FINISHED'}
+        else:
+            props.converter_error = error
+            self.report({'ERROR'}, f"Hash conversion failed: {error}")
+            return {'CANCELLED'}
+    
+    def _clear_results(self, props) -> None:
+        """Clear all result properties."""
+        props.converter_hash_filename = ""
+        props.converter_hash_extension = ""
+        props.converter_hash_with_extension = ""
+        props.converter_hash_legacy = ""
+
+
+class MTAR_OT_CopyConverterOutput(Operator):
+    """Copy hash result to clipboard."""
+    bl_idname = "mtar.copy_converter_output"
+    bl_label = "Copy Result"
+    bl_description = "Copy the selected hash result to clipboard"
+    
+    result_key: StringProperty(
+        name="Result Key",
+        description="Which result to copy",
+        default="filename",
+        maxlen=64
+    )
+    
+    def execute(self, context: Context) -> set:
+        """Execute the copy."""
+        props = context.scene.mtar_converter_properties
+        
+        # Get the appropriate result based on key
+        result_map = {
+            'filename': props.converter_hash_filename,
+            'extension': props.converter_hash_extension,
+            'with_extension': props.converter_hash_with_extension,
+            'legacy': props.converter_hash_legacy,
+            'filename_dec': props.converter_hash_filename_dec,
+            'extension_dec': props.converter_hash_extension_dec,
+            'with_extension_dec': props.converter_hash_with_extension_dec,
+            'legacy_dec': props.converter_hash_legacy_dec
+        }
+        
+        output = result_map.get(self.result_key, '')
+        
+        if not output:
+            self.report({'WARNING'}, f"No result to copy for {self.result_key}")
+            return {'CANCELLED'}
+        
+        # Skip if it's an error message
+        if output.startswith('Error:'):
+            self.report({'WARNING'}, "Cannot copy error message")
+            return {'CANCELLED'}
+        
+        context.window_manager.clipboard = output
+        self.report({'INFO'}, f"Copied {self.result_key} to clipboard")
+        return {'FINISHED'}
+
+
+class MTAR_OT_ClearConverterResults(Operator):
+    """Clear converter input and results."""
+    bl_idname = "mtar.clear_converter_results"
+    bl_label = "Clear"
+    bl_description = "Clear converter input and all hash results"
+    
+    def execute(self, context: Context) -> set:
+        """Execute the clear."""
+        props = context.scene.mtar_converter_properties
+        
+        props.converter_input = ""
+        props.converter_hash_filename = ""
+        props.converter_hash_extension = ""
+        props.converter_hash_with_extension = ""
+        props.converter_hash_legacy = ""
+        props.converter_error = ""
+        
+        self.report({'INFO'}, "Converter cleared")
+        return {'FINISHED'}
+
+
+class MTAR_PT_ConverterPanel(Panel):
+    """N-Panel for external hash converter tool."""
+    bl_label = "Hash Converter"
+    bl_idname = "MTAR_PT_converter_panel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'MTAR'
+    
+    def draw(self, context: Context) -> None:
+        """Draw the converter panel."""
+        layout = self.layout
+        props = context.scene.mtar_converter_properties
+        
+        # Header
+        box = layout.box()
+        box.label(text="Filename Hash Converter", icon='FILE_REFRESH')
+        
+        # Configuration
+        config_box = layout.box()
+        config_box.label(text="Configuration", icon='SETTINGS')
+        
+        col = config_box.column(align=True)
+        row = col.row(align=True)
+        row.prop(props, "converter_exe_path", text="")
+        row.operator("mtar.validate_converter_exe", text="", icon='FILE_TICK')
+        col.label(text="https://mgsvmoddingwiki.github.io/GzsTool/")
+        
+        # Input
+        input_box = layout.box()
+        input_box.label(text="Input Filename", icon='IMPORT')
+        col = input_box.column(align=True)
+        col.prop(props, "converter_input", text="")
+        
+        # Action buttons
+        button_box = layout.box()
+        col = button_box.column(align=True)
+        col.scale_y = 1.3
+        
+        row = col.row(align=True)
+        row.operator("mtar.convert_with_external_exe", text="Hash", icon='PLAY')
+        row.operator("mtar.clear_converter_results", text="Clear", icon='X')
+        
+        # Results
+        results_box = layout.box()
+        results_box.label(text="Hash Results", icon='INFO')
+        
+        # Check if we have any results
+        has_results = (
+            props.converter_hash_filename or 
+            props.converter_hash_extension or 
+            props.converter_hash_with_extension or 
+            props.converter_hash_legacy
+        )
+        
+        if has_results:
+            # Hash Filename result
+            if props.converter_hash_filename:
+                self._draw_result_box(
+                    results_box, 
+                    "Hash Filename (-d -h)", 
+                    props.converter_hash_filename,
+                    'filename',
+                    props.converter_hash_filename_dec
+                )
+            
+            # Hash Extension result
+            if props.converter_hash_extension:
+                self._draw_result_box(
+                    results_box, 
+                    "Hash Extension (-d -he)", 
+                    props.converter_hash_extension,
+                    'extension',
+                    props.converter_hash_extension_dec
+                )
+            
+            # Hash With Extension result
+            if props.converter_hash_with_extension:
+                self._draw_result_box(
+                    results_box, 
+                    "Hash With Extension (-d -hwe)", 
+                    props.converter_hash_with_extension,
+                    'with_extension',
+                    props.converter_hash_with_extension_dec
+                )
+            
+            # Hash Legacy result
+            if props.converter_hash_legacy:
+                self._draw_result_box(
+                    results_box, 
+                    "Hash Legacy (-d -hl)", 
+                    props.converter_hash_legacy,
+                    'legacy',
+                    props.converter_hash_legacy_dec
+                )
+        else:
+            results_box.label(text="No results yet - enter filename and click Hash", icon='BLANK1')
+        
+        # Error
+        if props.converter_error:
+            error_box = results_box.box()
+            error_box.label(text="Error:", icon='ERROR')
+            col = error_box.column()
+            # Split error by semicolons for better readability
+            error_lines = props.converter_error.split(';')
+            for error_line in error_lines:
+                col.label(text=error_line.strip(), icon='NONE')
+    
+    def _draw_result_box(self, parent_box, label: str, value: str, key: str, decimal_value: str = "") -> None:
+        """Draw a result box with copy button."""
+        is_error = value.startswith('Error:')
+        
+        result_box = parent_box.box()
+        row = result_box.row(align=True)
+        
+        if is_error:
+            row.label(text=label, icon='CANCEL')
+        else:
+            row.label(text=label, icon='CHECKMARK')
+            copy_op = row.operator("mtar.copy_converter_output", text="", icon='COPYDOWN')
+            copy_op.result_key = key
+            # If decimal value is available, add a secondary copy button for decimal
+            if decimal_value:
+                copy_op_dec = row.operator("mtar.copy_converter_output", text="", icon='SORTBYEXT')
+                copy_op_dec.result_key = f"{key}_dec"
+        
+        col = result_box.column()
+        col.label(text=value, icon='NONE')
+        if decimal_value:
+            col.label(text=f"Decimal: {decimal_value}", icon='NONE')
+
+
+class MTAR_OT_ValidateConverterExe(Operator):
+    """Validate converter executable path."""
+    bl_idname = "mtar.validate_converter_exe"
+    bl_label = "Validate Executable"
+    bl_description = "Validate that the executable path is valid and accessible"
+    
+    def execute(self, context: Context) -> set:
+        """Execute the validation."""
+        from .py_tools.external_converter import validate_executable_path
+        
+        props = context.scene.mtar_converter_properties
+        
+        is_valid, error_msg = validate_executable_path(props.converter_exe_path)
+        
+        if is_valid:
+            self.report({'INFO'}, "Executable path is valid")
+            return {'FINISHED'}
+        else:
+            self.report({'ERROR'}, f"Invalid executable: {error_msg}")
+            return {'CANCELLED'}
+
+
 # Registration
 def register() -> None:
     """Register debug classes."""
+    # Transform debug
     bpy.utils.register_class(MTAR_PG_DebugProperties)
     bpy.utils.register_class(MTAR_OT_InspectWorldSpaceTransform)
     bpy.utils.register_class(MTAR_OT_InspectLocalSpaceTransform)
@@ -523,12 +885,22 @@ def register() -> None:
     bpy.utils.register_class(MTAR_OT_CopyTransformDebugResults)
     bpy.utils.register_class(MTAR_PT_DebugPanel)
     
+    # External converter
+    bpy.utils.register_class(MTAR_PG_ConverterProperties)
+    bpy.utils.register_class(MTAR_OT_ConvertWithExternalExe)
+    bpy.utils.register_class(MTAR_OT_CopyConverterOutput)
+    bpy.utils.register_class(MTAR_OT_ClearConverterResults)
+    bpy.utils.register_class(MTAR_OT_ValidateConverterExe)
+    bpy.utils.register_class(MTAR_PT_ConverterPanel)
+    
     # Add debug properties to scene
     bpy.types.Scene.mtar_debug_properties = PointerProperty(type=MTAR_PG_DebugProperties)
+    bpy.types.Scene.mtar_converter_properties = PointerProperty(type=MTAR_PG_ConverterProperties)
 
 
 def unregister() -> None:
     """Unregister debug classes."""
+    # Transform debug
     bpy.utils.unregister_class(MTAR_PT_DebugPanel)
     bpy.utils.unregister_class(MTAR_OT_CopyTransformDebugResults)
     bpy.utils.unregister_class(MTAR_OT_CopySingleResult)
@@ -537,6 +909,16 @@ def unregister() -> None:
     bpy.utils.unregister_class(MTAR_OT_InspectWorldSpaceTransform)
     bpy.utils.unregister_class(MTAR_PG_DebugProperties)
     
+    # External converter
+    bpy.utils.unregister_class(MTAR_PT_ConverterPanel)
+    bpy.utils.unregister_class(MTAR_OT_ValidateConverterExe)
+    bpy.utils.unregister_class(MTAR_OT_ClearConverterResults)
+    bpy.utils.unregister_class(MTAR_OT_CopyConverterOutput)
+    bpy.utils.unregister_class(MTAR_OT_ConvertWithExternalExe)
+    bpy.utils.unregister_class(MTAR_PG_ConverterProperties)
+    
     # Remove debug properties from scene
     if hasattr(bpy.types.Scene, 'mtar_debug_properties'):
         del bpy.types.Scene.mtar_debug_properties
+    if hasattr(bpy.types.Scene, 'mtar_converter_properties'):
+        del bpy.types.Scene.mtar_converter_properties

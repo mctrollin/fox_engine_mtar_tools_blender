@@ -1,7 +1,7 @@
 """
 Blender N-Panels for MTAR import/export functionality.
 """
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import bpy
 from bpy.types import Panel, PropertyGroup, Context, UILayout
@@ -62,6 +62,25 @@ class MTAR_PG_Properties(PropertyGroup):
         description="Optional Rigify rig to connect to imported animation (constraints will be added based on mapping file)",
         type=bpy.types.Object,
         poll=lambda self, obj: obj.type == 'ARMATURE'
+    )
+    
+    import_bake_after_import: bpy.props.BoolProperty(
+        name="Bake Target Rig Constraints",
+        description="Bake the constraints from the rig into the animation.",
+        default=True
+    )
+    
+    # Advanced import option: delete the imported armature after baking
+    delete_import_armature: bpy.props.BoolProperty(
+        name="Delete Raw Import-Armature",
+        description="Remove the temporary imported armature after baking is complete",
+        default=True
+    )
+    
+    show_advanced_settings: bpy.props.BoolProperty(
+        name="Show Advanced Settings",
+        description="Display advanced import/export settings",
+        default=False
     )
     
     # Export properties
@@ -127,6 +146,35 @@ class MTAR_PG_Properties(PropertyGroup):
     )
 
 
+def draw_bool_prop_checkbox_icon(layout: UILayout, props, property_name: str, text: Optional[str] = None, **prop_kwargs) -> None:
+    """Draw a boolean property with checkbox-highlight icon when True.
+
+    If the caller passes an explicit `icon` via prop_kwargs, that icon will be used.
+
+    Args:
+        layout: Blender UILayout (row/column/box)
+        props: PropertyGroup instance, typically context.scene.mtar_properties
+        property_name: Name of the boolean property on props
+        text: Optional label text override (default: uses property name)
+        prop_kwargs: Additional keyword args forwarded to layout.prop (e.g., toggle=True)
+    """
+    # Safely read the property value; default to False when missing
+    try:
+        value = getattr(props, property_name)
+    except AttributeError:
+        value = False
+
+    # Pick the icon to display: when the caller passes explicit 'icon', use it; otherwise use checkbox highlight
+    icon_prop = prop_kwargs.pop('icon', None)
+    if icon_prop:
+        icon = icon_prop
+    else:
+        icon = 'CHECKBOX_HLT' if value else 'CHECKBOX_DEHLT'
+    label_text = text if text is not None else None
+    layout.prop(props, property_name, icon=icon, text=label_text, **prop_kwargs)
+
+
+
 class MTAR_PT_ImportPanel(Panel):
     """N-Panel for MTAR animation import."""
     bl_label = "MTAR Animation Import"
@@ -154,10 +202,11 @@ class MTAR_PT_ImportPanel(Panel):
         row.operator("mtar.select_frig_file", text="", icon='FILE_FOLDER')
         
         # Generate mapping file button
-        col = frig_box.column()
-        col.enabled = bool(props.import_frig_filepath)
-        col.scale_y = 1
-        col.operator("mtar.generate_track_mapping_template_file", text="Generate Mapping Template", icon='TEXT')
+        if props.show_advanced_settings:
+            col = frig_box.column()
+            col.enabled = bool(props.import_frig_filepath)
+            col.scale_y = 1
+            col.operator("mtar.generate_track_mapping_template_file", text="Generate Mapping Template", icon='TEXT')
 
         # Track mapping file picker
         mapping_box = import_box
@@ -172,6 +221,17 @@ class MTAR_PT_ImportPanel(Panel):
         # Target rig selector
         box = import_box
         box.prop(props, "import_target_rig", text="", icon='ARMATURE_DATA')
+        
+        
+        
+        # Bake after import checkbox (only shown if advanced settings enabled and target rig is specified)
+        if props.show_advanced_settings and props.import_target_rig:
+            box = import_box
+            draw_bool_prop_checkbox_icon(box, props, "import_bake_after_import")
+
+            # Delete imported armature option is an advanced, dependent setting
+            if props.import_bake_after_import:
+                draw_bool_prop_checkbox_icon(box, props, "delete_import_armature")
 
         # Import button
         col = import_box.column()
@@ -218,9 +278,9 @@ class MTAR_PT_ExportPanel(Panel):
         # Export options
         box = export_box
         row = box.row()
-        row.prop(props, "export_use_nla", icon='OPTIONS')
+        draw_bool_prop_checkbox_icon(row, props, "export_use_nla")
         row = box.row()
-        row.prop(props, "export_use_evaluated", icon='OPTIONS')
+        draw_bool_prop_checkbox_icon(row, props, "export_use_evaluated")
         
         # Info
         box = export_box
@@ -274,7 +334,12 @@ class MTAR_PT_SettingsPanel(Panel):
         box = layout.box()
         box.label(text="Logging", icon='PREFERENCES')
         box.prop(props, "log_verbosity", text="", icon='INFO')
-        box.prop(props, "enable_timer_logs", toggle=True, icon='MOD_TIME')
+        draw_bool_prop_checkbox_icon(box, props, "enable_timer_logs", toggle=True)
+
+        # Show advanced settings toggle
+        box = layout.box()
+        col = box.column()
+        draw_bool_prop_checkbox_icon(col, props, "show_advanced_settings")
 
 
 # Registration

@@ -7,13 +7,15 @@ This module handles the export of Blender animation data to MTAR format.
 from typing import Optional, Dict, List, TYPE_CHECKING
 
 import bpy
+from mathutils import Quaternion
 
 from .py_utilities.logging_utilities import Debug, start_timer, stop_timer
 from .py_utilities.transform_utilities import reverse_directional_location, apply_reverse_transforms, get_local_space_transform, get_world_space_transform, blender_to_fox_vector, blender_to_fox_quaternion
+from .py_utilities.blender_animation_utilities import FCurveCache
 
 from .py_foxwrap.foxwrap_motionevent import read_motion_events_from_action
 from .py_foxwrap.foxwrap_metadata import parse_action_track_metadata, read_track_header_properties_from_action
-from .py_foxwrap.foxwrap_metadata import TrackMetaData, merge_track_metadata, parse_track_property_key, iter_track_properties
+from .py_foxwrap.foxwrap_metadata import TrackMetaData, merge_track_metadata, iter_track_properties, get_all_track_metadata_from_action
 from .py_foxwrap.foxwrap_misc import TrackUnitWrapper, Tracks, TrackDataBlobWrapper
 from .py_foxwrap.foxwrap_mtar_writer import MtarWriter
 from .py_foxwrap.foxwrap_misc_export import (
@@ -31,198 +33,6 @@ if TYPE_CHECKING:
 
 
 # Layout and MetaData #############################################################
-
-def get_track_metadata_from_action(layout_action: bpy.types.Action, fox_track_name: str) -> Optional[TrackMetaData]:
-    """Retrieve track structure metadata from layout action custom properties.
-    
-    The layout action stores the track structure (segments, track names) that is shared
-    across all animations in the MTAR file.
-    
-    Property key format: track_<padded_idx>_<fox_track_name>
-    Property value format: @track <name> : segments=<segments> ; flags=<flags>
-    
-    Args:
-        layout_action: The layout action containing track structure metadata
-        fox_track_name: Fox track name to get metadata for (e.g., "LArm", "Root", "SKL_002_NECK1")
-        
-    Returns:
-        TrackMetaData object if found, None otherwise
-    """
-    # Search for custom property matching the track name
-    metadata_str = None
-    property_key = None
-    
-    for key in layout_action.keys():
-        parsed = parse_track_property_key(key)
-        if parsed:
-            track_idx, track_name = parsed
-            if track_name == fox_track_name:
-                property_key = key
-                metadata_str = layout_action[key]
-                break
-    
-    if metadata_str is None:
-        return None
-    
-    # Parse @track format: @track <name> : segments=<segments> ; flags=<flags>
-    if not isinstance(metadata_str, str) or not metadata_str.startswith('@track'):
-        Debug.log_warning(f"      Warning: Custom property '{property_key}' is not in @track format")
-        return None
-    
-    # Split by colon to separate track name from parameters
-    parts = metadata_str.split(':', 1)
-    if len(parts) < 2:
-        return None
-    
-    # Extract track name from @track directive
-    track_name_from_metadata = parts[0].replace('@track', '').strip()
-    params_str = parts[1].strip()
-    
-    # Parse parameters (segments, bits, flags, hash, type)
-    segment_types = []
-    component_bit_sizes = []
-    flags_value = None
-    name_hash = 0
-    rig_unit_type = None
-    
-    for param in params_str.split(';'):
-        param = param.strip()
-        if '=' in param:
-            key, value = param.split('=', 1)
-            key = key.strip()
-            value = value.strip()
-            
-            if key == 'segments' and value:
-                # Parse segment type codes: q, qd, v, vd, f
-                segment_codes = [code.strip() for code in value.split(',') if code.strip()]
-                for code in segment_codes:
-                    if code == 'q':
-                        segment_types.append(SegmentType.QUAT)
-                    elif code == 'qd':
-                        segment_types.append(SegmentType.QUAT_DIFF)
-                    elif code == 'v':
-                        segment_types.append(SegmentType.VECTOR3)
-                    elif code == 'vd':
-                        segment_types.append(SegmentType.VECTOR_DIFF)
-                    elif code == 'f':
-                        segment_types.append(SegmentType.FLOAT)
-                    else:
-                        Debug.log_warning(f"      Warning: Unknown segment code '{code}' in track '{fox_track_name}'")
-    
-            elif key == 'bits' and value:
-                # Parse component bit sizes
-                bit_size_strs = [bs.strip() for bs in value.split(',') if bs.strip()]
-                for bs_str in bit_size_strs:
-                    try:
-                        component_bit_sizes.append(int(bs_str))
-                    except ValueError:
-                        Debug.log_warning(f"      Warning: Invalid bit size '{bs_str}' in track '{fox_track_name}'")
-                        component_bit_sizes.append(0)
-    
-            elif key == 'flags' and value:
-                # Convert flag names to enum values, then to integer
-                flag_names = [name.strip() for name in value.split(',') if name.strip()]
-                flag_enums = []
-                for name in flag_names:
-                    try:
-                        flag_enums.append(TrackUnitFlags[name])
-                    except KeyError:
-                        Debug.log_warning(f"      Warning: Unknown flag name '{name}' in track '{fox_track_name}'")
-                
-                if flag_enums:
-                    flags_value = TrackUnitFlags.track_unit_flags_to_int(flag_enums)
-    
-            elif key == 'hash' and value:
-                # Parse track name hash (StrCode32)
-                try:
-                    name_hash = int(value)
-                except ValueError:
-                    Debug.log_warning(f"      Warning: Invalid hash value '{value}' in track '{fox_track_name}'")
-    
-            elif key == 'type' and value:
-                # Parse rig unit type
-                rig_unit_type = RigUnitType.parse_from_string(value)
-                if rig_unit_type is None:
-                    Debug.log_warning(f"      Warning: Unknown rig unit type '{value}' in track '{fox_track_name}'")
-    
-    # Return TrackMetaData object if we have all required data
-    if segment_types and flags_value is not None:
-        metadata = TrackMetaData(
-            track_name=track_name_from_metadata,
-            segment_types=segment_types,
-            unit_flags=flags_value,
-            name_hash=name_hash,
-            component_bit_sizes=component_bit_sizes if component_bit_sizes else None,
-            rig_unit_type=rig_unit_type
-        )
-        Debug.log(f"      Retrieved layout metadata for '{fox_track_name}': {len(segment_types)} segments, flags={flags_value}, hash={name_hash}, bits={component_bit_sizes}")
-        return metadata
-    
-    # If layout-style parsing failed, try action-style parsing as a fallback
-    # This handles the case where actions store per-track overrides with '@track' format
-    try:
-        params_parsed_action = parse_action_track_metadata(metadata_str)
-    except Exception:
-        params_parsed_action = None
-
-    if params_parsed_action:
-        track_name_from_action = params_parsed_action.get('track_name', fox_track_name)
-        component_bit_sizes_action = params_parsed_action.get('component_bit_sizes')
-        flags_list_action = params_parsed_action.get('flags') or []
-        rig_type_action = params_parsed_action.get('type')
-
-        unit_flags_action = None
-        if flags_list_action:
-            flag_enums_action = []
-            for name in flags_list_action:
-                try:
-                    flag_enums_action.append(TrackUnitFlags[name])
-                except KeyError:
-                    Debug.log_warning(f"      Warning: Unknown flag name '{name}' in track '{fox_track_name}'")
-            if flag_enums_action:
-                unit_flags_action = TrackUnitFlags.track_unit_flags_to_int(flag_enums_action)
-
-        tm = TrackMetaData(
-            track_name=track_name_from_action,
-            name_hash=StrCode32.from_string(track_name_from_action).to_int() if track_name_from_action else None,
-            segment_types=[],
-            component_bit_sizes=component_bit_sizes_action if component_bit_sizes_action else None,
-            unit_flags=unit_flags_action,
-            flags_list=flags_list_action if flags_list_action else None,
-            rig_unit_type=rig_type_action
-        )
-        return tm
-
-    return None
-
-def get_all_track_metadata_from_action(action: bpy.types.Action) -> Dict[str, TrackMetaData]:
-    """Parse all track structure metadata from layout track action.
-    
-    The layout track defines the shared structure for all animations:
-    - Track names and order
-    - Segment types per track
-    - Default unit flags
-    
-    Args:
-        layout_action: The layout track action containing structure metadata
-        
-    Returns:
-        Dictionary mapping fox_track_name -> TrackMetaData
-    """
-    metadata_dict = {}
-    
-    # Iterate through track properties using utility function
-    for track_idx, fox_track_name, metadata_str in iter_track_properties(action):
-        # We already have the metadata_str, but get_track_metadata_from_action does the parsing
-        # Call it to parse the metadata string
-        metadata = get_track_metadata_from_action(action, fox_track_name)
-        if metadata:
-            metadata_dict[fox_track_name] = metadata
-            Debug.log(f"    Parsed track {track_idx}: {fox_track_name} ({len(metadata.segment_types)} segments)")
-    
-    Debug.log(f"  Parsed {len(metadata_dict)} track(s) from layout action")
-    return metadata_dict
-
 
 # NOTE: get_gani_track_metadata_from_action removed; use get_track_metadata_from_action directly
 
@@ -476,7 +286,8 @@ def collect_actions_for_export_from_armature(armature: bpy.types.Object, use_nla
 
 def get_bone_keyframe_numbers_from_action(action: bpy.types.Action, bone_name: str, 
                               segment_type: SegmentType, frame_start: int, frame_end: int,
-                              bone_params: Optional[BoneParameters] = None) -> List[int]:
+                              bone_params: Optional[BoneParameters] = None,
+                              fcurve_cache: Optional[FCurveCache] = None) -> List[int]:
     """Get the actual frames that have keyframes for a specific bone and segment type.
     
     Note: This function returns frames in the same coordinate system as frame_start/frame_end.
@@ -491,6 +302,7 @@ def get_bone_keyframe_numbers_from_action(action: bpy.types.Action, bone_name: s
         frame_start: First frame in export range (absolute for NLA, action-relative for active action)
         frame_end: Last frame in export range (absolute for NLA, action-relative for active action)
         bone_params: Optional bone parameters to check for special cases (e.g., as_ik_up)
+        fcurve_cache: Optional pre-built FCurveCache for fast lookups (20-100× faster than scanning action.fcurves)
         
     Returns:
         Sorted list of frame numbers that have keyframes (in same coordinate system as frame_start/frame_end)
@@ -502,19 +314,16 @@ def get_bone_keyframe_numbers_from_action(action: bpy.types.Action, bone_name: s
     is_ik_up_vector = (bone_params and bone_params.as_ik_up and 
                        segment_type in [SegmentType.QUAT, SegmentType.QUAT_DIFF])
     
-    # Determine which fcurve data paths to check based on segment type
+    # Determine which properties to check based on segment type
     if is_ik_up_vector:
         # IK up vector: stored as location in Blender, exported as quaternion
-        data_paths = [f'pose.bones["{bone_name}"].location']
+        property_names = ['location']
     elif segment_type in [SegmentType.QUAT, SegmentType.QUAT_DIFF]:
         # Rotation - check rotation_quaternion or rotation_euler
-        data_paths = [
-            f'pose.bones["{bone_name}"].rotation_quaternion',
-            f'pose.bones["{bone_name}"].rotation_euler'
-        ]
+        property_names = ['rotation_quaternion', 'rotation_euler']
     elif segment_type in [SegmentType.VECTOR3, SegmentType.VECTOR_DIFF]:
         # Location
-        data_paths = [f'pose.bones["{bone_name}"].location']
+        property_names = ['location']
     else:
         return []
     
@@ -528,18 +337,35 @@ def get_bone_keyframe_numbers_from_action(action: bpy.types.Action, bone_name: s
     frame_offset = frame_start - action_frame_start
     
     # Collect all keyframe frames from relevant fcurves
-    for fcurve in action.fcurves:
-        if fcurve.data_path in data_paths:
-            for keyframe_point in fcurve.keyframe_points:
-                # keyframe_point.co[0] is always relative to action's internal frame range
-                action_relative_frame = int(keyframe_point.co[0])
-                
-                # Convert to export coordinate system (absolute for NLA, action-relative for active)
-                export_frame = action_relative_frame + frame_offset
-                
-                # Filter by export range
-                if frame_start <= export_frame <= frame_end:
-                    keyframe_frames.add(export_frame)
+    if fcurve_cache and not fcurve_cache.is_empty():
+        # Use cache (fast path - 20-100× faster)
+        for property_name in property_names:
+            for fcurve in fcurve_cache.get_fcurves_for_bone(bone_name, property_name):
+                for keyframe_point in fcurve.keyframe_points:
+                    # keyframe_point.co[0] is always relative to action's internal frame range
+                    action_relative_frame = int(keyframe_point.co[0])
+                    
+                    # Convert to export coordinate system (absolute for NLA, action-relative for active)
+                    export_frame = action_relative_frame + frame_offset
+                    
+                    # Filter by export range
+                    if frame_start <= export_frame <= frame_end:
+                        keyframe_frames.add(export_frame)
+    else:
+        # Fall back to scanning action.fcurves (slow path - for backward compatibility)
+        data_paths = [f'pose.bones["{bone_name}"].{prop}' for prop in property_names]
+        for fcurve in action.fcurves:
+            if fcurve.data_path in data_paths:
+                for keyframe_point in fcurve.keyframe_points:
+                    # keyframe_point.co[0] is always relative to action's internal frame range
+                    action_relative_frame = int(keyframe_point.co[0])
+                    
+                    # Convert to export coordinate system (absolute for NLA, action-relative for active)
+                    export_frame = action_relative_frame + frame_offset
+                    
+                    # Filter by export range
+                    if frame_start <= export_frame <= frame_end:
+                        keyframe_frames.add(export_frame)
     
     # If no keyframes found, export at least the first frame
     if not keyframe_frames:
@@ -553,7 +379,8 @@ def export_keyframes_track(armature: bpy.types.Object, blender_bone_name: str,
                           frame_start: int, frame_end: int,
                           is_static: bool, action: bpy.types.Action = None,
                           rig_unit_type: Optional[RigUnitType] = None,
-                          use_evaluated: bool = False) -> List['AnimKeyframe']:
+                          use_evaluated: bool = False,
+                          fcurve_cache: Optional[FCurveCache] = None) -> List['AnimKeyframe']:
     """Export a single track data segment (one segment of a bone's animation).
     
     This is the export counterpart to import_keyframes_track().
@@ -569,6 +396,7 @@ def export_keyframes_track(armature: bpy.types.Object, blender_bone_name: str,
         action: Blender action to get actual keyframe frames from
         rig_unit_type: Type of rig unit (determines if world space transforms are needed)
         use_evaluated: Whether to use evaluated (post-constraint/IK) transforms instead of raw keyframes
+        fcurve_cache: Optional pre-built FCurveCache for fast lookups
         
     Returns:
         List of AnimKeyframe objects
@@ -578,7 +406,7 @@ def export_keyframes_track(armature: bpy.types.Object, blender_bone_name: str,
         export_frames = [frame_start]
     elif action:
         # Get actual keyframe frames from Blender fcurves
-        export_frames = get_bone_keyframe_numbers_from_action(action, blender_bone_name, segment_type, frame_start, frame_end, bone_params)
+        export_frames = get_bone_keyframe_numbers_from_action(action, blender_bone_name, segment_type, frame_start, frame_end, bone_params, fcurve_cache)
     else:
         # Fallback: export all frames
         export_frames = list(range(frame_start, frame_end + 1))
@@ -604,6 +432,52 @@ def export_keyframes_track(armature: bpy.types.Object, blender_bone_name: str,
         Debug.log_warning(f"    Warning: Unsupported segment type {segment_type}")
         return []
 
+def _get_rotation_transform_fn(bone_params: BoneParameters, armature: bpy.types.Object,
+                               blender_bone_name: str, space_bone: Optional[str],
+                               use_evaluated: bool, rig_unit_type: Optional[RigUnitType]):
+    """Return a callable that produces rotation quaternion for a given frame.
+    
+    This helper eliminates code duplication between as_ik_up and normal rotation paths.
+    The returned function captures the context needed to compute rotation at any frame.
+    
+    Args:
+        bone_params: Bone parameters (contains as_ik_up data if applicable)
+        armature: Armature object
+        blender_bone_name: Name of the bone in Blender
+        space_bone: Custom space bone name (or None for default space)
+        use_evaluated: Whether to use evaluated transforms
+        rig_unit_type: Rig unit type (determines local vs world space for normal tracks)
+        
+    Returns:
+        Callable that takes (frame: int) and returns Quaternion
+    """
+    if bone_params.as_ik_up:
+        # as_ik_up path: convert directional location to rotation
+        as_ik_up_data = bone_params.as_ik_up
+        axis = as_ik_up_data.axis
+        distance = as_ik_up_data.distance
+        base_bone_name = as_ik_up_data.bone_base
+        
+        def get_rotation_as_ik_up(frame: int) -> Quaternion:
+            ik_location, _ = get_world_space_transform(armature, blender_bone_name, frame, space_bone, use_evaluated)
+            base_location, _ = get_world_space_transform(armature, base_bone_name, frame, space_bone, use_evaluated)
+            return reverse_directional_location(ik_location, base_location, axis, distance)
+        
+        return get_rotation_as_ik_up
+    else:
+        # Normal rotation path: read quaternion directly
+        use_world_space = RigUnitType.is_world_space_unit_type(rig_unit_type)
+        
+        def get_rotation_normal(frame: int) -> Quaternion:
+            if use_world_space:
+                _, quat = get_world_space_transform(armature, blender_bone_name, frame, space_bone, use_evaluated)
+            else:
+                _, quat = get_local_space_transform(armature, blender_bone_name, frame, use_evaluated)
+            return quat
+        
+        return get_rotation_normal
+
+
 def export_rotation_segment(armature: bpy.types.Object, blender_bone_name: str,
                             bone_params: BoneParameters, export_frames: List[int],
                             frame_start: int, is_static: bool, 
@@ -611,74 +485,36 @@ def export_rotation_segment(armature: bpy.types.Object, blender_bone_name: str,
                             use_evaluated: bool = False) -> List['AnimKeyframe']:
     """Export rotation segment keyframes."""
     keyframes = []
+    start_timer("export_rotation_segment")
     
-    # Check if this is an as_ik_up parameter (directional vector stored as rotation)
-    if bone_params.as_ik_up:
-        as_ik_up_data = bone_params.as_ik_up
-        axis = as_ik_up_data.axis
-        distance = as_ik_up_data.distance
-        base_bone_name = as_ik_up_data.bone_base
-        
-        # Get custom space if specified
-        space_bone = None
-        if bone_params.space_r:
-            space_r_value = bone_params.space_r
-            if isinstance(space_r_value, str) and not space_r_value.startswith('ws'):
-                space_bone = space_r_value
-        
-        for frame in export_frames:
-            # Read locations - as_ik_up is always world space (only valid for ARM and TWO_BONE)
-            ik_location, _ = get_world_space_transform(armature, blender_bone_name, frame, space_bone, use_evaluated)
-            base_location, _ = get_world_space_transform(armature, base_bone_name, frame, space_bone, use_evaluated)
-            
-            # Convert directional location to rotation
-            blender_quat = reverse_directional_location(ik_location, base_location, axis, distance)
-            
-            # Apply reverse transformations (offsets, axis mapping)
-            rotation_offset = bone_params.rotation_offset
-            rotation_axis_map = bone_params.rotation_axis_map
-            # For as_ik_up: offsets were applied first during import
-            fox_quat = apply_reverse_transforms(blender_quat, rotation_offset, rotation_axis_map)
-            
-            # Convert to Fox Engine coordinate system
-            fox_quat_final = blender_to_fox_quaternion(fox_quat)
-            
-            # Create keyframe
-            frame_delta = frame - frame_start if not is_static else 0
-            keyframe = AnimKeyframe(frame=frame_delta, value=fox_quat_final)
-            keyframes.append(keyframe)
-    else:
-        # Normal rotation track
-        # Get custom space if specified
-        space_bone = None
-        if bone_params.space_r:
-            space_r_value = bone_params.space_r
-            if isinstance(space_r_value, str) and not space_r_value.startswith('ws'):
-                space_bone = space_r_value
-        
-        for frame in export_frames:
-            # Read rotation
-            if RigUnitType.is_world_space_unit_type(rig_unit_type):
-                # Use world space transforms for ORIENTATION, TWO_BONE, ARM
-                _, blender_quat = get_world_space_transform(armature, blender_bone_name, frame, space_bone, use_evaluated)
-            else:
-                # Use local space transforms for other types (LOCAL_ORIENTATION, TRANSFORM, ROOT, etc.)
-                _, blender_quat = get_local_space_transform(armature, blender_bone_name, frame, use_evaluated)
-            
-            # Apply reverse transformations
-            rotation_offset = bone_params.rotation_offset
-            rotation_axis_map = bone_params.rotation_axis_map
-            # For regular rotation: offsets were applied last during import
-            fox_quat = apply_reverse_transforms(blender_quat, rotation_offset, rotation_axis_map)
-            
-            # Convert to Fox Engine coordinate system
-            fox_quat_final = blender_to_fox_quaternion(fox_quat)
-            
-            # Create keyframe
-            frame_delta = frame - frame_start if not is_static else 0
-            keyframe = AnimKeyframe(frame=frame_delta, value=fox_quat_final)
-            keyframes.append(keyframe)
+    # POINT 4 OPTIMIZATION: Extract loop-invariant setup and use pluggable transform function
+    # These are constant across all frames, so extract once to avoid redundant lookups
+    rotation_offset = bone_params.rotation_offset
+    rotation_axis_map = bone_params.rotation_axis_map
+    space_bone = TrackMetaData.extract_space_bone(bone_params.space_r)
     
+    # Get rotation transform function (varies by as_ik_up and space type)
+    # This eliminates ~40 lines of code duplication between two paths
+    get_rotation = _get_rotation_transform_fn(bone_params, armature, blender_bone_name,
+                                              space_bone, use_evaluated, rig_unit_type)
+    
+    # Unified frame loop for both as_ik_up and normal rotation
+    for frame in export_frames:
+        # Get rotation using appropriate method (as_ik_up or normal)
+        blender_quat = get_rotation(frame)
+        
+        # Apply reverse transformations (offsets, axis mapping)
+        fox_quat = apply_reverse_transforms(blender_quat, rotation_offset, rotation_axis_map)
+        
+        # Convert to Fox Engine coordinate system
+        fox_quat_final = blender_to_fox_quaternion(fox_quat)
+        
+        # Create keyframe
+        frame_delta = frame - frame_start if not is_static else 0
+        keyframe = AnimKeyframe(frame=frame_delta, value=fox_quat_final)
+        keyframes.append(keyframe)
+    
+    stop_timer("export_rotation_segment")
     return keyframes
 
 def export_location_segment(armature: bpy.types.Object, blender_bone_name: str,
@@ -688,17 +524,22 @@ def export_location_segment(armature: bpy.types.Object, blender_bone_name: str,
                             use_evaluated: bool = False) -> List['AnimKeyframe']:
     """Export location segment keyframes."""
     keyframes = []
+    start_timer("export_location_segment")
     
-    # Get custom space if specified
+    # Get custom space if specified (constant across all frames)
     space_bone = None
     if bone_params.space_l:
         space_l_value = bone_params.space_l
         if isinstance(space_l_value, str) and not space_l_value.startswith('ws'):
             space_bone = space_l_value
     
+    # is_world_space result is constant across all frames
+    use_world_space = RigUnitType.is_world_space_unit_type(rig_unit_type)
+    
+    # For regular location: read and convert per frame
     for frame in export_frames:
-        # Read location
-        if RigUnitType.is_world_space_unit_type(rig_unit_type):
+        # Read location (using pre-determined space)
+        if use_world_space:
             # Use world space transforms for ORIENTATION, TWO_BONE, ARM
             blender_location, _ = get_world_space_transform(armature, blender_bone_name, frame, space_bone, use_evaluated)
         else:
@@ -713,62 +554,18 @@ def export_location_segment(armature: bpy.types.Object, blender_bone_name: str,
         keyframe = AnimKeyframe(frame=frame_delta, value=fox_location)
         keyframes.append(keyframe)
     
+    stop_timer("export_location_segment")
     return keyframes
 
 
-def build_metadata_from_fcurves(bone_name: str, action: bpy.types.Action) -> Optional[TrackMetaData]:
-    """Build minimal TrackMetaData by analyzing fcurves when no metadata is available.
-    
-    This is a helper function for the fallback export path when no layout metadata exists.
-    It determines segment types by checking which fcurve data paths exist for the bone.
-    
-    Args:
-        bone_name: Name of the bone to analyze
-        action: Action containing fcurves to analyze
-        
-    Returns:
-        TrackMetaData with segment_types inferred from fcurves, or None if no fcurves found
-    """
-    if not action or not action.fcurves:
-        return None
-    
-    # Check which fcurve types exist for this bone
-    has_rotation = any(
-        fc.data_path in [f'pose.bones["{bone_name}"].rotation_quaternion', 
-                        f'pose.bones["{bone_name}"].rotation_euler']
-        for fc in action.fcurves
-    )
-    has_location = any(
-        fc.data_path == f'pose.bones["{bone_name}"].location'
-        for fc in action.fcurves
-    )
-    
-    # Build segment types list
-    segment_types = []
-    if has_rotation:
-        segment_types.append(SegmentType.QUAT)
-    if has_location:
-        segment_types.append(SegmentType.VECTOR3)
-    
-    # If no segments found, return None
-    if not segment_types:
-        return None
-    
-    # Create minimal metadata
-    return TrackMetaData(
-        track_name=bone_name,
-        segment_types=segment_types,
-        unit_flags=0,  # No special flags
-        name_hash=StrCode32.from_string(bone_name).to_int(),
-        component_bit_sizes=None,  # Use defaults
-        rig_unit_type=None
-    )
+
 
 
 def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
                      track_segment_bone_mapping: TrackSegmentBoneMapping, frame_start: int, frame_end: int,
                      action: bpy.types.Action, layout_metadata: Optional[TrackMetaData],
-                     use_evaluated: bool = False) -> 'TrackUnitWrapper':
+                     use_evaluated: bool = False,
+                     fcurve_cache: Optional[FCurveCache] = None) -> 'TrackUnitWrapper':
     """Export a GaniTrack (all segments for one track).
     
     This is the export counterpart to import_gani_track().
@@ -787,6 +584,7 @@ def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
         action: Animation action containing keyframes
         layout_metadata: TrackMetaData instance containing track structure metadata for this track
         use_evaluated: Whether to use evaluated transforms
+        fcurve_cache: Optional pre-built FCurveCache for fast lookups
         
     Returns:
         GaniTrack object with all keyframes tracks
@@ -850,7 +648,7 @@ def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
     # Merge per-action overrides into layout metadata (if any)
     merged_metadata = layout_metadata
     if action:
-        action_meta = get_track_metadata_from_action(action, base_fox_track_name)
+        action_meta = TrackMetaData.from_action(action, base_fox_track_name)
         if action_meta:
             Debug.log(f"      Applying action-level overrides for track '{base_fox_track_name}' from action '{action.name}'")
             merged_metadata = merge_track_metadata(layout_metadata, action_meta)
@@ -885,13 +683,15 @@ def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
         
         # Check if this bone exists in the armature
         if segment_bone_name and segment_bone_name in armature.pose.bones:
+            start_timer(f"export_keyframes_track(segment_bone_name={segment_bone_name})")
             # Export keyframes for this segment
             keyframes = export_keyframes_track(
                 armature, segment_bone_name, segment_fox_mapping_params,
                 segment_type, frame_start, frame_end, is_static, action,
-                merged_metadata.rig_unit_type, use_evaluated
+                merged_metadata.rig_unit_type, use_evaluated, fcurve_cache
             )
-            
+            stop_timer(f"export_keyframes_track(segment_bone_name={segment_bone_name})")
+
             # Get component_bit_size from metadata if available, otherwise use default
             component_bit_size = 16  # Default for export
             if merged_metadata.component_bit_sizes and segment_idx < len(merged_metadata.component_bit_sizes):
@@ -912,6 +712,7 @@ def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
                 data_blob=data_blob
             )
             keyframes_tracks.append(keyframes_track)
+
         else:
             # Missing bone - create empty keyframes track
             Debug.log_warning(f"        Warning: Bone '{segment_bone_name}' not found in armature, creating empty segment")
@@ -985,6 +786,15 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
     
     try:
         gani_tracks = []
+        
+        # Build fcurve cache once for this action (major performance optimization)
+        # This eliminates 20-100× redundancy from scanning action.fcurves for every bone
+        start_timer("build_fcurve_cache")
+        fcurve_cache = FCurveCache.build(action) if action else None
+        stop_timer("build_fcurve_cache")
+        
+        if fcurve_cache and not fcurve_cache.is_empty():
+            Debug.log(f"    Built fcurve cache: {len(fcurve_cache.get_bones())} bones indexed")
 
         # If a mapping and layout metadata dict are provided, use the mapping to export tracks
         if track_segment_bone_mapping and layout_metadata_dict:
@@ -1011,7 +821,7 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
 
                 gani_track = export_gani_track_from_action(
                     armature, track_idx,
-                    track_segment_bone_mapping, frame_start, frame_end, action, layout_metadata, use_evaluated
+                    track_segment_bone_mapping, frame_start, frame_end, action, layout_metadata, use_evaluated, fcurve_cache
                 )
                 gani_tracks.append(gani_track)
         else:
@@ -1028,13 +838,13 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
                 bone_name = bone.name
                 
                 # Get metadata for this bone (from layout_metadata_dict or by analyzing fcurves)
-                bone_metadata = None
+                bone_metadata: TrackMetaData = None
                 if layout_metadata_dict and bone_name in layout_metadata_dict:
                     # Use provided metadata
                     bone_metadata = layout_metadata_dict[bone_name]
                 else:
                     # Build minimal metadata by analyzing fcurves (legacy fallback)
-                    bone_metadata = build_metadata_from_fcurves(bone_name, action)
+                    bone_metadata = TrackMetaData.from_fcurves(bone_name=bone_name, action=action)
                 
                 # Skip bones with no metadata (no fcurves and not in metadata_dict)
                 if not bone_metadata:
@@ -1042,7 +852,7 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
                 
                 # Merge per-action overrides if available
                 if action:
-                    action_meta_bone = get_track_metadata_from_action(action, bone_name)
+                    action_meta_bone = TrackMetaData.from_action(action, bone_name)
                     if action_meta_bone:
                         bone_metadata = merge_track_metadata(bone_metadata, action_meta_bone)
                 
@@ -1061,7 +871,7 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
                 gani_track = export_gani_track_from_action(
                     armature, track_idx,
                     temp_mapping, frame_start, frame_end, action,
-                    bone_metadata, use_evaluated
+                    bone_metadata, use_evaluated, fcurve_cache
                 )
                 
                 # Only add tracks that have segments

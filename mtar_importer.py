@@ -15,122 +15,12 @@ from .py_foxwrap.foxwrap_motionevent import store_motion_events_on_action
 from .py_foxwrap.foxwrap_mtar_reader import MtarReader
 
 from .py_fox.fox_mtar_types import MotionPointList2, MtarTableList2
-from .py_fox.fox_gani_types import SegmentType, TrackUnitFlags, TrackUnit, TrackHeader, Gani2TrackData, TrackMiniHeader, EvpHeader
+from .py_fox.fox_gani_types import SegmentType, TrackUnitFlags, TrackHeader, TrackMiniHeader, EvpHeader
 from .py_fox.fox_frig_types import RigUnitType, FrigFile
 from .py_fox.fox_misc_types import StrCode32
 
 
 FPS_59_94: float = 59.94
-
-# Metadata Conversion Utilities #############################################################
-
-def create_track_metadata_from_layout(track_units: List[TrackUnit], track_name_prefix: str = "Track", gani_tracks: Optional[List[TrackUnitWrapper]] = None) -> List[TrackMetaData]:
-    """Convert layout track units to TrackMetaData objects.
-    
-    Args:
-        track_units: List of TrackUnit objects from layout track
-        track_name_prefix: Prefix for generating track names (default: "Track")
-        gani_tracks: Optional list of GaniTracks with rig_unit_type populated from FRIG (for preserving rig type info)
-        
-    Returns:
-        List of TrackMetaData objects
-    """
-    track_metadata_list: List[TrackMetaData] = []
-    
-    for track_idx, track_unit in enumerate(track_units):
-        # Resolve track name from hash
-        track_name = f"{track_name_prefix}{track_idx}"
-        name_hash = 0
-        if track_unit.name:
-            name_hash = track_unit.name.to_int() if hasattr(track_unit.name, 'to_int') else int(track_unit.name)
-            resolved_name = unhash_rig_type(name_hash)
-            if resolved_name:
-                track_name = resolved_name
-            else:
-                # If unhashing fails, use string representation of hash (matches bone creation)
-                track_name = str(track_unit.name)
-        
-        # Build segment types list
-        segment_types = []
-        component_bit_sizes = []
-        for track_data in track_unit.segments_data:
-            segment_types.append(track_data.td_type)
-            component_bit_sizes.append(track_data.component_bit_size)
-        
-        # Get rig_unit_type from corresponding GaniTrack if available (populated from FRIG)
-        rig_unit_type = None
-        if gani_tracks and track_idx < len(gani_tracks):
-            rig_unit_type = gani_tracks[track_idx].rig_unit_type
-        
-        # Create TrackMetaData
-        track_meta = TrackMetaData(
-            track_name=track_name,
-            name_hash=name_hash if name_hash != 0 else None,
-            segment_types=segment_types,
-            component_bit_sizes=component_bit_sizes,
-            unit_flags=track_unit.unit_flags,
-            flags_list=None,  # Will be derived from unit_flags
-            rig_unit_type=rig_unit_type  # Preserved from FRIG if available
-        )
-        
-        track_metadata_list.append(track_meta)
-    
-    return track_metadata_list
-
-
-def create_track_metadata_from_gani(gani_tracks: List[TrackUnitWrapper], segment_headers: List[Gani2TrackData]) -> List[TrackMetaData]:
-    """Convert GANI tracks and segment headers to TrackMetaData objects.
-    
-    Args:
-        gani_tracks: List of GaniTrack objects containing animation data
-        segment_headers: List of segment header objects with component_bit_size
-        
-    Returns:
-        List of TrackMetaData objects
-    """
-    track_metadata_list: List[TrackMetaData] = []
-    segment_idx_abs = 0
-    
-    for track_idx, gani_track in enumerate(gani_tracks):
-        track_name = gani_track.name
-        
-        # Extract unit flags
-        unit_flags = None
-        if gani_track.unit_flags:
-            unit_flags = TrackUnitFlags.track_unit_flags_to_int(gani_track.unit_flags)
-        
-        # Collect component bit sizes and segment types
-        segment_count = len(gani_track.segments_track_data)
-        bit_sizes = []
-        segment_types = []
-        
-        for seg_idx in range(segment_count):
-            abs_idx = segment_idx_abs + seg_idx
-            if abs_idx < len(segment_headers):
-                bit_sizes.append(segment_headers[abs_idx].component_bit_size)
-            else:
-                bit_sizes.append(0)
-            
-            # Get segment type from the track data blob
-            if seg_idx < len(gani_track.segments_track_data):
-                segment_types.append(gani_track.segments_track_data[seg_idx].data_blob.type)
-        
-        # Create TrackMetaData
-        track_meta = TrackMetaData(
-            track_name=track_name,
-            name_hash=None,  # Not stored in GANI tracks
-            segment_types=segment_types,
-            component_bit_sizes=bit_sizes,
-            unit_flags=unit_flags,
-            flags_list=None,
-            rig_unit_type=None  # Not directly available
-        )
-        
-        track_metadata_list.append(track_meta)
-        segment_idx_abs += segment_count
-    
-    return track_metadata_list
-
 
 # Layout and MetaData #############################################################
 
@@ -505,7 +395,7 @@ def create_animation_actions(
         # Convert layout track to TrackMetaData and store metadata
         # Pass first gani_tracks (if available) to preserve rig_unit_type from FRIG
         first_gani_tracks = all_gani_tracks[0] if all_gani_tracks and len(all_gani_tracks) > 0 else None
-        track_metadata_list = create_track_metadata_from_layout(layout_track.track_units, gani_tracks=first_gani_tracks)
+        track_metadata_list = TrackMetaData.from_layout_track_units(layout_track.track_units, gani_tracks=first_gani_tracks)
         store_track_metadata_on_action(layout_action, track_metadata_list)
         
         # Store header properties separately
@@ -537,7 +427,7 @@ def create_animation_actions(
         # Store metadata from the actual animation data (GaniTracks) on this action
         # Convert to TrackMetaData and store
         track_mini_header = all_track_mini_headers[gani_index]
-        track_metadata_list = create_track_metadata_from_gani(gani_tracks, track_mini_header.segment_headers)
+        track_metadata_list = TrackMetaData.from_gani_tracks(gani_tracks, track_mini_header.segment_headers)
         store_track_metadata_on_action(action, track_metadata_list, include_segments=False, include_hash=False)
         
         # Store the path hash from the file header for re-export
@@ -623,7 +513,7 @@ def create_motion_points_animation_actions(
         # Motion points use Tracks structure (like layout track)
         motion_point_layout = all_motion_point_layouts[gani_index]
         if motion_point_layout is not None:
-            track_metadata_list = create_track_metadata_from_layout(motion_point_layout.track_units, track_name_prefix="MotionPoint")
+            track_metadata_list = TrackMetaData.from_layout_track_units(motion_point_layout.track_units, track_name_prefix="MotionPoint")
             store_track_metadata_on_action(action, track_metadata_list, include_segments=False, include_hash=False)
         
         # Store TrackHeader fields (t_id, unknown_a, unknown_b) if available
@@ -1214,7 +1104,7 @@ def create_and_setup_motion_points_armature(
 
 # MTAR import #############################################################
 
-def import_mtar(context: bpy.types.Context, filepath: str, frig: Optional[FrigFile], track_mapping: Optional[Dict[str, dict]] = None, gani_index: int = -1, target_rig: Optional[bpy.types.Object] = None) -> Dict[str, str]:
+def import_mtar(context: bpy.types.Context, filepath: str, frig: Optional[FrigFile], track_mapping: Optional[Dict[str, dict]] = None, gani_index: int = -1, target_rig: Optional[bpy.types.Object] = None) -> Tuple[Dict[str, str], bpy.types.Object]:
     """Import MTAR animation data and create corresponding objects and animations.
     
     Args:
@@ -1233,7 +1123,7 @@ def import_mtar(context: bpy.types.Context, filepath: str, frig: Optional[FrigFi
     if target_rig and imported_armature:
         setup_rig(imported_armature, target_rig, track_mapping)
     
-    return result
+    return result, imported_armature
 
 def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[FrigFile], track_mapping: Optional[Dict[str, dict]] = None, gani_index: int = -1, target_rig: Optional[bpy.types.Object] = None) -> Tuple[Dict[str, str], bpy.types.Object]:
     """Import MTAR animation data and create corresponding objects and animations.

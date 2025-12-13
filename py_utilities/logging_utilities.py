@@ -49,8 +49,6 @@ def _should_log(level: _LogLevel) -> bool:
     This checks both the configured minimum log level and the scene-level
     `mtar_properties.log_verbosity` setting (if available).
     """
-    if level > _min_log_level:
-        return False
 
     try:
         if hasattr(bpy.context, 'scene') and hasattr(bpy.context.scene, 'mtar_properties'):
@@ -66,7 +64,8 @@ def _should_log(level: _LogLevel) -> bool:
            
     except (ImportError, AttributeError, RuntimeError):
         # If we can't access Blender context, default to printing
-        pass
+        if level > _min_log_level:
+            return False
 
     return True
 
