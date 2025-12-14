@@ -805,7 +805,8 @@ def create_and_setup_armature(
     gani_actions: List[bpy.types.Action],
     max_frame_end: int,
     layout_action: Optional[bpy.types.Action],
-    target_rig: Optional[bpy.types.Object]
+    target_rig: Optional[bpy.types.Object],
+    strip_suffix: str = ""
 ) -> bpy.types.Object:
     """Create and set up the imported armature with pre-created animation data.
     
@@ -877,10 +878,11 @@ def create_and_setup_armature(
     if layout_action:
         Debug.log("Adding layout track action to NLA...")
         layout_strip: bpy.types.NlaStrip = nla_track.strips.new(
-            name=f"{mtar_file_name}_LayoutTrack",
+            name="tmp",
             start=-100,
             action=layout_action
         )
+        layout_strip.name=f"{mtar_file_name}_LayoutTrack"
         # Set the strip to span frames -100 to -50
         layout_strip.frame_start = -100
         layout_strip.frame_end = -50
@@ -914,30 +916,32 @@ def create_and_setup_armature(
 
         if action_frame_end > 0:
             strip: bpy.types.NlaStrip = nla_track.strips.new(
-                name=f"{mtar_file_name}_Strip_{gani_index:03d}",
+                name="tmp",
                 start=int(current_frame_offset),
                 action=action
             )
+            strip.name=f"{mtar_file_name}_Strip_{gani_index:03d}{strip_suffix}"
             strip.frame_start = 0
             strip.frame_end = action_frame_end
             strip.action_frame_start = 0
             strip.action_frame_end = action_frame_end
             
-            Debug.log(f"Created NLA strip on imported armature at frame {current_frame_offset} (length: {action_frame_end})")
+            Debug.log(f"Created NLA strip '{strip.name}' on imported armature at frame {current_frame_offset} (length: {action_frame_end})")
             
             # Also create NLA strip on target rig if provided
             if target_nla_track:
                 target_strip: bpy.types.NlaStrip = target_nla_track.strips.new(
-                    name=f"{mtar_file_name}_Strip_{gani_index:03d}",
+                    name="tmp",
                     start=int(current_frame_offset),
                     action=action
                 )
+                target_strip.name=f"{mtar_file_name}_Strip_{gani_index:03d}{strip_suffix}"
                 target_strip.frame_start = 0
                 target_strip.frame_end = action_frame_end
                 target_strip.action_frame_start = 0
                 target_strip.action_frame_end = action_frame_end
                 
-                Debug.log(f"Created NLA strip on target rig at frame {current_frame_offset} (length: {action_frame_end})")
+                Debug.log(f"Created NLA strip '{target_strip.name}' on target rig at frame {current_frame_offset} (length: {action_frame_end})")
             
             # Update offset for next strip
             current_frame_offset += action_frame_end
@@ -953,7 +957,8 @@ def create_and_setup_motion_points_armature(
     context: bpy.types.Context,
     mtar_file_name: str,
     motion_points: Optional['MotionPointList2'],
-    motion_point_actions: List[bpy.types.Action]
+    motion_point_actions: List[bpy.types.Action],
+    strip_suffix: str = ""
 ) -> Optional[bpy.types.Object]:
     """Create and set up motion points armature with pre-created animation actions.
     
@@ -1083,16 +1088,17 @@ def create_and_setup_motion_points_armature(
             
             if action_frame_end > 0:
                 strip: bpy.types.NlaStrip = nla_track.strips.new(
-                    name=f"{mtar_file_name}_MotionPoints_Strip_{gani_index:03d}",
+                    name="tmp",
                     start=int(current_frame_offset),
                     action=action
                 )
+                strip.name=f"{mtar_file_name}_MotionPoints_Strip_{gani_index:03d}{strip_suffix}"
                 strip.frame_start = 0
                 strip.frame_end = action_frame_end
                 strip.action_frame_start = 0
                 strip.action_frame_end = action_frame_end
                 
-                Debug.log(f"  Created NLA strip at frame {current_frame_offset} (length: {action_frame_end})")
+                Debug.log(f"  Created NLA strip '{strip.name}' at frame {current_frame_offset} (length: {action_frame_end})")
                 
                 # Update offset for next strip
                 current_frame_offset += action_frame_end
@@ -1244,6 +1250,8 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
     
     # Use the MTAR filename (without extension) as the armature name
     mtar_file_name: str = os.path.splitext(os.path.basename(filepath))[0]
+    # If importing from a .mtar file, append .gani to NLA strip names to indicate source
+    strip_suffix: str = ".gani" if os.path.splitext(filepath)[1].lower() == ".mtar" else ""
     
     # Create animation actions first (primary task - can work without armature)
     layout_action, gani_actions, max_frame_end = create_animation_actions(
@@ -1263,7 +1271,8 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
         gani_actions,
         max_frame_end,
         layout_action,
-        target_rig
+        target_rig,
+        strip_suffix
     )
     
     # Create motion points animation actions (primary task for motion points)
@@ -1279,7 +1288,8 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
         context,
         mtar_file_name,
         motion_points,
-        motion_point_actions
+        motion_point_actions,
+        strip_suffix
     )
     
     Debug.log("\n=== MTAR Import Completed Successfully ===")

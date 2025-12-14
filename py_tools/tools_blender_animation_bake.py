@@ -413,7 +413,7 @@ def bake_armature_action(rig_armature: bpy.types.Object,
     for bone_name in bones_with_keyframes:
         if bone_name in rig_armature.pose.bones:
             rig_armature.pose.bones[bone_name].bone.select = True
-            Debug.log(f"  Selecting bone: {bone_name} : {rig_armature.pose.bones[bone_name].bone.select}")
+            Debug.log(f"  Selecting bone for baking: {bone_name} : {rig_armature.pose.bones[bone_name].bone.select}")
     
     try:
         Debug.log("  Starting bake operation...")
@@ -474,13 +474,6 @@ def bake_armature_action(rig_armature: bpy.types.Object,
             Debug.log(f"  Re-enabled NLA track '{nla_track.name}'")
         
         Debug.log(f"Successfully baked action '{action.name}' -> '{target_action.name}'")
-        # Log which bones were baked for easier debugging
-        try:
-            baked_bones_list = sorted(bones_with_keyframes)
-            Debug.log(f"  Bones baked ({len(baked_bones_list)}): {', '.join(baked_bones_list)}")
-        except Exception:
-            # Be defensive: if listing fails for any reason, don't break the bake
-            Debug.log_warning("  Warning: Failed to enumerate baked bones for logging")
         
         return {
             'success': True,
