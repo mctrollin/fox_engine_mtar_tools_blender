@@ -4,7 +4,7 @@ MTAR animation exporter for Metal Gear Solid V.
 This module handles the export of Blender animation data to MTAR format.
 """
 
-from typing import Optional, Dict, List, TYPE_CHECKING
+from typing import Optional, Dict, List
 from pathlib import Path
 
 import bpy
@@ -12,7 +12,7 @@ from mathutils import Quaternion
 
 from .py_utilities.utilities_logging import Debug, start_timer, stop_timer
 from .py_utilities.utilities_transforms import reverse_directional_location, apply_reverse_transforms, get_local_space_transform, get_world_space_transform, blender_to_fox_vector, blender_to_fox_quaternion
-from .py_utilities.utilities_blender_animation_ import FCurveCache
+from .py_utilities.utilities_blender_animation import FCurveCache
 
 from .py_foxwrap.foxwrap_motionevent import read_motion_events_from_action
 from .py_foxwrap.foxwrap_metadata import parse_action_track_metadata, read_track_header_properties_from_action
@@ -29,48 +29,8 @@ from .py_fox.fox_mtar_types import MotionPointList2, MotionPointEntry
 from .py_fox.fox_frig_types import RigUnitType
 from .py_fox.fox_misc_types import StrCode32
 
-if TYPE_CHECKING:
-    pass
-
 
 # Layout and MetaData #############################################################
-
-# NOTE: get_gani_track_metadata_from_action removed; use get_track_metadata_from_action directly
-
-def get_gani_unit_flags_from_action(action: bpy.types.Action, track_idx: int, fox_track_name: str = None) -> int:
-    """Retrieve animation-specific unit flags for a track from action custom properties.
-    
-    Parses @track format to extract flags for a specific track.
-    
-    Args:
-        action: The animation action containing GANI track metadata
-        track_idx: Index of the track to get flags for
-        fox_track_name: Optional fox track name for direct lookup
-        
-    Returns:
-        Unit flags integer (0 if not found)
-    """
-    if fox_track_name:
-        metadata: TrackMetaData = get_track_metadata_from_action(action, fox_track_name)
-        if metadata:
-            # metadata is a TrackMetaData instance - prefer explicit unit_flags if set
-            if metadata.unit_flags is not None:
-                return metadata.unit_flags
-            # If only flags list was set, convert it to int
-            if metadata.flags_list:
-                flag_enums = []
-                for name in metadata.flags_list:
-                    try:
-                        flag_enums.append(TrackUnitFlags[name])
-                    except KeyError:
-                        Debug.log_warning(f"      Warning: Unknown flag name '{name}' in track '{fox_track_name}'")
-                if flag_enums:
-                    return TrackUnitFlags.track_unit_flags_to_int(flag_enums)
-    
-    # Fallback: no unit flags found for this track
-    Debug.log_warning(f"  Warning: No unit_flags found for track {track_idx} in action {action.name}")
-    return 0
-
 
 def find_layout_track_action() -> Optional[bpy.types.Action]:
     """Find the layout track action in the scene.
@@ -559,9 +519,6 @@ def export_location_segment(armature: bpy.types.Object, blender_bone_name: str,
     return keyframes
 
 
-
-
-
 def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
                      track_segment_bone_mapping: TrackSegmentBoneMapping, frame_start: int, frame_end: int,
                      action: bpy.types.Action, layout_metadata: Optional[TrackMetaData],
@@ -637,7 +594,7 @@ def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
     
     if layout_metadata is None:
         # No metadata found - cannot export this track
-        Debug.log(f"      Error: No layout metadata found for fox track '{base_fox_track_name}' (blender bone: '{base_blender_bone_name}') in layout action")
+        Debug.log_error(f"      Error: No layout metadata found for fox track '{base_fox_track_name}' (blender bone: '{base_blender_bone_name}') in layout action")
         return TrackUnitWrapper(
             name=base_blender_bone_name,
             segments_track_data=[],
@@ -676,11 +633,11 @@ def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
             # Segment-specific bone found
             segment_bone_name, segment_fox_mapping_params = segment_mapping
             segment_type_str = "multi-segment" if track_segment_bone_mapping.is_multi_segment_track(track_idx) else "single-segment"
-            Debug.log(f"        Segment {segment_idx}: '{segment_bone_name}' ({segment_type_str})")
+            Debug.log(f"        Mapping Segment {segment_idx}: '{segment_bone_name}' ({segment_type_str})")
         else:
             # Fallback to base bone (should not happen with proper mapping)
             segment_bone_name, segment_fox_mapping_params = base_blender_bone_name, base_fox_mapping_params
-            Debug.log(f"        Segment {segment_idx}: '{segment_bone_name}' (Warning: fallback to base (track) bone)")
+            Debug.log_warning(f"        Warning: Missing mapping. Segment {segment_idx}: '{segment_bone_name}' (fallback to base (track) bone)")
         
         # Check if this bone exists in the armature
         if segment_bone_name and segment_bone_name in armature.pose.bones:
@@ -887,7 +844,6 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
             # Restore tweak mode if it was active
             if was_in_tweak_mode:
                 armature.animation_data.use_tweak_mode = True
-
 
 
 # Motion Points #############################################################
@@ -1258,26 +1214,14 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
         return {'CANCELLED': 'No animation data'}
     
     Debug.log(f"\n=== Exporting {len(actions_to_export)} action(s) ===")
-    
-    # Collect animation names for info file
-    animation_names = []
-    for action_data in actions_to_export:
-        # Extract NLA track and strip names from the source string
-        source = action_data.source  # Format: 'NLA Track "track_name" Strip "strip_name"'
-        if source and source.startswith('NLA Track'):
-            # Parse: NLA Track "track_name" Strip "strip_name"
-            parts = source.split('"')
-            if len(parts) >= 4:
-                track_name = parts[1]  # Text between first pair of quotes
-                strip_name = parts[3]  # Text between second pair of quotes
-                base = props.export_custom_path_base if props.export_custom_path_hashes else ''
-                animation_names.append(f"{base}{track_name}/{strip_name}")
-        else:
-            # Fallback: use action name
-            animation_names.append(action_data.action.name)
-    
-    # Create MTAR writer
-    writer = MtarWriter(filepath)
+
+    # Create MTAR writer with custom path hash settings
+    # (The writer will get hash_generator_exe_path from Blender properties when needed)
+    writer = MtarWriter(
+        filepath,
+        export_custom_path_hashes=props.export_custom_path_hashes,
+        export_custom_path_base=props.export_custom_path_base
+    )
     
     # Set the layout track on the writer
     writer.set_layout_track(layout_track)
@@ -1350,7 +1294,8 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
 
         tracks_data = GaniTracksData(
             gani_tracks=gani_tracks,
-            action=gani_action
+            action=gani_action,
+            source=action_data.source
         )
 
         stop_timer(f"4.{action_idx}.1 Main Animation Tracks")
@@ -1442,7 +1387,11 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
     start_timer("5. Writing MTAR file")
     writer.write()
     stop_timer("5. Writing MTAR file")
-    
+
+    # Build animation names for the info file using the writer helper so we
+    # reuse the same naming logic (handles NLA strips and active actions).
+    animation_names = [writer._get_animation_name_for_gani(gd) for gd in writer.gani_data_list]
+
     # Write the info file with animation names
     Debug.log("\n6. Writing animation info file... ++++++++++++++++++++++++++++++++++++++++++++")
     start_timer("6. Writing animation info file")
@@ -1468,4 +1417,3 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
     stop_timer("MTAR Export")
     
     return {'FINISHED': f'Exported to {filepath}'}
-    

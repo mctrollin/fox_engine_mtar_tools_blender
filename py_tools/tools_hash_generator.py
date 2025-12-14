@@ -1,5 +1,5 @@
 """
-External converter tool for Metal Gear Solid V animation tools.
+External hash generator tool for Metal Gear Solid V animation tools.
 
 Provides functionality to convert filenames to hashes using an external executable.
 Supports multiple hash operations: filename, extension, with extension, and legacy.
@@ -226,3 +226,41 @@ def validate_executable_path(exe_path: str) -> Tuple[bool, str]:
         return False, f"Not a recognized executable type: {exe_file.suffix}"
 
     return True, ""
+
+
+def hash_animation_name_from_blender_context(input_string: str) -> Tuple[bool, Dict[str, str], str]:
+    """Hash animation name using the hash generator executable path configured in Blender.
+
+    Wrapper around hash_filename_all_modes() that retrieves the hash generator exe path from the
+    main scene settings (`context.scene.mtar_properties.hash_generator_exe_path`).
+    
+    Args:
+        input_string: Animation name string to hash (e.g., "/Assets/tpp/Walk/walk_001")
+        
+    Returns:
+        Tuple of (success: bool, results: Dict[str, str], error: str)
+        - success: True if at least one hash succeeded
+        - results: Dictionary with keys: 'filename', 'extension', 'with_extension', 'legacy'
+        - error: Error message if all conversions failed
+    """
+    try:
+        import bpy
+        
+        # Get converter properties from the scene
+        if not hasattr(bpy.data, 'scenes') or not bpy.context.scene:
+            return False, {}, "No active Blender scene"
+        scene = bpy.context.scene
+        # Retrieve the executable path from the main settings (no backward compatibility)
+        if not hasattr(scene, 'mtar_properties') or not hasattr(scene.mtar_properties, 'hash_generator_exe_path'):
+            return False, {}, "MTAR property 'hash_generator_exe_path' not found in scene settings"
+        exe_path = scene.mtar_properties.hash_generator_exe_path
+        if not exe_path:
+            return False, {}, "Hash Generator executable path not set in properties"
+        
+        # Call the main hash function
+        return hash_filename_all_modes(exe_path, input_string)
+        
+    except ImportError:
+        return False, {}, "Blender not available (not running inside Blender)"
+    except Exception as e:
+        return False, {}, f"Error accessing Blender properties: {str(e)}"

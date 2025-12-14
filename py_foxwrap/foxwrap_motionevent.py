@@ -94,7 +94,7 @@ def store_motion_events_on_action(action: 'bpy.types.Action', motion_events: Opt
                 
                 # Handle infinite time sections (start < 0)
                 if start_frame < 0:
-                    Debug.log(f"    Warning: Skipping infinite time section for event '{event_name}' (start_frame={start_frame})")
+                    Debug.log_warning(f"    Warning: Skipping infinite time section for event '{event_name}' (start_frame={start_frame})")
                     continue
                 
                 # Create marker name: <category>_<event_name> (include section index if multiple)

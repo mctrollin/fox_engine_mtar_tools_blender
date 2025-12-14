@@ -23,6 +23,8 @@ from .foxwrap_misc import Tracks, TrackUnitWrapper
 from .foxwrap_misc_export import GaniData
 from .foxwrap_metadata import read_track_header_properties_from_action
 
+from ..py_tools.tools_hash_generator import hash_animation_name_from_blender_context
+
 if TYPE_CHECKING:
     pass
 
@@ -34,11 +36,15 @@ class MtarWriter:
     for writing GANI sections, maintaining symmetry with the read path.
     """
     
-    def __init__(self, filepath: str):
+    def __init__(self, filepath: str, 
+                 export_custom_path_hashes: bool = False,
+                 export_custom_path_base: str = ""):
         """Initialize the MTAR writer.
         
         Args:
             filepath: Path where the MTAR file should be written
+            export_custom_path_hashes: Whether to generate custom path hashes for GANI files
+            export_custom_path_base: Base path to prepend when generating animation names (e.g., "/Assets/tpp/")
         """
         self.filepath = filepath
         self.gani_writer = Gani2Writer()
@@ -55,6 +61,10 @@ class MtarWriter:
         
         # Motion points data (shared across all GANI files)
         self.motion_points_list: Optional['MotionPointList2'] = None
+        
+        # Custom path hashing settings
+        self.export_custom_path_hashes = export_custom_path_hashes
+        self.export_custom_path_base = export_custom_path_base
         
     def add_gani_data(self, gani_data: 'GaniData') -> None:
         """Add a GaniData object to be included in the MTAR.
@@ -80,6 +90,91 @@ class MtarWriter:
                               or None to write an empty motion points list
         """
         self.motion_points_list = motion_points_list
+    
+    def _get_animation_name_for_gani(self, gani_data: 'GaniData') -> str:
+        """Extract the animation name string from GaniData.
+        
+        This reconstructs the same format used in the info.txt file:
+        - For NLA strips: [custom_path_base]track_name/strip_name
+        - For active actions: action_name
+        
+        Args:
+            gani_data: GaniData object containing animation data
+            
+        Returns:
+            Animation name string (e.g., "/Assets/tpp/Walk/walk_001" or "ActionName")
+        """
+        # Try to get the source from tracks_data
+        source = gani_data.tracks_data.source
+        action = gani_data.tracks_data.action
+        
+        if not source:
+            # Fallback to using the GANI name or action name
+            return action.name if action else gani_data.name
+        
+        # Parse the source string
+        # Format: 'NLA Track "track_name" Strip "strip_name"' or 'Active Action'
+        if source.startswith('NLA Track'):
+            # Parse: NLA Track "track_name" Strip "strip_name"
+            parts = source.split('"')
+            if len(parts) >= 4:
+                track_name = parts[1]  # Text between first pair of quotes
+                strip_name = parts[3]  # Text between second pair of quotes
+                base = self.export_custom_path_base if self.export_custom_path_hashes else ''
+                return f"{base}{track_name}/{strip_name}"
+        
+        # Fallback: use action name or GANI name
+        return action.name if action else gani_data.name
+
+    def _compute_gani_path_hash(self, gani_data: 'GaniData') -> int:
+        """Compute the path hash for a GANI file.
+        
+        Attempts to generate a custom path hash if enabled, falls back to stored hash,
+        and returns 0 if neither is available.
+        
+        Args:
+            gani_data: GaniData object containing animation data
+            
+        Returns:
+            Path hash value (64-bit integer)
+        """
+        path_hash = 0
+        
+        # Check if custom path hashing is enabled
+        if self.export_custom_path_hashes:
+            # Generate custom path hash using the hash generator from Blender properties
+            animation_name = self._get_animation_name_for_gani(gani_data)
+            Debug.log(f"      Generating custom path hash for: '{animation_name}'")
+            
+            success, results, error = hash_animation_name_from_blender_context(animation_name)
+            
+            if success and results.get('with_extension_dec'):
+                # Use the hash+extension result
+                hash_str = results['with_extension_dec']
+                try:
+                    # Parse the hash (could be hex string like "0x..." or plain decimal)
+                    if hash_str.startswith('0x') or hash_str.startswith('0X'):
+                        path_hash = int(hash_str, 16)
+                    else:
+                        path_hash = int(hash_str)
+                    Debug.log(f"      Custom path hash computed: 0x{path_hash:016X}")
+                except ValueError:
+                    Debug.log_warning(f"      Warning: Failed to parse hash result '{hash_str}', falling back to stored hash")
+                    path_hash = 0
+            else:
+                Debug.log_warning(f"      Warning: Failed to generate custom path hash ({error}), falling back to stored hash")
+        
+        # Fallback: use stored hash from action if custom hash wasn't generated
+        if path_hash == 0:
+            if gani_data.tracks_data.action and "gani_path_hash" in gani_data.tracks_data.action.keys():
+                # PathCode64 is stored as string because it's too large for Blender's int type
+                path_hash_str = gani_data.tracks_data.action["gani_path_hash"]
+                path_hash = int(path_hash_str) if isinstance(path_hash_str, str) else int(path_hash_str)
+                Debug.log(f"      Using stored path hash: 0x{path_hash:016X}")
+            else:
+                Debug.log("      No path hash available, using 0")
+        
+        return path_hash
 
     
     def write(self) -> None:
@@ -91,11 +186,11 @@ class MtarWriter:
         Debug.log(f"Writing MTAR file: {self.filepath}")
         
         if not self.gani_data_list:
-            Debug.log("  Error: No GANI data to write")
+            Debug.log_error("  Error: No GANI data to write")
             return
         
         if not self.layout_track:
-            Debug.log("  Error: No layout track set")
+            Debug.log_error("  Error: No layout track set")
             return
         
         buffer = io.BytesIO()
@@ -256,15 +351,8 @@ class MtarWriter:
                 Debug.log(f"      Motion Points offset: 0x{motion_point_start:08X} (relative: 0x{motion_point_offset_from_tracks:08X})")
                 Debug.log(f"      Motion Points size: {motion_point_tracks_data_size} bytes")
             
-            # Get path hash from action if available, otherwise use 0
-            path_hash = 0
-            if gani_data.tracks_data.action and "gani_path_hash" in gani_data.tracks_data.action.keys():
-                # PathCode64 is stored as string because it's too large for Blender's int type
-                path_hash_str = gani_data.tracks_data.action["gani_path_hash"]
-                path_hash = int(path_hash_str) if isinstance(path_hash_str, str) else int(path_hash_str)
-                Debug.log(f"      Using stored path hash: 0x{path_hash:016X}")
-            else:
-                Debug.log("      No path hash stored, using 0")
+            # Compute path hash for this GANI file
+            path_hash = self._compute_gani_path_hash(gani_data)
             
             # Create file table entry (motion_events_offset will be set in second pass)
             entry = MtarTableList2(
@@ -533,5 +621,3 @@ class MtarWriter:
         motion_tracks.write(buffer, write_data_blobs=True)
         
         return buffer.getvalue()
-
-

@@ -89,9 +89,11 @@ class GaniTracksData:
     Attributes:
         gani_tracks: List of GaniTrack objects containing animation data
         action: Blender action containing animation-specific metadata (unit flags, component bit sizes)
+        source: Description of where this animation came from (NLA track/strip, active action, etc.)
     """
     gani_tracks: List[TrackUnitWrapper]
     action: Optional['bpy.types.Action'] = None
+    source: Optional[str] = None
 
 
 @dataclass

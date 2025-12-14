@@ -79,7 +79,7 @@ class Gani2Writer:
         Debug.log(f"    Frame rate: {frame_rate}")
         
         if not gani_tracks:
-            Debug.log("    Warning: No tracks to write")
+            Debug.log_warning("    Warning: No tracks to write")
             return
         
         # Initialize params if not provided
@@ -178,7 +178,7 @@ class Gani2Writer:
         
         for track_idx, gani_track in enumerate(gani_tracks):
             if track_idx >= len(layout_track.track_units):
-                Debug.log(f"        Warning: Track {track_idx} has no corresponding layout unit")
+                Debug.log_warning(f"        Warning: Track {track_idx} has no corresponding layout unit")
                 continue
             
             track_unit = layout_track.track_units[track_idx]
@@ -186,7 +186,7 @@ class Gani2Writer:
             
             for segment_idx, keyframes_track in enumerate(gani_track.segments_track_data):
                 if segment_idx >= len(track_unit.segments_data):
-                    Debug.log(f"          Warning: Segment {segment_idx} ({segment_idx_abs}) has no corresponding track_data")
+                    Debug.log_warning(f"          Warning: Segment {segment_idx} ({segment_idx_abs}) has no corresponding track_data")
                     continue
                 
                 track_data = track_unit.segments_data[segment_idx]

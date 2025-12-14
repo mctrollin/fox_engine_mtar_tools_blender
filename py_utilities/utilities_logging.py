@@ -164,7 +164,7 @@ def stop_timer(block_name: str) -> float:
     """
     if block_name not in _performance_timers:
         if _should_log_timers():
-            print(f"[TIMER] Warning: No timer started for '{block_name}'")
+            Debug.log_warning(f"[TIMER] No timer started for '{block_name}'")
         return 0.0
     
     start_time = _performance_timers.pop(block_name)

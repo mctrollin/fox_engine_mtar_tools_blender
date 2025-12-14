@@ -1,10 +1,10 @@
 """
 Blender N-Panels for MTAR import/export functionality.
 """
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
 import bpy
-from bpy.types import Panel, PropertyGroup, Context, UILayout
+from bpy.types import Panel, PropertyGroup, Context, UILayout, Object
 from bpy.props import StringProperty, PointerProperty, IntProperty
 
 from .blender_operators import (
@@ -16,11 +16,10 @@ from .blender_operators import (
     MTAR_OT_SelectMappingFile,
     MTAR_OT_SelectExportFile,
     MTAR_OT_SelectExportMappingFile,
+    MTAR_OT_ValidateHashGeneratorExe
 )
 
-if TYPE_CHECKING:
-    from bpy.types import Object
-
+# pyright: reportInvalidTypeForm=false
 
 class MTAR_PG_Properties(PropertyGroup):
     """Property group for MTAR import and export settings."""
@@ -164,6 +163,15 @@ class MTAR_PG_Properties(PropertyGroup):
         default=False
     )
 
+    # External hash generator executable path
+    hash_generator_exe_path: StringProperty(
+        name="Hash Generator Executable",
+        description="Path to the external hash generator executable (GzsTool fork with debug output)",
+        default="",
+        maxlen=1024,
+        subtype='FILE_PATH'
+    )
+
 
 def draw_bool_prop_checkbox_icon(layout: UILayout, props, property_name: str, text: Optional[str] = None, **prop_kwargs) -> None:
     """Draw a boolean property with checkbox-highlight icon when True.
@@ -206,58 +214,58 @@ class MTAR_PT_ImportPanel(Panel):
         layout = self.layout
         props = context.scene.mtar_properties
         
-        import_box = layout.box()
+        box_import = layout.box()
 
         # MTAR file picker
-        mtar_box = import_box
+        mtar_box = box_import
         row = mtar_box.row(align=True)
         row.prop(props, "import_mtar_filepath", text="", icon='ANIM')
         row.operator("mtar.select_import_mtar_file", text="", icon='FILE_FOLDER')
 
         # FRIG file picker
-        frig_box = import_box
-        row = frig_box.row(align=True)
+        mapping_box = box_import.box()
+        row = mapping_box.row(align=True)
         row.prop(props, "import_frig_filepath", text="", icon='OUTLINER_OB_ARMATURE')
         row.operator("mtar.select_frig_file", text="", icon='FILE_FOLDER')
         
         # Generate mapping file button
         if props.show_advanced_settings:
-            col = frig_box.column()
+            col = mapping_box.column()
             col.enabled = bool(props.import_frig_filepath)
             col.scale_y = 1
             col.operator("mtar.generate_track_mapping_template_file", text="Generate Mapping Template", icon='TEXT')
 
         # Track mapping file picker
-        mapping_box = import_box
         row = mapping_box.row(align=True)
         row.prop(props, "import_mapping_filepath", text="", icon='TEXT')
         row.operator("mtar.select_mapping_file", text="", icon='FILE_FOLDER')
 
         # GANI index selector
-        box = import_box
-        box.prop(props, "import_gani_index", text="Anim Index", icon='FILTER')
+        box = box_import
+        box.prop(props, "import_gani_index", text="Gani File Index", icon='FILTER')
 
         # Target rig selector
-        box = import_box
-        box.prop(props, "import_target_rig", text="", icon='ARMATURE_DATA')
-        
-        
+        box_target_rig = box_import.box()
+        box_target_rig.prop(props, "import_target_rig", text="", icon='ARMATURE_DATA')
         
         # Bake after import checkbox (only shown if advanced settings enabled and target rig is specified)
         if props.show_advanced_settings and props.import_target_rig:
-            box = import_box
-            draw_bool_prop_checkbox_icon(box, props, "import_bake_after_import")
+            draw_bool_prop_checkbox_icon(box_target_rig, props, "import_bake_after_import")
 
             # Delete imported armature option is an advanced, dependent setting
             if props.import_bake_after_import:
-                draw_bool_prop_checkbox_icon(box, props, "delete_import_armature")
+                draw_bool_prop_checkbox_icon(box_target_rig, props, "delete_import_armature")
 
         # Import button
-        col = import_box.column()
+        box_button = layout.box()
+        col = box_button.column()
         col.scale_y = 1.5
          # Disable button if required fields are missing
         col.enabled = bool(props.import_mtar_filepath)
         col.operator("mtar.import_animation", text="Import Animation", icon='IMPORT')
+
+        if not props.import_mtar_filepath:
+            box_button.label(text="No import path set", icon='ERROR')
 
 
 class MTAR_PT_ExportPanel(Panel):
@@ -272,74 +280,66 @@ class MTAR_PT_ExportPanel(Panel):
         layout = self.layout
         props = context.scene.mtar_properties
         
-        export_box = layout.box()
+        box_export = layout.box()
 
-        # Armature selector
-        box = export_box
-        box.prop(props, "export_armature", text="", icon='ARMATURE_DATA')
+        # Armatures selector
+        box_rig = box_export.box()
+        box_rig.prop(props, "export_armature", text="", icon='ARMATURE_DATA')
+        box_rig.prop(props, "export_motion_points_armature", text="", icon='ARMATURE_DATA')
 
-        # Motion Points armature selector
-        box = export_box
-        box.prop(props, "export_motion_points_armature", text="", icon='ARMATURE_DATA')
-
-        # Mapping file (optional)
-        box = export_box
-        row = box.row(align=True)
-        row.prop(props, "export_mapping_filepath", text="", icon='TEXT')
-        row.operator("mtar.select_export_mapping_file", text="", icon='FILE_FOLDER')
-
-        # Export file picker
-        box = export_box
-        row = box.row(align=True)
-        row.prop(props, "export_filepath", text="", icon='CURRENT_FILE')
-        row.operator("mtar.select_export_file", text="", icon='FILE_FOLDER')
-
-        # Export options
-        box = export_box
-        row = box.row()
-        draw_bool_prop_checkbox_icon(row, props, "export_use_nla")
-        row = box.row()
-        draw_bool_prop_checkbox_icon(row, props, "export_use_evaluated")
-        # Custom path hash export option
-        row = box.row()
-        draw_bool_prop_checkbox_icon(row, props, "export_custom_path_hashes")
-        if props.export_custom_path_hashes:
-            # Show base path text field with required label
-            row = box.row()
-            row.prop(props, "export_custom_path_base", text="")
-
-        # Export info file option
-        row = box.row()
-        draw_bool_prop_checkbox_icon(row, props, "export_info_file")
-        
-        # Info
-        box = export_box
-        if not props.export_armature:
-            box.label(text="No armature selected", icon='ERROR')
-        
-        if not props.export_filepath:
-            box.label(text="No export path set", icon='ERROR')
+        draw_bool_prop_checkbox_icon(box_rig, props, "export_use_evaluated")
+        draw_bool_prop_checkbox_icon(box_rig, props, "export_use_nla")
 
         # Show info about NLA status
         if props.export_armature and props.export_armature.animation_data:
             anim_data = props.export_armature.animation_data
-            if anim_data.nla_tracks:
+            if anim_data.nla_tracks and props.export_use_nla:
                 unmuted_strips = sum(1 for track in anim_data.nla_tracks 
                                     if not track.mute 
                                     for strip in track.strips 
                                     if not strip.mute and strip.action)
                 if unmuted_strips > 0:
-                    box.label(text=f"Found {unmuted_strips} NLA strip(s)", icon='CHECKMARK')
+                    box_rig.label(text=f"Found {unmuted_strips} NLA strip(s)", icon='CHECKMARK')
                 else:
-                    box.label(text="No unmuted NLA strips", icon='INFO')
+                    box_rig.label(text="No unmuted NLA strips", icon='INFO')
             elif anim_data.action:
-                box.label(text="Using active action", icon='ACTION')
+                box_rig.label(text="Using active action", icon='ACTION')
             else:
-                box.label(text="No animation data", icon='ERROR')
+                box_rig.label(text="No animation data", icon='ERROR')
 
+        # Mapping file (optional)
+        box = box_export
+        row = box.row(align=True)
+        row.prop(props, "export_mapping_filepath", text="", icon='TEXT')
+        row.operator("mtar.select_export_mapping_file", text="", icon='FILE_FOLDER')
 
+        # Export file picker
+        box = box_export
+        row = box.row(align=True)
+        row.prop(props, "export_filepath", text="", icon='CURRENT_FILE')
+        row.operator("mtar.select_export_file", text="", icon='FILE_FOLDER')
+
+        if props.show_advanced_settings:
+            # Custom path hash export option
+            row_path_hash = box_export.box()
+            draw_bool_prop_checkbox_icon(row_path_hash, props, "export_custom_path_hashes")
+            if props.export_custom_path_hashes:
+                # Show base path text field with required label
+                row_path_hash.prop(props, "export_custom_path_base", text="")
+                # Warn if Hash Generator executable is not configured in settings
+                scene = context.scene
+                if not hasattr(scene, 'mtar_properties') or not getattr(scene.mtar_properties, 'hash_generator_exe_path', ''):
+                    warn_box = row_path_hash.box()
+                    warn_box.label(text="Hash Generator not configured", icon='ERROR')
+                    warn_box.label(text="Configure 'Hash Generator Executable' in MTAR Settings → Show Advanced Settings")
+
+            # Export info file option
+            row = box.row()
+            draw_bool_prop_checkbox_icon(row, props, "export_info_file")
+        
         # Export button
-        col = export_box.column()
+        box_button = layout.box()
+        col = box_button.column()
         col.scale_y = 1.5
         
         # Disable button if required fields are missing
@@ -347,10 +347,16 @@ class MTAR_PT_ExportPanel(Panel):
         col.enabled = can_export
         col.operator("mtar.export_animation", text="Export Animation", icon='EXPORT')
 
+        if not props.export_armature:
+            box_button.label(text="No armature selected", icon='ERROR')
+        
+        if not props.export_filepath:
+            box_button.label(text="No export path set", icon='ERROR')
+
 
 class MTAR_PT_SettingsPanel(Panel):
     """N-Panel for MTAR plugin settings."""
-    bl_label = "MTAR Settings"
+    bl_label = "Settings"
     bl_idname = "MTAR_PT_settings_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -361,15 +367,25 @@ class MTAR_PT_SettingsPanel(Panel):
         layout: UILayout = self.layout
         props = context.scene.mtar_properties
         
+        # Show advanced settings toggle
+        box = layout.box()
+        box.label(text="Pro", icon='PREFERENCES')
+        col = box.column()
+        draw_bool_prop_checkbox_icon(col, props, "show_advanced_settings")
+
+        # Hash Generator executable
+        conv_box = layout.box()
+        conv_box.label(text="External Hash Generator", icon='FILE_SCRIPT')
+        row = conv_box.row(align=True)
+        row.prop(props, "hash_generator_exe_path", text="")
+        row.operator("mtar.validate_hash_generator_exe", text="", icon='FORCE_HARMONIC')
+        conv_box.label(text="https://mgsvmoddingwiki.github.io/GzsTool/")
+        conv_box.label(text="Needed for custom hashes.")
+
         box = layout.box()
         box.label(text="Logging", icon='PREFERENCES')
         box.prop(props, "log_verbosity", text="", icon='INFO')
         draw_bool_prop_checkbox_icon(box, props, "enable_timer_logs", toggle=True)
-
-        # Show advanced settings toggle
-        box = layout.box()
-        col = box.column()
-        draw_bool_prop_checkbox_icon(col, props, "show_advanced_settings")
 
 
 # Registration
@@ -383,9 +399,10 @@ classes = (
     MTAR_OT_SelectMappingFile,
     MTAR_OT_SelectExportFile,
     MTAR_OT_SelectExportMappingFile,
+    MTAR_OT_ValidateHashGeneratorExe,
+    MTAR_PT_SettingsPanel,
     MTAR_PT_ImportPanel,
     MTAR_PT_ExportPanel,
-    MTAR_PT_SettingsPanel,
 )
 
 

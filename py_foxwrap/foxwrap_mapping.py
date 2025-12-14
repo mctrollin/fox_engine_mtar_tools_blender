@@ -89,7 +89,7 @@ def parse_mapping_line(line: str, line_num: int) -> Optional[Tuple[str, dict]]:
     
     # Parse mapping: from_name : to_name ; param1=value1 ; param2=value2
     if ':' not in line:
-        Debug.log(f"  Warning: No ':' separator on line {line_num}: '{line}'")
+        Debug.log_warning(f"  Warning: No ':' separator on line {line_num}: '{line}'")
         return None
     
     # Split by colon to get from_name and the rest
@@ -97,7 +97,7 @@ def parse_mapping_line(line: str, line_num: int) -> Optional[Tuple[str, dict]]:
     from_name = colon_parts[0].strip()
     
     if not from_name:
-        Debug.log(f"  Warning: Invalid mapping on line {line_num}: '{line}'")
+        Debug.log_warning(f"  Warning: Invalid mapping on line {line_num}: '{line}'")
         return None
     
     # Split the rest by semicolon to get to_name and parameters
@@ -108,7 +108,7 @@ def parse_mapping_line(line: str, line_num: int) -> Optional[Tuple[str, dict]]:
     to_name = semicolon_parts[0].strip()
     
     if not to_name:
-        Debug.log(f"  Warning: Invalid mapping on line {line_num}: '{line}'")
+        Debug.log_warning(f"  Warning: Invalid mapping on line {line_num}: '{line}'")
         return None
     
     # Initialize mapping data
@@ -122,7 +122,7 @@ def parse_mapping_line(line: str, line_num: int) -> Optional[Tuple[str, dict]]:
                 continue
             
             if '=' not in param_str:
-                Debug.log(f"  Warning: Invalid parameter format '{param_str}' on line {line_num}")
+                Debug.log_warning(f"  Warning: Invalid parameter format '{param_str}' on line {line_num}")
                 continue
             
             param_parts = param_str.split('=', 1)
@@ -216,14 +216,14 @@ def validate_track_mappings(track_mapping: Dict[str, dict]) -> None:
     # Check for rotation conflicts
     for target_name, source_names in target_to_rotation_sources.items():
         if len(source_names) > 1:
-            Debug.log(f"  ERROR: Multiple rotation tracks map to '{target_name}': {source_names}")
-            Debug.log("    Only one rotation track per target bone is allowed")
+            Debug.log_error(f"  ERROR: Multiple rotation tracks map to '{target_name}': {source_names}")
+            Debug.log_error("    Only one rotation track per target bone is allowed")
     
     # Check for location conflicts
     for target_name, source_names in target_to_location_sources.items():
         if len(source_names) > 1:
-            Debug.log(f"  ERROR: Multiple location tracks map to '{target_name}': {source_names}")
-            Debug.log("    Only one location track per target bone is allowed")
+            Debug.log_error(f"  ERROR: Multiple location tracks map to '{target_name}': {source_names}")
+            Debug.log_error("    Only one location track per target bone is allowed")
 
 def parse_track_mapping_file(filepath: str) -> TrackMappingData:
     """Parse a track mapping file into a TrackMappingData object.
@@ -303,6 +303,6 @@ def parse_track_mapping_file(filepath: str) -> TrackMappingData:
         return mapping_data
         
     except (OSError, ValueError) as e:
-        Debug.log(f"Error parsing track mapping file: {e}")
+        Debug.log_error(f"Error parsing track mapping file: {e}")
         return TrackMappingData()  # Return empty mapping data on error
 

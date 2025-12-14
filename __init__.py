@@ -36,7 +36,7 @@ class MTAR_AddonPreferences(bpy.types.AddonPreferences):
         try:
             # If enabling debug and not already registered, try to register
             if self.enable_debug_tools and not _debug_registered:
-                from . import blender_debug as _bd
+                from . import blender_debug_panel as _bd
                 blender_debug_module = _bd
                 blender_debug_module.register()
                 # bpy.utils.register_class(MTAR_PT_DebugPanel)
@@ -91,7 +91,7 @@ def register() -> None:
     _debug_registered = False
     if enable_debug:
         try:
-            from . import blender_debug as _bd
+            from . import blender_debug_panel as _bd
             blender_debug_module = _bd
             blender_debug_module.register()
             _debug_registered = True

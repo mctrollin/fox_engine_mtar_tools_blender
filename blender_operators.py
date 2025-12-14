@@ -3,11 +3,11 @@ Blender operators for MTAR import/export functionality.
 """
 import os
 import io
-from typing import Set, Optional, List, TYPE_CHECKING
+from typing import Set, Optional, List
 import traceback
 
 import bpy
-from bpy.types import Operator, Context, Event
+from bpy.types import Operator, Context, Event, Object
 from bpy.props import StringProperty
 
 from .py_utilities.utilities_logging import Debug
@@ -26,8 +26,106 @@ from .mtar_importer import import_mtar
 from .mtar_exporter import export_mtar, find_layout_track_action
 from .py_tools.tools_blender_animation_bake import bake_armature_action, bake_armature_nla_strips
 
-if TYPE_CHECKING:
-    from bpy.types import Object
+
+def clear_armature_transforms(armature: bpy.types.Object) -> bool:
+    """Clear all pose transforms from an armature.
+    
+    Args:
+        armature: Armature object to clear transforms from
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        # Make sure the armature is selected and in the scene
+        for obj in bpy.context.scene.objects:
+            obj.select_set(False)
+        armature.select_set(True)
+        bpy.context.view_layer.objects.active = armature
+        
+        # Enter pose mode
+        bpy.ops.object.mode_set(mode='POSE')
+        
+        # Select all bones
+        bpy.ops.pose.select_all(action='SELECT')
+        
+        # Clear all transforms
+        bpy.ops.pose.transforms_clear()
+        
+        # Return to object mode
+        bpy.ops.object.mode_set(mode='OBJECT')
+        
+        return True
+    except Exception as e:  # noqa: E722
+        Debug.log_warning(f"Failed to clear transforms from armature: {e}")
+        return False
+
+
+def delete_imported_armature(imported_armature: Optional[bpy.types.Object], 
+                            target_rig: Optional[bpy.types.Object] = None) -> bool:
+    """Delete an imported armature after bake if requested.
+    
+    Args:
+        imported_armature: Armature to delete
+        target_rig: Target rig (if same as imported, skip deletion)
+        
+    Returns:
+        True if deletion successful or not needed, False if failed
+    """
+    if not imported_armature or imported_armature == target_rig:
+        return True
+    
+    try:
+        Debug.log(f"Deleting imported armature: {imported_armature.name}")
+        for col in list(imported_armature.users_collection):
+            col.objects.unlink(imported_armature)
+        bpy.data.objects.remove(imported_armature, do_unlink=True)
+        return True
+    except Exception as e:  # noqa: E722
+        Debug.log_warning(f"Failed to delete imported armature: {e}")
+        return False
+
+
+def handle_bake_result(bake_result: dict, target_rig: bpy.types.Object, 
+                      imported_armature: Optional[bpy.types.Object],
+                      props, operator) -> None:
+    """Handle post-bake cleanup and reporting for both NLA and action bakes.
+    
+    Args:
+        bake_result: Result dict from bake function with 'success', 'message' keys
+        target_rig: Target armature that was baked
+        imported_armature: Optional imported armature to delete after bake
+        props: Scene properties with delete_import_armature flag
+        operator: Operator instance for reporting
+    """
+    # Extract failed_strips from bake_result if present (NLA bakes)
+    failed_strips: Optional[List[str]] = bake_result.get('failed_strips') if isinstance(bake_result, dict) else None
+
+    if bake_result['success']:
+        Debug.log(bake_result['message'])
+        operator.report({'INFO'}, f"Bake completed: {bake_result['message']}")
+        
+        # Report failed strips if any (for NLA bakes)
+        if failed_strips:
+            Debug.log_warning(f"  Failed strips: {', '.join(failed_strips)}")
+            operator.report({'WARNING'}, f"{len(failed_strips)} strip(s) failed to bake")
+        
+        # Clear transforms from target rig after successful bake
+        if clear_armature_transforms(target_rig):
+            Debug.log("Transforms cleared from target rig")
+            operator.report({'INFO'}, "Cleared transforms from target rig")
+        else:
+            operator.report({'WARNING'}, "Could not clear transforms from target rig")
+        
+        # Delete imported armature if requested
+        if props.delete_import_armature:
+            if delete_imported_armature(imported_armature, target_rig):
+                operator.report({'INFO'}, "Deleted imported armature after bake")
+            else:
+                operator.report({'WARNING'}, "Could not delete imported armature")
+    else:
+        Debug.log_warning(f"Bake failed: {bake_result['message']}")
+        operator.report({'WARNING'}, f"Bake failed: {bake_result['message']}")
 
 
 def build_track_segment_bone_mapping_from_file(mapping_filepath: str, layout_action: bpy.types.Action, 
@@ -445,7 +543,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                     
                 except (OSError, ValueError) as e:
                     self.report({'ERROR'}, f"Failed to load FRIG file: {str(e)}")
-                    Debug.log(f"FRIG load error: {e}")
+                    Debug.log_error(f"FRIG load error: {e}")
                     traceback.print_exc()
                     return {'CANCELLED'}
         else:
@@ -468,7 +566,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                         Debug.log(f"Loaded {len(mapping_data.track_metadata)} track metadata definition(s)")
                 except Exception as e:  # noqa: E722
                     self.report({'WARNING'}, f"Failed to load track mapping file: {str(e)}")
-                    Debug.log(f"Track mapping load error: {e}")
+                    Debug.log_error(f"Track mapping load error: {e}")
         
         # Get target rig if specified
         target_rig = props.import_target_rig if props.import_target_rig else None
@@ -506,28 +604,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                                 create_new_action=not props.delete_import_armature
                             )
                             
-                            if bake_result['success']:
-                                Debug.log(bake_result['message'])
-                                self.report({'INFO'}, f"Bake completed: {bake_result['message']}")
-                                
-                                if bake_result['failed_strips']:
-                                    Debug.log_warning(f"  Failed strips: {', '.join(bake_result['failed_strips'])}")
-                                    self.report({'WARNING'}, f"{len(bake_result['failed_strips'])} strip(s) failed to bake")
-                                # Optionally delete the imported armature after successful bake
-                                if props.delete_import_armature and imported_armature and imported_armature != target_rig:
-                                    try:
-                                        # Unlink from any collections first
-                                        for col in list(imported_armature.users_collection):
-                                            col.objects.unlink(imported_armature)
-                                        bpy.data.objects.remove(imported_armature, do_unlink=True)
-                                        Debug.log(f"Deleted imported armature: {imported_armature.name}")
-                                        self.report({'INFO'}, "Deleted imported armature after bake")
-                                    except Exception as e:  # noqa: E722
-                                        Debug.log_warning(f"Failed to delete imported armature: {e}")
-                                        self.report({'WARNING'}, f"Failed to delete imported armature: {str(e)}")
-                            else:
-                                Debug.log_warning(f"Bake failed: {bake_result['message']}")
-                                self.report({'WARNING'}, f"Bake failed: {bake_result['message']}")
+                            handle_bake_result(bake_result, target_rig, imported_armature, props, self)
                         
                         # Fall back to baking active action if no NLA tracks
                         elif target_rig.animation_data and target_rig.animation_data.action:
@@ -541,23 +618,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                                 source_armature=imported_armature
                             )
                             
-                            if bake_result['success']:
-                                Debug.log(bake_result['message'])
-                                self.report({'INFO'}, f"Bake completed: {bake_result['message']}")
-                                # Optionally delete the imported armature after successful bake
-                                if props.delete_import_armature and imported_armature and imported_armature != target_rig:
-                                    try:
-                                        for col in list(imported_armature.users_collection):
-                                            col.objects.unlink(imported_armature)
-                                        bpy.data.objects.remove(imported_armature, do_unlink=True)
-                                        Debug.log(f"Deleted imported armature: {imported_armature.name}")
-                                        self.report({'INFO'}, "Deleted imported armature after bake")
-                                    except Exception as e:  # noqa: E722
-                                        Debug.log_warning(f"Failed to delete imported armature: {e}")
-                                        self.report({'WARNING'}, f"Failed to delete imported armature: {str(e)}")
-                            else:
-                                Debug.log_warning(f"Bake failed: {bake_result['message']}")
-                                self.report({'WARNING'}, f"Bake failed: {bake_result['message']}")
+                            handle_bake_result(bake_result, target_rig, imported_armature, props, self)
                         else:
                             self.report({'WARNING'}, "Target rig has no NLA tracks or active action to bake")
                             Debug.log_warning("Target rig has no NLA tracks or active action to bake")
@@ -570,6 +631,14 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                         traceback.print_exc()
                         # Continue regardless of bake failure
                 
+                # Clear all transforms from target rig after import/bake
+                if target_rig:
+                    if clear_armature_transforms(target_rig):
+                        Debug.log("Transforms cleared from target rig")
+                        self.report({'INFO'}, "Cleared transforms from target rig")
+                    else:
+                        self.report({'WARNING'}, "Could not clear transforms from target rig")
+                
                 return {'FINISHED'}
             else:
                 self.report({'WARNING'}, "MTAR import completed with warnings")
@@ -577,7 +646,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                 
         except (OSError, ValueError) as e:  # noqa: E722
             self.report({'ERROR'}, f"Failed to import MTAR: {str(e)}")
-            Debug.log(f"MTAR import error: {e}")
+            Debug.log_error(f"MTAR import error: {e}")
             traceback.print_exc()
             return {'CANCELLED'}
 
@@ -639,7 +708,7 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
                 
             except Exception as e:  # noqa: E722
                 self.report({'ERROR'}, f"Failed to load mapping file: {str(e)}")
-                Debug.log(f"Mapping file load error: {e}")
+                Debug.log_error(f"Mapping file load error: {e}")
                 traceback.print_exc()
                 return {'CANCELLED'}
         else:
@@ -762,3 +831,30 @@ class MTAR_OT_SelectExportMappingFile(Operator):
     def invoke(self, context: Context, _event: Event) -> Set[str]:
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
+
+
+class MTAR_OT_ValidateHashGeneratorExe(Operator):
+    """Validate hash generator executable path."""
+    bl_idname = "mtar.validate_hash_generator_exe"
+    bl_label = "Validate Executable"
+    bl_description = "Validate that the executable path is valid and accessible"
+    
+    def execute(self, context: Context) -> set:
+        """Execute the validation."""
+        from .py_tools.tools_hash_generator import validate_executable_path
+        
+        # Read exe path from main scene properties (no fallback)
+        scene = context.scene
+        if not hasattr(scene, 'mtar_properties') or not hasattr(scene.mtar_properties, 'hash_generator_exe_path'):
+            self.report({'ERROR'}, "Executable path not configured in MTAR Settings")
+            return {'CANCELLED'}
+        exe_path = scene.mtar_properties.hash_generator_exe_path
+        
+        is_valid, error_msg = validate_executable_path(exe_path)
+        
+        if is_valid:
+            self.report({'INFO'}, "Executable path is valid")
+            return {'FINISHED'}
+        else:
+            self.report({'ERROR'}, f"Invalid executable: {error_msg}")
+            return {'CANCELLED'}

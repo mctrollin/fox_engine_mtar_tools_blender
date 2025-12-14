@@ -7,7 +7,7 @@ from mathutils import Quaternion, Vector
 from .py_utilities.utilities_logging import Debug, start_timer, stop_timer
 from .py_utilities.utilities_rig_hash import unhash_rig_type
 from .py_utilities.utilities_transforms import calculate_directional_location, prepare_rotation_offset_quats, apply_rotation_transforms, fox_to_blender_vector
-from .py_utilities.utilities_blender_animation_ import add_dummy_keyframes_to_action, configure_action
+from .py_utilities.utilities_blender_animation import add_dummy_keyframes_to_action, configure_action
 
 from .py_foxwrap.foxwrap_metadata import store_track_header_properties_on_action, TrackMetaData, make_track_property_key
 from .py_foxwrap.foxwrap_misc import TrackUnitWrapper, TrackDataBlobWrapper, Tracks
@@ -761,7 +761,7 @@ def setup_rig(imported_armature: bpy.types.Object, target_rig: bpy.types.Object,
             if custom_bone:
                 # Validate custom bone exists
                 if custom_bone not in target_rig.pose.bones:
-                    Debug.log(f"    Warning: Custom space bone '{custom_bone}' not found in target rig, using world space for transformation")
+                    Debug.log_warning(f"    Warning: Custom space bone '{custom_bone}' not found in target rig, using world space for transformation")
                     constraint2.owner_space = 'WORLD'
                 else:
                     constraint2.owner_space = 'CUSTOM'
@@ -1216,7 +1216,7 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
             else:
                 all_file_headers = []
         else:
-            Debug.log(f"  Warning: GANI index {gani_index} out of range (0-{len(all_gani_tracks)-1}), importing nothing")
+            Debug.log_warning(f"  Warning: GANI index {gani_index} out of range (0-{len(all_gani_tracks)-1}), importing nothing")
             all_gani_tracks = []
             all_motion_point_gani_tracks = []
             all_motion_point_layouts = []
@@ -1237,7 +1237,7 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
                     gani_track.rig_unit_type = rig_unit_def.unit_type
                     Debug.log(f"  GaniTrack {gani_track_index} '{gani_track.name}' -> RigUnitType.{gani_track.rig_unit_type.name}")
                 else:
-                    Debug.log(f"  Warning: No rig unit def for GaniTrack {gani_track_index} '{gani_track.name}'")
+                    Debug.log_warning(f"  Warning: No rig unit def for GaniTrack {gani_track_index} '{gani_track.name}'")
     
     # Modify keyframes track names based on rig unit type and apply track mapping transformations
     apply_track_transformations(all_gani_tracks, track_mapping)

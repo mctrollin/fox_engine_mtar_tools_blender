@@ -190,6 +190,7 @@ def copy_action_animation_data(source_action: bpy.types.Action,
     """Copy all animation data (fcurves and keyframes) from source to target action.
     
     Copies all fcurves with their keyframe points, interpolation modes, and handle types.
+    This is necessary as we can not let the blender bake operator generate a new action.
     Also transfers all custom properties from source to target action.
     
     Args:
@@ -270,7 +271,7 @@ def remove_bone_constraints(armature: bpy.types.Object, bone_names: Set[str]) ->
     return constraint_count
 
 
-def bake_armature_action(armature: bpy.types.Object, 
+def bake_armature_action(rig_armature: bpy.types.Object, 
                         action: Optional[bpy.types.Action] = None,
                         remove_constraints: bool = True,
                         create_new_action: bool = False,
@@ -306,20 +307,20 @@ def bake_armature_action(armature: bpy.types.Object,
         ValueError: If armature is invalid or has no action
     """
     # Validate input
-    if not armature or armature.type != 'ARMATURE':
+    if not rig_armature or rig_armature.type != 'ARMATURE':
         raise ValueError("Invalid armature object")
     
     # Get action to bake
     if action is None:
-        if not armature.animation_data or not armature.animation_data.action:
+        if not rig_armature.animation_data or not rig_armature.animation_data.action:
             raise ValueError("Armature has no active action")
-        action = armature.animation_data.action
+        action = rig_armature.animation_data.action
     
     # Ensure action is assigned to armature
-    if not armature.animation_data:
-        armature.animation_data_create()
+    if not rig_armature.animation_data:
+        rig_armature.animation_data_create()
     
-    Debug.log(f"Baking action '{action.name}' for armature '{armature.name}'")
+    Debug.log(f"Baking action '{action.name}' for armature '{rig_armature.name}'")
     
     target_action = action
     
@@ -334,7 +335,7 @@ def bake_armature_action(armature: bpy.types.Object,
         if fcurves_copied > 0:
             Debug.log(f"  Copied {fcurves_copied} fcurves from original action")
         
-    armature.animation_data.action = target_action
+    rig_armature.animation_data.action = target_action
     
     # Get bones with keyframes
     bones_with_keyframes = get_bones_with_keyframes(action)
@@ -373,7 +374,7 @@ def bake_armature_action(armature: bpy.types.Object,
     
     # Store original state of source armature if provided (for constraint binding)
     original_source_action = None
-    if source_armature and source_armature != armature:
+    if source_armature and source_armature != rig_armature:
         # Ensure source armature has animation data
         if not source_armature.animation_data:
             source_armature.animation_data_create()
@@ -391,8 +392,8 @@ def bake_armature_action(armature: bpy.types.Object,
     
     # Select only the armature
     bpy.ops.object.select_all(action='DESELECT')
-    armature.select_set(True)
-    bpy.context.view_layer.objects.active = armature
+    rig_armature.select_set(True)
+    bpy.context.view_layer.objects.active = rig_armature
     
     # Determine frame range from action's manual frame range if available
     if action.use_frame_range:
@@ -410,8 +411,9 @@ def bake_armature_action(armature: bpy.types.Object,
     bpy.ops.pose.select_all(action='DESELECT')
     
     for bone_name in bones_with_keyframes:
-        if bone_name in armature.pose.bones:
-            armature.pose.bones[bone_name].bone.select = True
+        if bone_name in rig_armature.pose.bones:
+            rig_armature.pose.bones[bone_name].bone.select = True
+            Debug.log(f"  Selecting bone: {bone_name} : {rig_armature.pose.bones[bone_name].bone.select}")
     
     try:
         Debug.log("  Starting bake operation...")
@@ -445,7 +447,7 @@ def bake_armature_action(armature: bpy.types.Object,
         # Remove constraints if requested
         constraints_removed = 0
         if remove_constraints:
-            constraints_removed = remove_bone_constraints(armature, bones_with_keyframes)
+            constraints_removed = remove_bone_constraints(rig_armature, bones_with_keyframes)
             if constraints_removed > 0:
                 Debug.log(f"  Removed {constraints_removed} constraints")
         
@@ -459,10 +461,10 @@ def bake_armature_action(armature: bpy.types.Object,
         bpy.ops.object.mode_set(mode='OBJECT')
         current_scene.frame_set(current_frame)
 
-        armature.animation_data.action = None
+        rig_armature.animation_data.action = None
         
         # Restore source armature's action if it was changed
-        if source_armature and source_armature != armature:
+        if source_armature and source_armature != rig_armature:
             source_armature.animation_data.action = original_source_action
             Debug.log(f"  Restored source armature '{source_armature.name}' action state")
         
@@ -472,6 +474,13 @@ def bake_armature_action(armature: bpy.types.Object,
             Debug.log(f"  Re-enabled NLA track '{nla_track.name}'")
         
         Debug.log(f"Successfully baked action '{action.name}' -> '{target_action.name}'")
+        # Log which bones were baked for easier debugging
+        try:
+            baked_bones_list = sorted(bones_with_keyframes)
+            Debug.log(f"  Bones baked ({len(baked_bones_list)}): {', '.join(baked_bones_list)}")
+        except Exception:
+            # Be defensive: if listing fails for any reason, don't break the bake
+            Debug.log_warning("  Warning: Failed to enumerate baked bones for logging")
         
         return {
             'success': True,
@@ -488,9 +497,9 @@ def bake_armature_action(armature: bpy.types.Object,
         try:
             bpy.ops.object.mode_set(mode='OBJECT')
             current_scene.frame_set(current_frame)
-            armature.animation_data.action = None
+            rig_armature.animation_data.action = None
             # Restore source armature's action if it was changed
-            if source_armature and source_armature != armature:
+            if source_armature and source_armature != rig_armature:
                 source_armature.animation_data.action = original_source_action
             # Restore NLA track mute state
             if nla_track and original_track_mute_state is not None:
@@ -505,7 +514,7 @@ def bake_armature_action(armature: bpy.types.Object,
         raise RuntimeError(f"Failed to bake armature action: {str(e)}") from e
 
 
-def bake_armature_nla_strips(armature: bpy.types.Object,
+def bake_armature_nla_strips(rig_armature: bpy.types.Object,
                              remove_constraints: bool = True,
                              new_action_suffix: str = "_baked",
                              only_unmuted: bool = True,
@@ -537,20 +546,20 @@ def bake_armature_nla_strips(armature: bpy.types.Object,
         ValueError: If armature is invalid or has no NLA data
     """
     # Validate input
-    if not armature or armature.type != 'ARMATURE':
-        raise ValueError("Invalid armature object")
+    if not rig_armature or rig_armature.type != 'ARMATURE':
+        raise ValueError("Invalid rig armature object")
     
-    if not armature.animation_data or not armature.animation_data.nla_tracks:
-        raise ValueError("Armature has no NLA tracks")
+    if not rig_armature.animation_data or not rig_armature.animation_data.nla_tracks:
+        raise ValueError("Rig armature has no NLA tracks")
     
-    Debug.log(f"Baking NLA strips for armature '{armature.name}'")
+    Debug.log(f"Baking NLA strips for rig armature '{rig_armature.name}'")
     
     # Store original state
-    original_action = armature.animation_data.action if armature.animation_data else None
+    original_action = rig_armature.animation_data.action if rig_armature.animation_data else None
     
     # Collect strips to bake
     strips_to_bake = []
-    for track in armature.animation_data.nla_tracks:
+    for track in rig_armature.animation_data.nla_tracks:
         if track.mute and only_unmuted:
             continue
         for strip in track.strips:
@@ -582,15 +591,15 @@ def bake_armature_nla_strips(armature: bpy.types.Object,
     for idx, (track, strip, action) in enumerate(strips_to_bake, 1):
         Debug.log(f"  Baking strip {idx}/{len(strips_to_bake)}: '{strip.name}' (action: '{action.name}')")
         try:
-            # Bake the action, creating a new one
+            # Bake the action
             bake_result = bake_armature_action(
-                armature,
+                rig_armature,
                 action,
                 remove_constraints=False,  # We'll handle this once at the end
                 create_new_action=create_new_action,
                 new_action_suffix=new_action_suffix,
-                nla_track=track,  # Disable track during baking
-                source_armature=source_armature  # Bind constraints to source armature
+                nla_track=track,
+                source_armature=source_armature
             )
             
             if bake_result['success']:
@@ -613,13 +622,13 @@ def bake_armature_nla_strips(armature: bpy.types.Object,
     # Remove constraints once at the end if requested
     constraints_removed = 0
     if remove_constraints and all_baked_bones:
-        constraints_removed = remove_bone_constraints(armature, all_baked_bones)
+        constraints_removed = remove_bone_constraints(rig_armature, all_baked_bones)
         if constraints_removed > 0:
             Debug.log(f"  Removed {constraints_removed} constraints from {len(all_baked_bones)} bones")
     
     # Restore original action
     if original_action:
-        armature.animation_data.action = original_action
+        rig_armature.animation_data.action = original_action
     
     success = len(actions_created) > 0
     message = f"Baked {len(actions_created)}/{len(strips_to_bake)} NLA strip(s)"

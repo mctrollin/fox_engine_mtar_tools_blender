@@ -200,7 +200,7 @@ class AnimKeyframe:
                     
                     # Validate: frame_delta must be at least 1
                     if frame_delta < 1:
-                        Debug.log(f"  Warning: Invalid frame_delta {frame_delta} between keyframes {i-1} and {i}")
+                        Debug.log_warning(f"  Warning: Invalid frame_delta {frame_delta} between keyframes {i-1} and {i}")
                         Debug.log(f"  Keyframe {i-1}: frame_count={keyframes[i-1].frame_count}")
                         Debug.log(f"  Keyframe {i}: frame_count={keyframes[i].frame_count}")
                         frame_delta = 1  # Clamp to minimum value
@@ -238,7 +238,7 @@ class AnimKeyframe:
                     
                     # Validate: frame_delta must be at least 1
                     if frame_delta < 1:
-                        Debug.log(f"  Warning: Invalid frame_delta {frame_delta} between keyframes {i-1} and {i}")
+                        Debug.log_warning(f"  Warning: Invalid frame_delta {frame_delta} between keyframes {i-1} and {i}")
                         Debug.log(f"  Keyframe {i-1}: frame_count={keyframes[i-1].frame_count}")
                         Debug.log(f"  Keyframe {i}: frame_count={keyframes[i].frame_count}")
                         frame_delta = 1  # Clamp to minimum value
@@ -271,7 +271,7 @@ class AnimKeyframe:
                     
                     # Validate: frame_delta must be at least 1
                     if frame_delta < 1:
-                        Debug.log(f"  Warning: Invalid frame_delta {frame_delta} between keyframes {i-1} and {i}")
+                        Debug.log_warning(f"  Warning: Invalid frame_delta {frame_delta} between keyframes {i-1} and {i}")
                         Debug.log(f"  Keyframe {i-1}: frame_count={keyframes[i-1].frame_count}")
                         Debug.log(f"  Keyframe {i}: frame_count={keyframes[i].frame_count}")
                         frame_delta = 1  # Clamp to minimum value
@@ -304,7 +304,7 @@ class AnimKeyframe:
                     
                     # Validate: frame_delta must be at least 1
                     if frame_delta < 1:
-                        Debug.log(f"  Warning: Invalid frame_delta {frame_delta} between keyframes {i-1} and {i}")
+                        Debug.log_warning(f"  Warning: Invalid frame_delta {frame_delta} between keyframes {i-1} and {i}")
                         Debug.log(f"  Keyframe {i-1}: frame_count={keyframes[i-1].frame_count}")
                         Debug.log(f"  Keyframe {i}: frame_count={keyframes[i].frame_count}")
                         frame_delta = 1  # Clamp to minimum value
@@ -337,7 +337,7 @@ class AnimKeyframe:
                     
                     # Validate: frame_delta must be at least 1
                     if frame_delta < 1:
-                        Debug.log(f"  Warning: Invalid frame_delta {frame_delta} between keyframes {i-1} and {i}")
+                        Debug.log_warning(f"  Warning: Invalid frame_delta {frame_delta} between keyframes {i-1} and {i}")
                         Debug.log(f"  Keyframe {i-1}: frame_count={keyframes[i-1].frame_count}")
                         Debug.log(f"  Keyframe {i}: frame_count={keyframes[i].frame_count}")
                         frame_delta = 1  # Clamp to minimum value
