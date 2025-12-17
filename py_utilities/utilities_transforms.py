@@ -222,51 +222,31 @@ def apply_reverse_transforms(quat: Quaternion, rotation_offset: Optional[List[di
 
 # Transform getter (to adhere to the mtar / gani format) #############################################################
 
-def get_local_space_transform(obj: bpy.types.Object, bone_name: str, frame: int, evaluated: bool = False) -> Tuple[Vector, Quaternion]:
+def get_local_space_transform(obj: bpy.types.Object, bone_name: str, frame: int) -> Tuple[Vector, Quaternion]:
     """Get local bone space transform (relative to parent) for a bone at a specific frame.
     
     Args:
         obj: Armature object
         bone_name: Name of the bone
         frame: Frame number
-        evaluated: If True, get transform after constraints, IK, etc. applied (evaluated);
-                  If False, get raw keyframe/matrix_basis transform (non-evaluated)
         
     Returns:
         Tuple of (location, rotation_quaternion) in local bone space
     """
     bpy.context.scene.frame_set(frame)
     
-    if evaluated:
-        # Get the Evaluated Pose Bone (after constraints, IK, etc.)
-        depsgraph = bpy.context.evaluated_depsgraph_get()
-        armature_eval = obj.evaluated_get(depsgraph)
-        pose_bone_eval = armature_eval.pose.bones[bone_name]
-
-        # Convert pose-space to local-space
-        if pose_bone_eval.parent:
-            parent_matrix = pose_bone_eval.parent.matrix
-            local_matrix_final = parent_matrix.inverted() @ pose_bone_eval.matrix
-        else:
-            # If no parent, local == pose-space
-            local_matrix_final = pose_bone_eval.matrix
-        
-        # Decompose into Location, Rotation
-        location = local_matrix_final.to_translation()
-        rotation = local_matrix_final.to_quaternion()
-    else:
-        # Get raw keyframe/matrix_basis transform (before constraints, IK, etc.)
-        pose_bone = obj.pose.bones[bone_name]
-        
-        # Use matrix_basis for local transform relative to parent bone
-        # This gives the transform in the bone's local space
-        location = pose_bone.matrix_basis.to_translation()
-        rotation = pose_bone.matrix_basis.to_quaternion()
+    # Get raw keyframe/matrix_basis transform (before constraints, IK, etc.)
+    pose_bone = obj.pose.bones[bone_name]
+    
+    # Use matrix_basis for local transform relative to parent bone
+    # This gives the transform in the bone's local space
+    location = pose_bone.matrix_basis.to_translation()
+    rotation = pose_bone.matrix_basis.to_quaternion()
     
     return location, rotation
 
 def get_world_space_transform(obj: bpy.types.Object, bone_name: str, frame: int,
-                               space_bone: Optional[str] = None, evaluated: bool = False) -> Tuple[Vector, Quaternion]:
+                               space_bone: Optional[str] = None) -> Tuple[Vector, Quaternion]:
     """Get world space or custom space transform for a bone at a specific frame.
     
     Args:
@@ -274,54 +254,30 @@ def get_world_space_transform(obj: bpy.types.Object, bone_name: str, frame: int,
         bone_name: Name of the bone
         frame: Frame number
         space_bone: Optional bone name to use as custom space (instead of world space)
-        evaluated: If True, get transform after constraints, IK, etc. applied (evaluated);
-                  If False, get raw keyframe/matrix_basis transform (non-evaluated)
         
     Returns:
         Tuple of (location, rotation_quaternion) in the specified space
     """
     bpy.context.scene.frame_set(frame)
     
-    if evaluated:
-        # Get the Evaluated Pose Bones (after constraints, IK, etc.)
-        depsgraph = bpy.context.evaluated_depsgraph_get()
-        armature_eval = obj.evaluated_get(depsgraph)
-        pose_bone_eval = armature_eval.pose.bones[bone_name]
-        
-        if space_bone:
-            # Get transform in custom bone space (evaluated)
-            space_pose_bone_eval = armature_eval.pose.bones[space_bone]
-            # True world matrix for both bones
-            bone_world_matrix = armature_eval.matrix_world @ pose_bone_eval.matrix
-            space_world_matrix = armature_eval.matrix_world @ space_pose_bone_eval.matrix
-            # Transform relative to custom space
-            local_matrix = space_world_matrix.inverted() @ bone_world_matrix
-            location = local_matrix.to_translation()
-            rotation = local_matrix.to_quaternion()
-        else:
-            # True world space (evaluated) - accounts for armature's transform in scene
-            world_matrix = armature_eval.matrix_world @ pose_bone_eval.matrix
-            location = world_matrix.to_translation()
-            rotation = world_matrix.to_quaternion()
+    # Get raw keyframe/matrix_basis transform (before constraints, IK, etc.)
+    pose_bone = obj.pose.bones[bone_name]
+    
+    if space_bone:
+        # Get transform in custom bone space (non-evaluated)
+        space_pose_bone = obj.pose.bones[space_bone]
+        # True world matrix for both bones
+        bone_world_matrix = obj.matrix_world @ pose_bone.matrix
+        space_world_matrix = obj.matrix_world @ space_pose_bone.matrix
+        # Transform relative to custom space
+        local_matrix = space_world_matrix.inverted() @ bone_world_matrix
+        location = local_matrix.to_translation()
+        rotation = local_matrix.to_quaternion()
     else:
-        # Get raw keyframe/matrix_basis transform (before constraints, IK, etc.)
-        pose_bone = obj.pose.bones[bone_name]
-        
-        if space_bone:
-            # Get transform in custom bone space (non-evaluated)
-            space_pose_bone = obj.pose.bones[space_bone]
-            # True world matrix for both bones
-            bone_world_matrix = obj.matrix_world @ pose_bone.matrix
-            space_world_matrix = obj.matrix_world @ space_pose_bone.matrix
-            # Transform relative to custom space
-            local_matrix = space_world_matrix.inverted() @ bone_world_matrix
-            location = local_matrix.to_translation()
-            rotation = local_matrix.to_quaternion()
-        else:
-            # True world space (non-evaluated) - accounts for armature's transform in scene
-            world_matrix = obj.matrix_world @ pose_bone.matrix
-            location = world_matrix.to_translation()
-            rotation = world_matrix.to_quaternion()
+        # True world space (non-evaluated) - accounts for armature's transform in scene
+        world_matrix = obj.matrix_world @ pose_bone.matrix
+        location = world_matrix.to_translation()
+        rotation = world_matrix.to_quaternion()
     
     return location, rotation
 

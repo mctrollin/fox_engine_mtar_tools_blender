@@ -573,7 +573,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
         
         # Import MTAR animation
         try:
-            import_result = import_mtar(context, props.import_mtar_filepath, frig_data, track_mapping, props.import_gani_index, target_rig)
+            import_result = import_mtar(context, props.import_mtar_filepath, frig_data, track_mapping, props.import_gani_index, target_rig, props.import_strip_padding)
             
             # Extract result and imported armature
             if isinstance(import_result, tuple):
@@ -723,8 +723,7 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
                 filepath=props.export_filepath,
                 armature=props.export_armature,
                 track_segment_bone_mapping=track_segment_bone_mapping,
-                use_nla=props.export_use_nla,
-                use_evaluated=props.export_use_evaluated
+                use_nla=props.export_use_nla
             )
             
             Debug.log("\n========= Finished EXPORT MTAR OPERATION =========\n")

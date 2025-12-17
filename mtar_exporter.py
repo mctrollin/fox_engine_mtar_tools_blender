@@ -340,7 +340,6 @@ def export_keyframes_track(armature: bpy.types.Object, blender_bone_name: str,
                           frame_start: int, frame_end: int,
                           is_static: bool, action: bpy.types.Action = None,
                           rig_unit_type: Optional[RigUnitType] = None,
-                          use_evaluated: bool = False,
                           fcurve_cache: Optional[FCurveCache] = None) -> List['AnimKeyframe']:
     """Export a single track data segment (one segment of a bone's animation).
     
@@ -356,7 +355,6 @@ def export_keyframes_track(armature: bpy.types.Object, blender_bone_name: str,
         is_static: Whether this is a static track (single frame)
         action: Blender action to get actual keyframe frames from
         rig_unit_type: Type of rig unit (determines if world space transforms are needed)
-        use_evaluated: Whether to use evaluated (post-constraint/IK) transforms instead of raw keyframes
         fcurve_cache: Optional pre-built FCurveCache for fast lookups
         
     Returns:
@@ -378,14 +376,14 @@ def export_keyframes_track(armature: bpy.types.Object, blender_bone_name: str,
         # Rotation segment
         return export_rotation_segment(
             armature, blender_bone_name, bone_params,
-            export_frames, frame_start, is_static, rig_unit_type, use_evaluated
+            export_frames, frame_start, is_static, rig_unit_type
         )
     
     elif segment_type in [SegmentType.VECTOR3, SegmentType.VECTOR_DIFF]:
         # Location segment
         return export_location_segment(
             armature, blender_bone_name, bone_params,
-            export_frames, frame_start, is_static, rig_unit_type, use_evaluated
+            export_frames, frame_start, is_static, rig_unit_type
         )
     
     else:
@@ -395,7 +393,7 @@ def export_keyframes_track(armature: bpy.types.Object, blender_bone_name: str,
 
 def _get_rotation_transform_fn(bone_params: BoneParameters, armature: bpy.types.Object,
                                blender_bone_name: str, space_bone: Optional[str],
-                               use_evaluated: bool, rig_unit_type: Optional[RigUnitType]):
+                               rig_unit_type: Optional[RigUnitType]):
     """Return a callable that produces rotation quaternion for a given frame.
     
     This helper eliminates code duplication between as_ik_up and normal rotation paths.
@@ -406,7 +404,6 @@ def _get_rotation_transform_fn(bone_params: BoneParameters, armature: bpy.types.
         armature: Armature object
         blender_bone_name: Name of the bone in Blender
         space_bone: Custom space bone name (or None for default space)
-        use_evaluated: Whether to use evaluated transforms
         rig_unit_type: Rig unit type (determines local vs world space for normal tracks)
         
     Returns:
@@ -420,8 +417,8 @@ def _get_rotation_transform_fn(bone_params: BoneParameters, armature: bpy.types.
         base_bone_name = as_ik_up_data.bone_base
         
         def get_rotation_as_ik_up(frame: int) -> Quaternion:
-            ik_location, _ = get_world_space_transform(armature, blender_bone_name, frame, space_bone, use_evaluated)
-            base_location, _ = get_world_space_transform(armature, base_bone_name, frame, space_bone, use_evaluated)
+            ik_location, _ = get_world_space_transform(armature, blender_bone_name, frame, space_bone)
+            base_location, _ = get_world_space_transform(armature, base_bone_name, frame, space_bone)
             return reverse_directional_location(ik_location, base_location, axis, distance)
         
         return get_rotation_as_ik_up
@@ -431,9 +428,9 @@ def _get_rotation_transform_fn(bone_params: BoneParameters, armature: bpy.types.
         
         def get_rotation_normal(frame: int) -> Quaternion:
             if use_world_space:
-                _, quat = get_world_space_transform(armature, blender_bone_name, frame, space_bone, use_evaluated)
+                _, quat = get_world_space_transform(armature, blender_bone_name, frame, space_bone)
             else:
-                _, quat = get_local_space_transform(armature, blender_bone_name, frame, use_evaluated)
+                _, quat = get_local_space_transform(armature, blender_bone_name, frame)
             return quat
         
         return get_rotation_normal
@@ -442,8 +439,7 @@ def _get_rotation_transform_fn(bone_params: BoneParameters, armature: bpy.types.
 def export_rotation_segment(armature: bpy.types.Object, blender_bone_name: str,
                             bone_params: BoneParameters, export_frames: List[int],
                             frame_start: int, is_static: bool, 
-                            rig_unit_type: Optional[RigUnitType] = None,
-                            use_evaluated: bool = False) -> List['AnimKeyframe']:
+                            rig_unit_type: Optional[RigUnitType] = None) -> List['AnimKeyframe']:
     """Export rotation segment keyframes."""
     keyframes = []
     start_timer("export_rotation_segment")
@@ -457,7 +453,7 @@ def export_rotation_segment(armature: bpy.types.Object, blender_bone_name: str,
     # Get rotation transform function (varies by as_ik_up and space type)
     # This eliminates ~40 lines of code duplication between two paths
     get_rotation = _get_rotation_transform_fn(bone_params, armature, blender_bone_name,
-                                              space_bone, use_evaluated, rig_unit_type)
+                                              space_bone, rig_unit_type)
     
     # Unified frame loop for both as_ik_up and normal rotation
     for frame in export_frames:
@@ -481,8 +477,7 @@ def export_rotation_segment(armature: bpy.types.Object, blender_bone_name: str,
 def export_location_segment(armature: bpy.types.Object, blender_bone_name: str,
                             bone_params: BoneParameters, export_frames: List[int],
                             frame_start: int, is_static: bool,
-                            rig_unit_type: Optional[RigUnitType] = None,
-                            use_evaluated: bool = False) -> List['AnimKeyframe']:
+                            rig_unit_type: Optional[RigUnitType] = None) -> List['AnimKeyframe']:
     """Export location segment keyframes."""
     keyframes = []
     start_timer("export_location_segment")
@@ -502,10 +497,10 @@ def export_location_segment(armature: bpy.types.Object, blender_bone_name: str,
         # Read location (using pre-determined space)
         if use_world_space:
             # Use world space transforms for ORIENTATION, TWO_BONE, ARM
-            blender_location, _ = get_world_space_transform(armature, blender_bone_name, frame, space_bone, use_evaluated)
+            blender_location, _ = get_world_space_transform(armature, blender_bone_name, frame, space_bone)
         else:
             # Use local space transforms for other types (LOCAL_ORIENTATION, TRANSFORM, ROOT, etc.)
-            blender_location, _ = get_local_space_transform(armature, blender_bone_name, frame, use_evaluated)
+            blender_location, _ = get_local_space_transform(armature, blender_bone_name, frame)
         
         # Convert to Fox Engine coordinate system
         fox_location = blender_to_fox_vector(blender_location)
@@ -522,7 +517,6 @@ def export_location_segment(armature: bpy.types.Object, blender_bone_name: str,
 def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
                      track_segment_bone_mapping: TrackSegmentBoneMapping, frame_start: int, frame_end: int,
                      action: bpy.types.Action, layout_metadata: Optional[TrackMetaData],
-                     use_evaluated: bool = False,
                      fcurve_cache: Optional[FCurveCache] = None) -> 'TrackUnitWrapper':
     """Export a GaniTrack (all segments for one track).
     
@@ -541,7 +535,6 @@ def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
         frame_end: Last frame to export
         action: Animation action containing keyframes
         layout_metadata: TrackMetaData instance containing track structure metadata for this track
-        use_evaluated: Whether to use evaluated transforms
         fcurve_cache: Optional pre-built FCurveCache for fast lookups
         
     Returns:
@@ -646,7 +639,7 @@ def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
             keyframes = export_keyframes_track(
                 armature, segment_bone_name, segment_fox_mapping_params,
                 segment_type, frame_start, frame_end, is_static, action,
-                merged_metadata.rig_unit_type, use_evaluated, fcurve_cache
+                merged_metadata.rig_unit_type, fcurve_cache
             )
             stop_timer(f"export_keyframes_track(segment_bone_name={segment_bone_name})")
 
@@ -708,8 +701,7 @@ def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
 def export_gani_tracks_from_action(armature: bpy.types.Object,
                        action_data: ExportActionData,
                        track_segment_bone_mapping: Optional[TrackSegmentBoneMapping],
-                       layout_metadata_dict: Dict[str, TrackMetaData],
-                       use_evaluated: bool = False) -> List['TrackUnitWrapper']:
+                       layout_metadata_dict: Dict[str, TrackMetaData]) -> List['TrackUnitWrapper']:
     """Export a single action as GANI track data.
     
     This is the export counterpart to the per-GANI processing in import_track_data().
@@ -779,7 +771,7 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
 
                 gani_track = export_gani_track_from_action(
                     armature, track_idx,
-                    track_segment_bone_mapping, frame_start, frame_end, action, layout_metadata, use_evaluated, fcurve_cache
+                    track_segment_bone_mapping, frame_start, frame_end, action, layout_metadata, fcurve_cache
                 )
                 gani_tracks.append(gani_track)
         else:
@@ -829,7 +821,7 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
                 gani_track = export_gani_track_from_action(
                     armature, track_idx,
                     temp_mapping, frame_start, frame_end, action,
-                    bone_metadata, use_evaluated, fcurve_cache
+                    bone_metadata, fcurve_cache
                 )
                 
                 # Only add tracks that have segments
@@ -1113,8 +1105,7 @@ def collect_motion_point_actions(motion_points_armature: bpy.types.Object, use_n
 # MTAR export #############################################################
 
 def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bpy.types.Object] = None,
-                track_segment_bone_mapping: Optional[TrackSegmentBoneMapping] = None, use_nla: bool = True, 
-                use_evaluated: bool = False) -> Dict[str, str]:
+                track_segment_bone_mapping: Optional[TrackSegmentBoneMapping] = None, use_nla: bool = True) -> Dict[str, str]:
     """Export Blender animation data to MTAR format.
     
     Args:
@@ -1123,7 +1114,6 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
         armature: Armature object to export animation from
         track_segment_bone_mapping: Optional unified mapping from (track_idx, segment_idx) to (bone_name, bone_params)
         use_nla: If True, export NLA strips as separate GANI files; if False, export only active action
-        use_evaluated: If True, export transforms after constraints/IK; if False, export raw keyframes
         
     Returns:
         Dictionary with export result information
@@ -1289,7 +1279,7 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
 
         gani_tracks: List[TrackUnitWrapper] = export_gani_tracks_from_action(
             armature, action_data,
-            track_segment_bone_mapping, metadata_dict, use_evaluated
+            track_segment_bone_mapping, metadata_dict
         )
 
         tracks_data = GaniTracksData(
@@ -1324,8 +1314,7 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
                 motion_points_armature,
                 motion_point_action_data,
                 None,  # No bone mapping needed yet for motion points
-                motion_point_metadata_dict,  # Pass the built metadata dict
-                use_evaluated
+                motion_point_metadata_dict  # Pass the built metadata dict
             )
             Debug.log(f"    Exported {len(motion_point_tracks)} motion point track(s)")
         

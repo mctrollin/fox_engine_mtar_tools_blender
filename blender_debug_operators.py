@@ -42,7 +42,6 @@ class MTAR_OT_InspectWorldSpaceTransform(Operator):
         armature = props.debug_armature
         bone_name = props.debug_bone_name
         frame = context.scene.frame_current
-        use_evaluated = props.debug_use_evaluated
         
         # Validate bone exists
         if bone_name not in armature.pose.bones:
@@ -53,8 +52,7 @@ class MTAR_OT_InspectWorldSpaceTransform(Operator):
             # Get world space transform
             location, rotation = get_world_space_transform(
                 armature, bone_name, frame,
-                space_bone=None,
-                evaluated=use_evaluated
+                space_bone=None
             )
             
             # Format result
@@ -100,7 +98,6 @@ class MTAR_OT_InspectLocalSpaceTransform(Operator):
         armature = props.debug_armature
         bone_name = props.debug_bone_name
         frame = context.scene.frame_current
-        use_evaluated = props.debug_use_evaluated
         
         # Validate bone exists
         if bone_name not in armature.pose.bones:
@@ -110,8 +107,7 @@ class MTAR_OT_InspectLocalSpaceTransform(Operator):
         try:
             # Get local space transform
             location, rotation = get_local_space_transform(
-                armature, bone_name, frame,
-                evaluated=use_evaluated
+                armature, bone_name, frame
             )
             
             # Format result
@@ -187,15 +183,13 @@ class MTAR_OT_CreateTransformDummies(Operator):
             world_result = get_world_space_transform(
                 obj=armature,
                 bone_name=bone_name,
-                frame=frame,
-                evaluated=props.debug_use_evaluated
+                frame=frame
             )
             
             local_result = get_local_space_transform(
                 obj=armature,
                 bone_name=bone_name,
-                frame=frame,
-                evaluated=props.debug_use_evaluated
+                frame=frame
             )
             
             if not world_result or not local_result:

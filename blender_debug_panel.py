@@ -8,7 +8,7 @@ for bones at specific frames, useful for verifying export/import transform corre
 
 import bpy
 from bpy.types import Panel, PropertyGroup, Context, Object
-from bpy.props import PointerProperty, BoolProperty, StringProperty
+from bpy.props import PointerProperty, StringProperty
 
 from .py_utilities.utilities_transforms import get_world_space_transform, get_local_space_transform
 from .py_utilities.utilities_logging import Debug
@@ -89,12 +89,6 @@ class MTAR_PG_DebugProperties(PropertyGroup):
         maxlen=1024
     )
     
-    debug_use_evaluated: BoolProperty(
-        name="Use Evaluated",
-        description="Use evaluated transforms (after constraints/IK) instead of raw keyframes",
-        default=False
-    )
-    
     debug_world_space_result: bpy.props.StringProperty(
         name="World Space Result",
         description="Last world space transform result",
@@ -148,8 +142,6 @@ class MTAR_PT_DebugPanel(Panel):
             # Add a dropdown to select bones
             if props.debug_armature.pose.bones:
                 row.operator("wm.search_menu", text="", icon='DOWNARROW_HLT')
-        
-        config_box.prop(props, "debug_use_evaluated", toggle=True)
         
         # Current frame info
         info_box = layout.box()

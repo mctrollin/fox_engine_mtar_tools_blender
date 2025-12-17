@@ -76,6 +76,13 @@ class MTAR_PG_Properties(PropertyGroup):
         default=True
     )
     
+    import_strip_padding: IntProperty(
+        name="Strip Padding (Frames)",
+        description="Number of frames to insert between animation strips to prevent overlap",
+        default=10,
+        min=0,
+    )
+    
     show_advanced_settings: bpy.props.BoolProperty(
         name="Show Advanced Settings",
         description="Display advanced import/export settings",
@@ -110,12 +117,6 @@ class MTAR_PG_Properties(PropertyGroup):
         name="Export NLA Strips",
         description="Export all unmuted NLA strips as separate GANI files. If disabled or no NLA tracks exist, exports only the active action",
         default=True
-    )
-    
-    export_use_evaluated: bpy.props.BoolProperty(
-        name="Use Evaluated Transforms",
-        description="Export transforms after applying constraints, IK, and other modifiers (evaluated). If disabled, exports raw keyframe data",
-        default=False
     )
 
     export_custom_path_hashes: bpy.props.BoolProperty(
@@ -243,6 +244,10 @@ class MTAR_PT_ImportPanel(Panel):
         # GANI index selector
         box = box_import
         box.prop(props, "import_gani_index", text="Gani File Index", icon='FILTER')
+        
+        # Strip padding (advanced setting)
+        if props.show_advanced_settings:
+            box.prop(props, "import_strip_padding", text="Strip Padding", icon='TIME')
 
         # Target rig selector
         box_target_rig = box_import.box()
@@ -287,7 +292,6 @@ class MTAR_PT_ExportPanel(Panel):
         box_rig.prop(props, "export_armature", text="", icon='ARMATURE_DATA')
         box_rig.prop(props, "export_motion_points_armature", text="", icon='ARMATURE_DATA')
 
-        draw_bool_prop_checkbox_icon(box_rig, props, "export_use_evaluated")
         draw_bool_prop_checkbox_icon(box_rig, props, "export_use_nla")
 
         # Show info about NLA status
