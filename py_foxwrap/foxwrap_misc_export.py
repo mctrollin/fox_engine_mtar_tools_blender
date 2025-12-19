@@ -4,7 +4,7 @@ Export-only fake types for MTAR exporter.
 from dataclasses import dataclass
 import io
 import copy
-from typing import Optional, List, Dict, Tuple, TYPE_CHECKING
+from typing import Optional, List, Dict, Tuple
 
 from ..py_utilities.utilities_logging import Debug
 
@@ -14,8 +14,6 @@ from .foxwrap_metadata import parse_action_track_metadata, TrackMetaData, parse_
 from .foxwrap_misc import Tracks, TrackUnitWrapper
 from .foxwrap_gani_writer import Gani2Writer
 
-if TYPE_CHECKING:
-    import bpy
 
 
 @dataclass

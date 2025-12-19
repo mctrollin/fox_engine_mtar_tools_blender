@@ -6,7 +6,10 @@ from bpy.props import StringProperty, BoolProperty
 from bpy_extras.io_utils import ImportHelper
 
 from .mtar_importer import import_mtar
-from . import blender_panel
+from . import blender_panel_import
+from . import blender_panel_export
+from . import blender_panel_settings
+from . import blender_properties
 
 blender_debug_module = None
 _debug_registered = False
@@ -36,7 +39,7 @@ class MTAR_AddonPreferences(bpy.types.AddonPreferences):
         try:
             # If enabling debug and not already registered, try to register
             if self.enable_debug_tools and not _debug_registered:
-                from . import blender_debug_panel as _bd
+                from . import blender_panel_debug as _bd
                 blender_debug_module = _bd
                 blender_debug_module.register()
                 # bpy.utils.register_class(MTAR_PT_DebugPanel)
@@ -64,8 +67,13 @@ class MTAR_AddonPreferences(bpy.types.AddonPreferences):
 
 
 def register() -> None:
-    # Register panel first (includes its own classes)
-    blender_panel.register()
+    # Register properties first
+    blender_properties.register()
+
+    # Register panels (includes their own classes)
+    blender_panel_import.register()
+    blender_panel_export.register()
+    blender_panel_settings.register()
 
     # Register addon preferences so users can toggle debug tools
     try:
@@ -91,7 +99,7 @@ def register() -> None:
     _debug_registered = False
     if enable_debug:
         try:
-            from . import blender_debug_panel as _bd
+            from . import blender_panel_debug as _bd
             blender_debug_module = _bd
             blender_debug_module.register()
             _debug_registered = True
@@ -120,8 +128,13 @@ def unregister() -> None:
     except Exception:
         pass
 
-    # Unregister panel last
-    blender_panel.unregister()
+    # Unregister panels
+    blender_panel_settings.unregister()
+    blender_panel_export.unregister()
+    blender_panel_import.unregister()
+
+    # Unregister properties last
+    blender_properties.unregister()
 
 if __name__ == "__main__":
     register()

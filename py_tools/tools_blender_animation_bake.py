@@ -8,7 +8,7 @@ from typing import Set, Dict, Optional
 
 import bpy
 
-from ..py_utilities.utilities_logging import Debug
+from ..py_utilities.utilities_logging import Debug, update_progress_status
 
 
 def get_bones_with_keyframes(action: bpy.types.Action) -> Set[str]:
@@ -286,7 +286,7 @@ def bake_armature_action(rig_armature: bpy.types.Object,
     is created if create_new_action is True.
     
     Args:
-        armature: Armature object to bake
+        rig_armature: Armature object to bake
         action: Action to bake (if None, uses active action)
         remove_constraints: Whether to remove bone constraints after baking
         create_new_action: If True, creates a new action instead of overriding
@@ -320,6 +320,9 @@ def bake_armature_action(rig_armature: bpy.types.Object,
     if not rig_armature.animation_data:
         rig_armature.animation_data_create()
     
+    # Update status text without changing progress percentage
+    update_progress_status(f"Baking: {action.name}")
+        
     Debug.log(f"Baking action '{action.name}' for armature '{rig_armature.name}'")
     
     target_action = action
@@ -583,6 +586,10 @@ def bake_armature_nla_strips(rig_armature: bpy.types.Object,
     
     for idx, (track, strip, action) in enumerate(strips_to_bake, 1):
         Debug.log(f"  Baking strip {idx}/{len(strips_to_bake)}: '{strip.name}' (action: '{action.name}')")
+        
+        # Update status text without changing progress percentage
+        update_progress_status(f"Baking {idx}/{len(strips_to_bake)}: {strip.name}")
+            
         try:
             # Bake the action
             bake_result = bake_armature_action(

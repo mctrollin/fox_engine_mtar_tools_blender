@@ -25,9 +25,6 @@ from .foxwrap_metadata import read_track_header_properties_from_action
 
 from ..py_tools.tools_hash_generator import hash_animation_name_from_blender_context
 
-if TYPE_CHECKING:
-    pass
-
 
 class MtarWriter:
     """Writes MTAR format files.
@@ -91,7 +88,7 @@ class MtarWriter:
         """
         self.motion_points_list = motion_points_list
     
-    def _get_animation_name_for_gani(self, gani_data: 'GaniData') -> str:
+    def get_animation_name_for_gani(self, gani_data: 'GaniData') -> str:
         """Extract the animation name string from GaniData.
         
         This reconstructs the same format used in the info.txt file:
@@ -143,7 +140,7 @@ class MtarWriter:
         # Check if custom path hashing is enabled
         if self.export_custom_path_hashes:
             # Generate custom path hash using the hash generator from Blender properties
-            animation_name = self._get_animation_name_for_gani(gani_data)
+            animation_name = self.get_animation_name_for_gani(gani_data)
             Debug.log(f"      Generating custom path hash for: '{animation_name}'")
             
             success, results, error = hash_animation_name_from_blender_context(animation_name)

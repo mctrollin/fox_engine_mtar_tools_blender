@@ -10,7 +10,7 @@ from pathlib import Path
 import bpy
 from mathutils import Quaternion
 
-from .py_utilities.utilities_logging import Debug, start_timer, stop_timer
+from .py_utilities.utilities_logging import Debug, start_timer, stop_timer, update_progress
 from .py_utilities.utilities_transforms import reverse_directional_location, apply_reverse_transforms, get_local_space_transform, get_world_space_transform, blender_to_fox_vector, blender_to_fox_quaternion
 from .py_utilities.utilities_blender_animation import FCurveCache
 
@@ -985,7 +985,7 @@ def build_motion_point_metadata_dict(motion_points_armature: bpy.types.Object,
         
         # Look for stored metadata using utility function
         found_metadata_in_action = False
-        for track_idx, track_name, metadata_str in iter_track_properties(action):
+        for _, track_name, metadata_str in iter_track_properties(action):
             if track_name == bone_name:
                 # Found metadata for this bone
                 found_metadata_in_action = True
@@ -1124,6 +1124,8 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
     _ = context
     # Scene properties (export options) from the UI
     props = context.scene.mtar_properties
+    export_props = props.export_props
+
     Debug.log("\n=== MTAR Data Export Started ===")
     Debug.log(f"Export path: {filepath}\n")
     
@@ -1143,6 +1145,7 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
     # Mapping
     Debug.log("\n1. Mapping ++++++++++++++++++++++++++++++++++++++++++++")
     start_timer("1. Mapping")
+    update_progress(5, "Mapping...")
 
     # Use provided track_segment_bone_mapping or create default mapping from armature
     if track_segment_bone_mapping is None:
@@ -1161,6 +1164,7 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
     # Meta Data 
     Debug.log("\n2. Meta Data ++++++++++++++++++++++++++++++++++++++++++++")
     start_timer("2. Meta Data")
+    update_progress(10, "Meta Data...")
 
     # Find and parse layout track action
     Debug.log("\nSearching for layout track action...")
@@ -1209,8 +1213,8 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
     # (The writer will get hash_generator_exe_path from Blender properties when needed)
     writer = MtarWriter(
         filepath,
-        export_custom_path_hashes=props.export_custom_path_hashes,
-        export_custom_path_base=props.export_custom_path_base
+        export_custom_path_hashes=export_props.custom_path_hashes,
+        export_custom_path_base=export_props.custom_path_base
     )
     
     # Set the layout track on the writer
@@ -1224,10 +1228,11 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
     # Motion Points
     Debug.log("\n3. Motion Points ++++++++++++++++++++++++++++++++++++++++++++")
     start_timer("3. Motion Points")
+    update_progress(20, "Motion Points...")
 
     # Find motion points armature and collect motion point data
     Debug.log("\n=== Motion Points Detection ===")
-    motion_points_armature = props.export_motion_points_armature
+    motion_points_armature = export_props.motion_points_armature
     
     motion_point_actions_data: List[ExportActionData] = []
     
@@ -1246,8 +1251,8 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
         else:
             Debug.log("No motion point actions found (motion points list will be exported without animations)")
     else:
-        if props.export_motion_points_armature:
-            Debug.log(f"The selected object is not a motion points armature or the armature is invalid: {props.export_motion_points_armature}")
+        if export_props.motion_points_armature:
+            Debug.log(f"The selected object is not a motion points armature or the armature is invalid: {export_props.motion_points_armature}")
         else:
             Debug.log("No motion points armature selected")
         Debug.log("Motion points will not be exported")
@@ -1260,8 +1265,12 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
     # Export each action as a GaniData object
     Debug.log("\n4. Animations ++++++++++++++++++++++++++++++++++++++++++++")
     start_timer("4. Animations")
+    update_progress(30, "Animations...")
 
     for action_idx, action_data in enumerate(actions_to_export):
+        # Update progress bar for each action (30-90% range)
+        progress = 30 + int((action_idx / len(actions_to_export)) * 60)
+        update_progress(progress, f"Action {action_idx+1}/{len(actions_to_export)}")
 
         # Get frame info from action data
         frame_start = action_data.frame_start
@@ -1374,19 +1383,21 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
     # Write the MTAR file
     Debug.log("\n5. Writing MTAR file... ++++++++++++++++++++++++++++++++++++++++++++")
     start_timer("5. Writing MTAR file")
+    # Update progress bar for the writing phase (90-100%)
+    update_progress(95, "Writing MTAR...")
     writer.write()
     stop_timer("5. Writing MTAR file")
 
     # Build animation names for the info file using the writer helper so we
     # reuse the same naming logic (handles NLA strips and active actions).
-    animation_names = [writer._get_animation_name_for_gani(gd) for gd in writer.gani_data_list]
+    animation_names = [writer.get_animation_name_for_gani(gd) for gd in writer.gani_data_list]
 
     # Write the info file with animation names
     Debug.log("\n6. Writing animation info file... ++++++++++++++++++++++++++++++++++++++++++++")
     start_timer("6. Writing animation info file")
     
     # Only write the info file if the export setting is enabled
-    if props.export_info_file:
+    if export_props.info_file:
         mtar_path = Path(filepath)
         info_filepath = mtar_path.with_name(f"{mtar_path.stem}.mtar.info.txt")
         try:

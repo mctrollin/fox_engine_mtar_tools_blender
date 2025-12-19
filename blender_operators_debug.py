@@ -14,9 +14,6 @@ from bpy.props import StringProperty
 from .py_utilities.utilities_transforms import get_world_space_transform, get_local_space_transform
 from .py_utilities.utilities_logging import Debug
 
-if TYPE_CHECKING:
-    from bpy.types import Object
-
 
 # Transform Debug Operators ##################################################################
 
@@ -209,7 +206,7 @@ class MTAR_OT_CreateTransformDummies(Operator):
             
             # Create local space dummy (place at local space location as if it were world space)
             local_dummy_name = f"{bone_name}_local_space"
-            from .blender_debug_panel import create_or_update_dummy_object
+            from .blender_panel_debug import create_or_update_dummy_object
             create_or_update_dummy_object(
                 object_name=local_dummy_name,
                 vertices=local_verts,
@@ -339,12 +336,12 @@ class MTAR_OT_GenerateHashWithExternalExe(Operator):
         
         props = context.scene.mtar_hash_generator_properties
         # The executable path is read strictly from main scene settings
-        if not hasattr(context.scene, 'mtar_properties') or not hasattr(context.scene.mtar_properties, 'hash_generator_exe_path'):
+        if not hasattr(context.scene, 'mtar_properties') or not context.scene.mtar_properties.settings_props.hash_generator_exe_path:
             self.report({'ERROR'}, "Hash Generator executable path not configured in MTAR Settings")
             props.hash_generator_error = "Hash Generator executable path not configured in MTAR Settings"
             self._clear_results(props)
             return {'CANCELLED'}
-        exe_path = context.scene.mtar_properties.hash_generator_exe_path
+        exe_path = context.scene.mtar_properties.settings_props.hash_generator_exe_path
         
         # Validate inputs
         if not exe_path:

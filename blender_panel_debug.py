@@ -10,9 +10,7 @@ import bpy
 from bpy.types import Panel, PropertyGroup, Context, Object
 from bpy.props import PointerProperty, StringProperty
 
-from .py_utilities.utilities_transforms import get_world_space_transform, get_local_space_transform
-from .py_utilities.utilities_logging import Debug
-from .blender_debug_operators import (
+from .blender_operators_debug import (
     MTAR_OT_InspectWorldSpaceTransform,
     MTAR_OT_InspectLocalSpaceTransform,
     MTAR_OT_CreateTransformDummies,
@@ -207,7 +205,7 @@ class MTAR_PT_DebugPanel(Panel):
 class MTAR_PG_HashGeneratorProperties(PropertyGroup):
     """Property group for external hash generator settings."""
     
-    # Note: the executable path is stored in scene.mtar_properties.hash_generator_exe_path
+    # Note: the executable path is stored in scene.mtar_properties.settings_props.hash_generator_exe_path
     
     hash_generator_input: StringProperty(
         name="Input",
@@ -296,7 +294,7 @@ class MTAR_PT_HashGeneratorPanel(Panel):
         # If the hash generator exe path is not configured in the MTAR Settings, show an info
         # box and don't render the rest of the hash generator debug UI. This avoids confusion
         # where users might try to hash filenames without configuring the external exe path.
-        if not hasattr(scene, 'mtar_properties') or not hasattr(scene.mtar_properties, 'hash_generator_exe_path') or not scene.mtar_properties.hash_generator_exe_path:
+        if not hasattr(scene, 'mtar_properties') or not scene.mtar_properties.settings_props.hash_generator_exe_path:
             info_box = layout.box()
             info_box.label(text="Hash Generator not configured", icon='ERROR')
             info_box.label(text="Configure 'Hash Generator Executable' in Settings panel")

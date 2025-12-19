@@ -5,10 +5,9 @@ FCurves, keyframes, and other animation-related structures.
 """
 from typing import TYPE_CHECKING, Optional, Dict, List
 
-from .utilities_logging import Debug
+import bpy
 
-if TYPE_CHECKING:
-    import bpy
+from .utilities_logging import Debug
 
 
 # FCurve Cache Utilities #########################################################
@@ -168,9 +167,6 @@ class FCurveCache:
         """
         return self._cache
 
-
-if TYPE_CHECKING:
-    import bpy
 
 
 def configure_action(action: 'bpy.types.Action',

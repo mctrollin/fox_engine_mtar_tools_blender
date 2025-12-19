@@ -5,16 +5,13 @@ This module provides functions to store motion events from MTAR files as:
 1. Custom properties on actions (for complete data preservation)
 2. NLA markers (for visual timeline representation)
 """
-from typing import List, Dict, Optional, TYPE_CHECKING
+from typing import List, Dict, Optional
 
 from ..py_utilities.utilities_logging import Debug
 from .foxwrap_metadata import make_event_property_key, iter_event_properties
 
 from ..py_fox.fox_gani_types import EvpHeader, EvpData, EventUnitInfo, TimeSection
 from ..py_fox.fox_misc_types import StrCode32
-
-if TYPE_CHECKING:
-    import bpy
 
 
 def store_motion_events_on_action(action: 'bpy.types.Action', motion_events: Optional[EvpHeader]) -> None:

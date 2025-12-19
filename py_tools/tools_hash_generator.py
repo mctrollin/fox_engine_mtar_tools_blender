@@ -232,7 +232,7 @@ def hash_animation_name_from_blender_context(input_string: str) -> Tuple[bool, D
     """Hash animation name using the hash generator executable path configured in Blender.
 
     Wrapper around hash_filename_all_modes() that retrieves the hash generator exe path from the
-    main scene settings (`context.scene.mtar_properties.hash_generator_exe_path`).
+    main scene settings (`context.scene.mtar_properties.settings_props.hash_generator_exe_path`).
     
     Args:
         input_string: Animation name string to hash (e.g., "/Assets/tpp/Walk/walk_001")
@@ -251,9 +251,9 @@ def hash_animation_name_from_blender_context(input_string: str) -> Tuple[bool, D
             return False, {}, "No active Blender scene"
         scene = bpy.context.scene
         # Retrieve the executable path from the main settings (no backward compatibility)
-        if not hasattr(scene, 'mtar_properties') or not hasattr(scene.mtar_properties, 'hash_generator_exe_path'):
+        if not hasattr(scene, 'mtar_properties') or not scene.mtar_properties.settings_props.hash_generator_exe_path:
             return False, {}, "MTAR property 'hash_generator_exe_path' not found in scene settings"
-        exe_path = scene.mtar_properties.hash_generator_exe_path
+        exe_path = scene.mtar_properties.settings_props.hash_generator_exe_path
         if not exe_path:
             return False, {}, "Hash Generator executable path not set in properties"
         

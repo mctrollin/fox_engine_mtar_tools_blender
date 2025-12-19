@@ -15,6 +15,7 @@ from .foxwrap_gani_reader import Gani2Reader
 from .foxwrap_misc import TrackUnitWrapper, Tracks
 from .foxwrap_misc_import import CommonInfo
 
+
 class MtarReader:
     def __init__(self, filepath: str) -> None:
         self.filepath: str = filepath
@@ -22,8 +23,6 @@ class MtarReader:
         self.common_info: Optional[CommonInfo] = None
         self.motion_tracks = None
         self.motion_events = None
-
-    
 
     def read_all_tracks(self) -> Tuple[List[List[TrackUnitWrapper]], List[List[TrackUnitWrapper]], List[Optional[EvpHeader]], List[TrackMiniHeader], List[Optional[Tracks]], List[MtarTableList2], List[Optional[TrackHeader]]]:
         """Read all animation tracks from the MTAR file.

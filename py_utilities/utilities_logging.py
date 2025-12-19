@@ -47,15 +47,16 @@ def _should_log(level: _LogLevel) -> bool:
     """Decide whether a message at `level` should be printed.
 
     This checks both the configured minimum log level and the scene-level
-    `mtar_properties.log_verbosity` setting (if available).
+    `mtar_properties.settings_props.log_verbosity` setting (if available).
     """
 
     try:
         if hasattr(bpy.context, 'scene') and hasattr(bpy.context.scene, 'mtar_properties'):
             props = bpy.context.scene.mtar_properties
+            settings_props = props.settings_props
             # Check panel log_verbosity setting (replaces old enable_logging)
-            if hasattr(props, 'log_verbosity'):
-                verbosity_str = props.log_verbosity
+            if hasattr(settings_props, 'log_verbosity'):
+                verbosity_str = settings_props.log_verbosity
                 # Convert string to _LogLevel enum
                 level_map = {'ERROR': _LogLevel.ERROR, 'WARNING': _LogLevel.WARNING, 'INFO': _LogLevel.INFO, 'DEBUG': _LogLevel.DEBUG}
                 panel_level = level_map.get(verbosity_str, _LogLevel.WARNING)
@@ -73,13 +74,14 @@ def _should_log(level: _LogLevel) -> bool:
 def _should_log_timers() -> bool:
     """Decide whether to print timer output.
     
-    Checks the scene-level `mtar_properties.enable_timer_logs` setting if available.
+    Checks the scene-level `mtar_properties.settings_props.enable_timer_logs` setting if available.
     """
     try:
         if hasattr(bpy.context, 'scene') and hasattr(bpy.context.scene, 'mtar_properties'):
             props = bpy.context.scene.mtar_properties
-            if hasattr(props, 'enable_timer_logs'):
-                return props.enable_timer_logs
+            settings_props = props.settings_props
+            if hasattr(settings_props, 'enable_timer_logs'):
+                return settings_props.enable_timer_logs
     except (ImportError, AttributeError, RuntimeError):
         # If we can't access Blender context, default to not logging
         pass
@@ -174,3 +176,59 @@ def stop_timer(block_name: str) -> float:
         print(f"[TIMER] {block_name}: {elapsed:.3f} seconds")
     
     return elapsed
+
+
+def update_progress(value: float, text: str = "") -> None:
+    """Update the Blender progress bar and the UI progress property.
+    
+    Args:
+        value: Progress value from 0 to 100
+        text: Optional status text to display
+    """
+    try:
+        # Update status bar progress
+        wm = bpy.context.window_manager
+        wm.progress_update(value)
+        
+        # Update UI panel progress property if available
+        if hasattr(bpy.context, 'scene') and hasattr(bpy.context.scene, 'mtar_properties'):
+            props = bpy.context.scene.mtar_properties
+            exec_props = props.execution_props
+            if hasattr(exec_props, 'progress'):
+                exec_props.progress = value / 100.0
+            
+            if hasattr(exec_props, 'status'):
+                exec_props.status = text
+                
+            # Force UI redraw so the progress bar in the panel updates
+            # This is necessary because long-running operators block the UI thread
+            try:
+                bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+            except Exception:  # noqa: E722
+                pass
+    except (ImportError, AttributeError, RuntimeError):
+        # If we can't access Blender context, do nothing
+        pass
+
+
+def update_progress_status(text: str) -> None:
+    """Update only the status text of the progress bar without changing the progress value.
+    
+    Args:
+        text: Status text to display
+    """
+    try:
+        if hasattr(bpy.context, 'scene') and hasattr(bpy.context.scene, 'mtar_properties'):
+            props = bpy.context.scene.mtar_properties
+            exec_props = props.execution_props
+            
+            if hasattr(exec_props, 'status'):
+                exec_props.status = text
+                
+            # Force UI redraw
+            try:
+                bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+            except Exception:  # noqa: E722
+                pass
+    except (ImportError, AttributeError, RuntimeError):
+        pass
