@@ -340,6 +340,125 @@ def apply_rotation_transforms(fox_quat: List[float],
     return quat
 
 
+def apply_rest_pose_correction_local(quat: Quaternion, map_r_dict: dict) -> Quaternion:
+    """Apply local space rest pose correction using similarity transformation.
+    
+    For LOCAL space tracks, the rest pose correction transforms the rotation from
+    a world-aligned coordinate frame into the bone's local rest pose frame using
+    similarity transformation: R^(-1) @ P @ R
+    
+    This is mathematically equivalent to:
+    - Rotating by rest_pose to align world to bone local frame
+    - Applying the parent rotation
+    - Rotating back by inverse rest_pose
+    
+    Args:
+        quat: Input Blender quaternion (already converted from Fox format)
+        map_r_dict: Dictionary with 'euler' [x, y, z] in degrees and 'order' string
+        
+    Returns:
+        Transformed quaternion in bone's local rest pose frame
+    """
+    # Extract rest pose Euler angles from map_r
+    euler_degrees = map_r_dict['euler']
+    euler_order = map_r_dict['order'].upper()
+    
+    # Convert to radians and create Euler
+    euler_radians = [math.radians(deg) for deg in euler_degrees]
+    rest_pose_euler = Euler(euler_radians, euler_order)
+    rest_pose_quat = rest_pose_euler.to_quaternion()
+    
+    # Apply similarity transformation: R^(-1) @ P @ R
+    rest_pose_inv = rest_pose_quat.inverted()
+    result = rest_pose_inv @ quat @ rest_pose_quat
+    
+    return result
+
+def apply_rest_pose_correction_world(quat: Quaternion, offset_r_dict: dict) -> Quaternion:
+    """Apply world space rest pose correction using simple quaternion multiplication.
+    
+    For WORLD space tracks (indicated by space_r=ws), the offset_r parameter
+    applies a simple rotation offset via quaternion multiplication.
+    
+    Args:
+        quat: Input Blender quaternion (already converted from Fox format)
+        offset_r_dict: Dictionary with 'euler' [x, y, z] in degrees and 'order' string
+        
+    Returns:
+        Transformed quaternion with offset applied
+    """
+    # Extract offset Euler angles from offset_r
+    euler_degrees = offset_r_dict['euler']
+    euler_order = offset_r_dict['order'].upper()
+    
+    # Convert to radians and create Euler
+    euler_radians = [math.radians(deg) for deg in euler_degrees]
+    offset_euler = Euler(euler_radians, euler_order)
+    offset_quat = offset_euler.to_quaternion()
+    
+    # Apply offset via simple post-multiplication
+    result = quat @ offset_quat
+    
+    return result
+
+def reverse_rest_pose_correction_local(quat: Quaternion, map_r_dict: dict) -> Quaternion:
+    """Reverse local space rest pose correction for export.
+    
+    Inverts the similarity transformation applied during import:
+    Original: R^(-1) @ P @ R
+    Reverse: R @ P @ R^(-1)
+    
+    Args:
+        quat: Blender quaternion in bone's local rest pose frame
+        map_r_dict: Dictionary with 'euler' [x, y, z] in degrees and 'order' string
+        
+    Returns:
+        Transformed quaternion in world-aligned frame
+    """
+    # Extract rest pose Euler angles from map_r
+    euler_degrees = map_r_dict['euler']
+    euler_order = map_r_dict['order'].upper()
+    
+    # Convert to radians and create Euler
+    euler_radians = [math.radians(deg) for deg in euler_degrees]
+    rest_pose_euler = Euler(euler_radians, euler_order)
+    rest_pose_quat = rest_pose_euler.to_quaternion()
+    
+    # Apply reverse similarity transformation: R @ P @ R^(-1)
+    rest_pose_inv = rest_pose_quat.inverted()
+    result = rest_pose_quat @ quat @ rest_pose_inv
+    
+    return result
+
+def reverse_rest_pose_correction_world(quat: Quaternion, offset_r_dict: dict) -> Quaternion:
+    """Reverse world space rest pose correction for export.
+    
+    Inverts the simple offset multiplication applied during import:
+    Original: P @ O
+    Reverse: P @ O^(-1)
+    
+    Args:
+        quat: Blender quaternion with offset applied
+        offset_r_dict: Dictionary with 'euler' [x, y, z] in degrees and 'order' string
+        
+    Returns:
+        Transformed quaternion with offset removed
+    """
+    # Extract offset Euler angles from offset_r
+    euler_degrees = offset_r_dict['euler']
+    euler_order = offset_r_dict['order'].upper()
+    
+    # Convert to radians and create Euler
+    euler_radians = [math.radians(deg) for deg in euler_degrees]
+    offset_euler = Euler(euler_radians, euler_order)
+    offset_quat = offset_euler.to_quaternion()
+    
+    # Apply inverse offset
+    offset_inv = offset_quat.inverted()
+    result = quat @ offset_inv
+    
+    return result
+
 def fox_to_blender_vector(fox_vec: List[float]) -> List[float]:
     """Convert a 3D vector from Fox Engine coordinate system to Blender.
     

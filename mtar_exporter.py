@@ -4,6 +4,7 @@ MTAR animation exporter for Metal Gear Solid V.
 This module handles the export of Blender animation data to MTAR format.
 """
 
+import math
 from typing import Optional, Dict, List
 from pathlib import Path
 
@@ -11,7 +12,16 @@ import bpy
 from mathutils import Quaternion
 
 from .py_utilities.utilities_logging import Debug, start_timer, stop_timer, update_progress
-from .py_utilities.utilities_transforms import reverse_directional_location, apply_reverse_transforms, get_local_space_transform, get_world_space_transform, blender_to_fox_vector, blender_to_fox_quaternion
+from .py_utilities.utilities_transforms import (
+    reverse_directional_location, 
+    apply_reverse_transforms, 
+    get_local_space_transform, 
+    get_world_space_transform, 
+    blender_to_fox_vector, 
+    blender_to_fox_quaternion,
+    reverse_rest_pose_correction_local,
+    reverse_rest_pose_correction_world
+)
 from .py_utilities.utilities_blender_animation import FCurveCache
 
 from .py_foxwrap.foxwrap_motionevent import read_motion_events_from_action
@@ -436,6 +446,90 @@ def _get_rotation_transform_fn(bone_params: BoneParameters, armature: bpy.types.
         return get_rotation_normal
 
 
+def extract_rest_pose_from_armature(track_segment_bone_mapping: 'TrackSegmentBoneMapping',
+                                    armature: bpy.types.Object) -> None:
+    """Extract rest pose rotations from armature and merge with existing transformations.
+    
+    For each bone in the mapping, extracts its rest pose from the armature and:
+    - For LOCAL space tracks: Merges with existing map_r (or creates if missing)
+    - For WORLD space tracks: Adds to rotation_offset list
+    
+    This allows combining mapping file transformations with armature rest pose.
+    
+    Args:
+        track_segment_bone_mapping: Mapping structure to update
+        armature: Source armature
+    """
+    if not armature or armature.type != 'ARMATURE':
+        return
+    
+    Debug.log("\n=== Extracting Rest Pose from Armature ===")
+    rest_pose_count = 0
+    
+    # Iterate through all mapped bones
+    for track_idx in track_segment_bone_mapping.get_track_indices():
+        segments = track_segment_bone_mapping.get_track_segments(track_idx)
+        for seg_idx, blender_bone_name, bone_params in segments:
+            # Skip as_ik_up bones - they should not be affected by rest pose corrections
+            # Duck-typed access to handle dict or dataclass
+            as_ik_up_value = getattr(bone_params, 'as_ik_up', None) if hasattr(bone_params, 'as_ik_up') else bone_params.get('as_ik_up') if isinstance(bone_params, dict) else None
+            if as_ik_up_value:
+                continue
+            
+            # Check if bone exists in armature
+            if blender_bone_name not in armature.data.bones:
+                continue
+            
+            # Extract rest pose rotation from armature
+            bone = armature.data.bones[blender_bone_name]
+            euler = bone.matrix_local.to_euler('XYZ')
+            euler_deg = [math.degrees(euler.x), math.degrees(euler.y), math.degrees(euler.z)]
+            
+            rest_pose_dict = {
+                'euler': euler_deg,
+                'order': 'XYZ'
+            }
+            
+            # Determine how to apply based on track space type
+            # Duck-typed access to handle dict or dataclass
+            space_r_value = getattr(bone_params, 'space_r', None) if hasattr(bone_params, 'space_r') else bone_params.get('space_r') if isinstance(bone_params, dict) else None
+            
+            if space_r_value:
+                # WORLD space track - add to rotation_offset list
+                if hasattr(bone_params, 'rotation_offset'):
+                    if bone_params.rotation_offset is None:
+                        bone_params.rotation_offset = []
+                    bone_params.rotation_offset.append(rest_pose_dict)
+                elif isinstance(bone_params, dict):
+                    if 'rotation_offset' not in bone_params or bone_params['rotation_offset'] is None:
+                        bone_params['rotation_offset'] = []
+                    bone_params['rotation_offset'].append(rest_pose_dict)
+                Debug.log(f"  {blender_bone_name} [WS]: Added rest pose to offset_r: ({euler_deg[0]:.1f}, {euler_deg[1]:.1f}, {euler_deg[2]:.1f})")
+            else:
+                # LOCAL space track - merge with existing map_r or set if missing
+                existing_map_r = getattr(bone_params, 'map_r', None) if hasattr(bone_params, 'map_r') else bone_params.get('map_r') if isinstance(bone_params, dict) else None
+                
+                if existing_map_r is None:
+                    # No map_r from mapping file - use rest pose from armature
+                    if hasattr(bone_params, 'map_r'):
+                        bone_params.map_r = rest_pose_dict
+                    elif isinstance(bone_params, dict):
+                        bone_params['map_r'] = rest_pose_dict
+                    Debug.log(f"  {blender_bone_name} [LS]: Set rest pose from armature: ({euler_deg[0]:.1f}, {euler_deg[1]:.1f}, {euler_deg[2]:.1f})")
+                else:
+                    # Already has map_r from mapping file - use armature instead
+                    existing_euler = existing_map_r['euler']
+                    Debug.log(f"  {blender_bone_name} [LS]: Mapping file has map_r=({existing_euler[0]:.1f}, {existing_euler[1]:.1f}, {existing_euler[2]:.1f}), using armature instead")
+                    if hasattr(bone_params, 'map_r'):
+                        bone_params.map_r = rest_pose_dict
+                    elif isinstance(bone_params, dict):
+                        bone_params['map_r'] = rest_pose_dict
+            
+            rest_pose_count += 1
+    
+    Debug.log(f"Extracted rest pose for {rest_pose_count} bone(s) from armature")
+
+
 def export_rotation_segment(armature: bpy.types.Object, blender_bone_name: str,
                             bone_params: BoneParameters, export_frames: List[int],
                             frame_start: int, is_static: bool, 
@@ -450,6 +544,10 @@ def export_rotation_segment(armature: bpy.types.Object, blender_bone_name: str,
     rotation_axis_map = bone_params.rotation_axis_map
     space_bone = TrackMetaData.extract_space_bone(bone_params.space_r)
     
+    # Extract rest pose correction parameters (duck-typed dict access)
+    map_r_dict = getattr(bone_params, 'map_r', None) if hasattr(bone_params, 'map_r') else bone_params.get('map_r') if isinstance(bone_params, dict) else None
+    space_r_value = getattr(bone_params, 'space_r', None) if hasattr(bone_params, 'space_r') else bone_params.get('space_r') if isinstance(bone_params, dict) else None
+    
     # Get rotation transform function (varies by as_ik_up and space type)
     # This eliminates ~40 lines of code duplication between two paths
     get_rotation = _get_rotation_transform_fn(bone_params, armature, blender_bone_name,
@@ -459,6 +557,18 @@ def export_rotation_segment(armature: bpy.types.Object, blender_bone_name: str,
     for frame in export_frames:
         # Get rotation using appropriate method (as_ik_up or normal)
         blender_quat = get_rotation(frame)
+        
+        # Apply reverse rest pose corrections (must happen BEFORE axis mapping and offsets)
+        # World space tracks (space_r=ws): reverse offset_r using simple multiplication
+        # Local space tracks (default): reverse map_r using similarity transformation
+        if space_r_value and isinstance(space_r_value, dict) and space_r_value.get('space') == 'ws':
+            # World space track - reverse offset_r if present
+            if rotation_offset:
+                # Use first offset as the offset_r (world space offset)
+                blender_quat = reverse_rest_pose_correction_world(blender_quat, rotation_offset[0])
+        elif map_r_dict:
+            # Local space track - reverse similarity transformation
+            blender_quat = reverse_rest_pose_correction_local(blender_quat, map_r_dict)
         
         # Apply reverse transformations (offsets, axis mapping)
         fox_quat = apply_reverse_transforms(blender_quat, rotation_offset, rotation_axis_map)
@@ -1156,6 +1266,10 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
             bone_name = bone.name
             track_segment_bone_mapping.set_segment_mapping(idx, 0, bone_name, {})
             Debug.log(f"  Track {idx}: {bone_name}")
+    
+    # Extract rest pose from armature (merges with mapping file transformations)
+    extract_rest_pose_from_armature(track_segment_bone_mapping, armature)
+    
     stop_timer("1. Mapping")
 
     # =============================

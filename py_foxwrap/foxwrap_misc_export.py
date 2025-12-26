@@ -45,6 +45,7 @@ class BoneParameters:
         space_l: Optional location space specification ('ws' or bone name)
         as_ik_up: Optional IK up vector parameters
         track_name: Optional track name from mapping file
+        map_r: Optional rest pose correction parameters for LOCAL space tracks (similarity transformation)
     """
     fox_name: str
     rotation_offset: Optional[List[dict]] = None
@@ -53,6 +54,7 @@ class BoneParameters:
     space_l: Optional[str] = None
     as_ik_up: Optional[IkUpParameters] = None
     track_name: Optional[str] = None
+    map_r: Optional[dict] = None
 
 
 @dataclass

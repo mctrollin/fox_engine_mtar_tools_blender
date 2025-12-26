@@ -1,4 +1,5 @@
 import os
+import math
 from typing import Optional, List, Dict, Union, Tuple
 
 import bpy
@@ -6,7 +7,13 @@ from mathutils import Quaternion, Vector
 
 from .py_utilities.utilities_logging import Debug, start_timer, stop_timer, update_progress
 from .py_utilities.utilities_rig_hash import unhash_rig_type
-from .py_utilities.utilities_transforms import calculate_directional_location, prepare_rotation_offset_quats, apply_rotation_transforms, fox_to_blender_vector
+from .py_utilities.utilities_transforms import (
+    calculate_directional_location, 
+    prepare_rotation_offset_quats, 
+    apply_rotation_transforms, 
+    fox_to_blender_vector,
+    apply_rest_pose_correction_local
+)
 from .py_utilities.utilities_blender_animation import add_dummy_keyframes_to_action, configure_action
 
 from .py_foxwrap.foxwrap_metadata import store_track_header_properties_on_action, TrackMetaData, make_track_property_key
@@ -157,6 +164,17 @@ def apply_track_mapping_transformation(track_blob: TrackDataBlobWrapper, mapping
         track_blob.as_ik_up = mapping_data['as_ik_up']
         ik_data = mapping_data['as_ik_up']
         Debug.log(f"    Directional vector IK: base='{ik_data['bone_base']}', axis={ik_data['axis']}, distance={ik_data['distance']}")
+    
+    # Store map_r rest pose transformation if present (for LOCAL space tracks - similarity transformation)
+    if isinstance(mapping_data, dict) and 'map_r' in mapping_data:
+        track_blob.map_r_rest_pose = mapping_data['map_r']
+        euler = mapping_data['map_r']['euler']
+        Debug.log(f"    Rest pose (map_r): ({euler[0]}, {euler[1]}, {euler[2]}) {mapping_data['map_r']['order']}")
+    
+    # Store space_r indicator if present (for WORLD space tracks - simple multiplication)
+    if isinstance(mapping_data, dict) and 'space_r' in mapping_data:
+        track_blob.space_r = mapping_data['space_r']
+        Debug.log(f"    Track space: {mapping_data['space_r']['space']}")
 
 def apply_track_transformations(all_gani_tracks: List[List[TrackUnitWrapper]], track_mapping: Optional[Dict[str, dict]] = None) -> None:
     """Apply rig-based naming and track mapping transformations to all tracks.
@@ -195,6 +213,75 @@ def apply_track_transformations(all_gani_tracks: List[List[TrackUnitWrapper]], t
                         old_name: str = track_blob.name
                         mapping_data: dict = track_mapping[old_name]
                         apply_track_mapping_transformation(track_blob, mapping_data, old_name)
+
+
+def extract_rest_pose_from_target_rig(all_gani_tracks: List[List[TrackUnitWrapper]], 
+                                       target_rig: Optional[bpy.types.Object]) -> None:
+    """Extract rest pose rotations from target rig and merge with existing transformations.
+    
+    For each rotation track, extracts the bone's rest pose from the target rig and:
+    - For LOCAL space tracks: Merges with existing map_r_rest_pose (or creates if missing)
+    - For WORLD space tracks: Adds to rotation_offset list
+    
+    This allows combining mapping file transformations with target rig rest pose.
+    
+    Args:
+        all_gani_tracks: All imported track wrappers
+        target_rig: Optional target armature to extract rest pose from
+    """
+    if not target_rig or target_rig.type != 'ARMATURE':
+        return
+    
+    Debug.log("\n=== Extracting Rest Pose from Target Rig ===")
+    rest_pose_count = 0
+    
+    for gani_tracks in all_gani_tracks:
+        for track_unit in gani_tracks:
+            for track_blob in track_unit.segments_track_data:
+                # Only apply to rotation segments
+                if track_blob.data_blob.type not in [SegmentType.QUAT, SegmentType.QUAT_DIFF]:
+                    continue
+                
+                # Skip as_ik_up bones - they should not be affected by rest pose corrections
+                if track_blob.as_ik_up:
+                    continue
+                
+                # Check if bone exists in target rig
+                if track_blob.name not in target_rig.data.bones:
+                    continue
+                
+                # Extract rest pose rotation from target rig
+                bone = target_rig.data.bones[track_blob.name]
+                euler = bone.matrix_local.to_euler('XYZ')
+                euler_deg = [math.degrees(euler.x), math.degrees(euler.y), math.degrees(euler.z)]
+                
+                rest_pose_dict = {
+                    'euler': euler_deg,
+                    'order': 'XYZ'
+                }
+                
+                # Determine how to apply based on track space type
+                if track_blob.space_r:
+                    # WORLD space track - add to rotation_offset list
+                    if track_blob.rotation_offset is None:
+                        track_blob.rotation_offset = []
+                    track_blob.rotation_offset.append(rest_pose_dict)
+                    Debug.log(f"  {track_blob.name} [WS]: Added rest pose to offset_r: ({euler_deg[0]:.1f}, {euler_deg[1]:.1f}, {euler_deg[2]:.1f})")
+                else:
+                    # LOCAL space track - merge with existing map_r_rest_pose or set if missing
+                    if track_blob.map_r_rest_pose is None:
+                        track_blob.map_r_rest_pose = rest_pose_dict
+                        Debug.log(f"  {track_blob.name} [LS]: Set rest pose from rig: ({euler_deg[0]:.1f}, {euler_deg[1]:.1f}, {euler_deg[2]:.1f})")
+                    else:
+                        # Already has map_r from mapping file - combine them
+                        # For now, use target rig (this could be additive in future)
+                        existing_euler = track_blob.map_r_rest_pose['euler']
+                        Debug.log(f"  {track_blob.name} [LS]: Mapping file has map_r=({existing_euler[0]:.1f}, {existing_euler[1]:.1f}, {existing_euler[2]:.1f}), using target rig instead")
+                        track_blob.map_r_rest_pose = rest_pose_dict
+                
+                rest_pose_count += 1
+    
+    Debug.log(f"Extracted rest pose for {rest_pose_count} track(s) from target rig")
 
 
 # Animation #############################################################
@@ -256,6 +343,14 @@ def import_keyframes_track(action: bpy.types.Action, keyframes_track: TrackDataB
                     offset_first=True  # For as_ik_up: offset @ quat
                 )
                 
+                # Apply rest pose correction based on track space type (if applicable)
+                if keyframes_track.space_r:
+                    # World space - offset_r already applied above
+                    pass
+                elif keyframes_track.map_r_rest_pose:
+                    # Local space - apply similarity transformation
+                    quat = apply_rest_pose_correction_local(quat, keyframes_track.map_r_rest_pose)
+                
                 # Convert to directional location
                 # Base location is 0,0,0 during import (will be offset by constraints later)
                 bone_base_location = Vector((0.0, 0.0, 0.0))
@@ -296,6 +391,23 @@ def import_keyframes_track(action: bpy.types.Action, keyframes_track: TrackDataB
                     rotation_offset_quats,
                     offset_first=False  # For regular rotation: quat @ offset
                 )
+                
+                # Apply rest pose correction based on track space type
+                # World space tracks (space_r=ws): use offset_r with simple multiplication
+                # Local space tracks (default): use map_r with similarity transformation
+                if keyframes_track.space_r:
+                    # World space track - use offset_r if present
+                    if keyframes_track.rotation_offset:
+                        # offset_r is already applied via rotation_offset_quats above
+                        # This is the correct behavior for world space
+                        pass
+                    Debug.log(f"    Applied world space transformation (space_r)")
+                    
+                elif keyframes_track.map_r_rest_pose:
+                    # Local space track - apply similarity transformation
+                    quat = apply_rest_pose_correction_local(quat, keyframes_track.map_r_rest_pose)
+                    euler = keyframes_track.map_r_rest_pose['euler']
+                    Debug.log(f"    Applied local space rest pose correction: ({euler[0]}, {euler[1]}, {euler[2]})")
                 
                 converted_quaternions.append((keyframe.frame_count, quat))
                 max_frame = max(max_frame, keyframe.frame_count)
@@ -1282,6 +1394,10 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
     # Modify keyframes track names based on rig unit type and apply track mapping transformations
     update_progress(20, "Applying Mapping...")
     apply_track_transformations(all_gani_tracks, track_mapping)
+    
+    # Extract rest pose from target rig if provided (merges with mapping file transformations)
+    if target_rig:
+        extract_rest_pose_from_target_rig(all_gani_tracks, target_rig)
     
     # Use the MTAR filename (without extension) as the armature name
     mtar_file_name: str = os.path.splitext(os.path.basename(filepath))[0]

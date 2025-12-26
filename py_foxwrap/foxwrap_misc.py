@@ -215,8 +215,10 @@ class TrackDataBlobWrapper:
     name: str
     segment_index: int
     
-    rotation_offset: Optional[List[dict]] = None  # Optional list of rotation offsets from name mapping (applied in order during import)
-    rotation_axis_map: Optional[list] = None  # Optional axis mapping from name mapping
+    rotation_offset: Optional[List[dict]] = None  # Optional list of rotation offsets from name mapping (offset_r parameter)
+    rotation_axis_map: Optional[list] = None  # Optional axis mapping from name mapping (map_r parameter)
+    map_r_rest_pose: Optional[dict] = None  # Optional rest pose for similarity transformation (from map_r parameter, local space only)
+    space_r: Optional[dict] = None  # Optional space indicator (world space tracks use offset_r differently)
     as_ik_up: Optional[dict] = None  # Optional directional vector IK params: bone_base, axis, distance
 
 
