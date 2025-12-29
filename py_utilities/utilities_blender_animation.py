@@ -200,20 +200,29 @@ def add_dummy_keyframes_to_action(action: 'bpy.types.Action') -> None:
     """Add dummy location keyframes at frames -100 and -50 to the layout track action.
     
     This creates a baseline reference that prevents the action from being empty
-    and establishes the frame range for the NLA strip.
+    and establishes the frame range for the NLA strip. The dummy keyframes are
+    added to a virtual bone called "dummy" (as pose.bones["dummy"].location)
+    so the action is suitable to be applied on armature objects via NLA strips.
     
     Args:
         action: The layout track action to add keyframe to
     """
     Debug.log(f"Adding dummy location keyframes to layout action '{action.name}'")
     
-    # Create a single dummy location track at origin
-    data_path = 'location'
+    # Create a single dummy location track on a virtual bone named "dummy"
+    data_path = 'pose.bones["dummy"].location'
     values = [0.0, 0.0, 0.0]
+
+    # Ensure a group exists for the dummy bone so curves are organized
+    group_name = "dummy"
+    if group_name not in action.groups:
+        action.groups.new(name=group_name)
+    group = action.groups[group_name]
     
     # Create FCurve(s) for each component (X, Y, Z)
     for component_idx, value in enumerate(values):
         fcurve = action.fcurves.new(data_path=data_path, index=component_idx)
+        fcurve.group = group
         # Add keyframes at frames -100 and -50
         keyframe_start = fcurve.keyframe_points.insert(frame=-100.0, value=value)
         keyframe_start.interpolation = 'LINEAR'

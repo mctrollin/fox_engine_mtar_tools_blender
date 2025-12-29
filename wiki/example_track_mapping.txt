@@ -66,22 +66,22 @@
 #   space_r: World space rotation constraint (format: ws or ws,custom_bone)
 #            Example: space_r=ws
 #            Example: space_r=ws,head
-#            Creates a Copy Rotation constraint on the target rig bone.
+#            Creates a Copy Rotation constraint on the custom rig bone.
 #            Target: imported armature bone (world space)
-#            Owner: target rig bone (world space OR custom space if bone specified)
+#            Owner: custom rig bone (world space OR custom space if bone specified)
 #            If second parameter is provided, sets owner space to custom bone coordinate system.
 #
 #   space_l: World space location constraint (format: ws)
 #            Example: space_l=ws
-#            Creates a Copy Location constraint on the target rig bone.
+#            Creates a Copy Location constraint on the custom rig bone.
 #            Target: imported armature bone (world space)
-#            Owner: target rig bone (world space)
+#            Owner: custom rig bone (world space)
 #
 #   as_ik_up: Convert rotation track to directional location IK
 #             Format: base_bone,axis,distance
 #             Example: as_ik_up=head,Z,2.0
 #             Converts quaternion rotation data to location by treating it as a directional vector.
-#             Creates two constraints on target rig bone:
+#             Creates two constraints on custom rig bone:
 #               1. Copy Location (world space) from base_bone
 #               2. Transformation constraint (Add mix) from imported armature directional offset
 #             If space_r with custom bone is also specified, applies custom space to transformation.

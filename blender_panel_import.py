@@ -109,21 +109,21 @@ class MTAR_PT_ImportPanel(Panel):
         if settings_props.show_advanced_settings:
             box.prop(import_props, "strip_padding", text="Strip Padding", icon='TIME')
 
-        # Target rig selector
-        box_target_rig = box_import.box()
-        box_target_rig.prop(import_props, "target_rig", text="", icon='ARMATURE_DATA')
+        # custom rig selector
+        box_custom_rig = box_import.box()
+        box_custom_rig.prop(import_props, "custom_rig", text="", icon='ARMATURE_DATA')
         
         # IK Up Distance (advanced setting, shown when advanced settings are enabled)
         if settings_props.show_advanced_settings:
-            box_target_rig.prop(import_props, "ik_up_distance", text="IK Up Distance", icon='DRIVER_DISTANCE')
+            box_custom_rig.prop(import_props, "ik_up_distance", text="IK Up Distance", icon='DRIVER_DISTANCE')
         
-        # Bake after import checkbox (only shown if advanced settings enabled and target rig is specified)
-        if settings_props.show_advanced_settings and import_props.target_rig:
-            draw_bool_prop_checkbox_icon(box_target_rig, import_props, "bake_after_import")
+        # Bake after import checkbox (only shown if advanced settings enabled and custom rig is specified)
+        if settings_props.show_advanced_settings and import_props.custom_rig:
+            draw_bool_prop_checkbox_icon(box_custom_rig, import_props, "bake_after_import")
 
             # Delete imported armature option is an advanced, dependent setting
             if import_props.bake_after_import:
-                draw_bool_prop_checkbox_icon(box_target_rig, import_props, "delete_import_armature")
+                draw_bool_prop_checkbox_icon(box_custom_rig, import_props, "delete_import_armature")
 
         # Import button
         box_button = layout.box()

@@ -41,9 +41,9 @@ class MTAR_PT_DebugMapRPanel(bpy.types.Panel):
         col.label(text="Identity: (1, 0, 0, 0)", icon='INFO')
         col.label(text="90° X-axis: (0.707, 0.707, 0, 0)", icon='INFO')
         
-        # Target rig section
+        # custom rig section
         box = layout.box()
-        box.label(text="Target Rig Bone Selection", icon='BONE_DATA')
+        box.label(text="custom rig Bone Selection", icon='BONE_DATA')
         
         col = box.column(align=True)
         col.prop(scene.mtar_debug_map_r_properties, "target_armature", text="Armature")
@@ -580,7 +580,7 @@ class MTAR_PG_DebugMapRProperties(bpy.types.PropertyGroup):
         precision=2
     )
     
-    # Input: Target rig bone selection
+    # Input: custom rig bone selection
     target_armature: bpy.props.PointerProperty(
         name="Target Armature",
         description="Armature to extract rest pose from",

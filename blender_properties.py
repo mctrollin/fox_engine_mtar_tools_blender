@@ -37,8 +37,8 @@ class MTAR_PG_ImportProperties(PropertyGroup):
         min=-1,
     )
     
-    target_rig: PointerProperty(
-        name="Target Rig",
+    custom_rig: PointerProperty(
+        name="custom rig",
         description="Optional Rigify rig to connect to imported animation (constraints will be added based on mapping file)",
         type=bpy.types.Object,
         poll=lambda self, obj: obj.type == 'ARMATURE'
@@ -53,7 +53,7 @@ class MTAR_PG_ImportProperties(PropertyGroup):
     )
     
     bake_after_import: BoolProperty(
-        name="Bake Target Rig Constraints",
+        name="Bake custom rig Constraints",
         description="Bake the constraints from the rig into the animation.",
         default=True
     )
@@ -180,7 +180,7 @@ class MTAR_PG_SettingsProperties(PropertyGroup):
     
     enable_rest_pose_correction: BoolProperty(
         name="Enable Rest Pose Correction",
-        description="Automatically extract and apply rest pose corrections from target rig/armature (map_r for local space, offset_r for world space). Disable to use only mapping file transformations",
+        description="Automatically extract and apply rest pose corrections from custom rig/armature (map_r for local space, offset_r for world space). Disable to use only mapping file transformations",
         default=True
     )
 

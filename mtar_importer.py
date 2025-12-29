@@ -213,23 +213,23 @@ def apply_track_transformations(all_gani_tracks: List[List[TrackUnitWrapper]], t
                         apply_track_mapping_transformation(track_blob, mapping_data, old_name)
 
 
-def extract_rest_pose_from_target_rig(all_gani_tracks: List[List[TrackUnitWrapper]], target_rig: Optional[bpy.types.Object]) -> None:
-    """Extract rest pose rotations from target rig and merge with existing transformations.
+def extract_rest_pose_from_custom_rig(all_gani_tracks: List[List[TrackUnitWrapper]], custom_rig: Optional[bpy.types.Object]) -> None:
+    """Extract rest pose rotations from custom rig and merge with existing transformations.
     
-    For each rotation track, extracts the bone's rest pose from the target rig and:
+    For each rotation track, extracts the bone's rest pose from the custom rig and:
     - For LOCAL space tracks: Merges with existing map_r_rest_pose (or creates if missing)
     - For WORLD space tracks: Adds to rotation_offset list
     
-    This allows combining mapping file transformations with target rig rest pose.
+    This allows combining mapping file transformations with custom rig rest pose.
     
     Args:
         all_gani_tracks: All imported track wrappers
-        target_rig: Optional target armature to extract rest pose from
+        custom_rig: Optional target armature to extract rest pose from
     """
-    if not target_rig or target_rig.type != 'ARMATURE':
+    if not custom_rig or custom_rig.type != 'ARMATURE':
         return
     
-    Debug.log("\n=== Extracting Rest Pose from Target Rig ===")
+    Debug.log("\n=== Extracting Rest Pose from custom rig ===")
     rest_pose_count = 0
     
     for gani_tracks in all_gani_tracks:
@@ -243,12 +243,12 @@ def extract_rest_pose_from_target_rig(all_gani_tracks: List[List[TrackUnitWrappe
                 if track_blob.as_ik_up:
                     continue
                 
-                # Check if bone exists in target rig
-                if track_blob.name not in target_rig.data.bones:
+                # Check if bone exists in custom rig
+                if track_blob.name not in custom_rig.data.bones:
                     continue
                 
-                # Extract rest pose rotation from target rig
-                bone = target_rig.data.bones[track_blob.name]
+                # Extract rest pose rotation from custom rig
+                bone = custom_rig.data.bones[track_blob.name]
                 euler = bone.matrix_local.to_euler('XYZ')
                 euler_deg = [math.degrees(euler.x), math.degrees(euler.y), math.degrees(euler.z)]
                 
@@ -271,14 +271,14 @@ def extract_rest_pose_from_target_rig(all_gani_tracks: List[List[TrackUnitWrappe
                         Debug.log(f"  {track_blob.name} [LS]: Set rest pose from rig: ({euler_deg[0]:.1f}, {euler_deg[1]:.1f}, {euler_deg[2]:.1f})")
                     else:
                         # Already has map_r from mapping file - combine them
-                        # For now, use target rig (this could be additive in future)
+                        # For now, use custom rig (this could be additive in future)
                         existing_euler = track_blob.map_r_rest_pose['euler']
-                        Debug.log(f"  {track_blob.name} [LS]: Mapping file has map_r=({existing_euler[0]:.1f}, {existing_euler[1]:.1f}, {existing_euler[2]:.1f}), using target rig instead")
+                        Debug.log(f"  {track_blob.name} [LS]: Mapping file has map_r=({existing_euler[0]:.1f}, {existing_euler[1]:.1f}, {existing_euler[2]:.1f}), using custom rig instead")
                         track_blob.map_r_rest_pose = rest_pose_dict
                 
                 rest_pose_count += 1
     
-    Debug.log(f"Extracted rest pose for {rest_pose_count} track(s) from target rig")
+    Debug.log(f"Extracted rest pose for {rest_pose_count} track(s) from custom rig")
 
 
 # Animation #############################################################
@@ -595,7 +595,7 @@ def create_motion_points_animation_actions(
     all_motion_point_gani_tracks: List[List[TrackUnitWrapper]],
     all_motion_point_layouts: List[Optional[Tracks]],
     all_motion_point_track_headers: List[Optional[TrackHeader]]
-) -> List[bpy.types.Action]:
+) -> List[Optional[bpy.types.Action]]:
     """Create Blender animation actions for motion points from MTAR data.
     
     This function creates animation actions for motion points without requiring
@@ -611,14 +611,16 @@ def create_motion_points_animation_actions(
         context: Blender context (passed to import functions for settings access)
         
     Returns:
-        List of motion point animation actions
+        List of motion point animation actions (may contain None for GANIs without motion points)
     """
-    motion_point_actions: List[bpy.types.Action] = []
+    motion_point_actions: List[Optional[bpy.types.Action]] = []
     
     Debug.log(f"\nProcessing {len(all_motion_point_gani_tracks)} GANI file(s) for motion points...")
     for gani_index, motion_point_tracks in enumerate(all_motion_point_gani_tracks):
         if not motion_point_tracks:
             Debug.log(f"  GANI {gani_index + 1}: No motion point tracks")
+            # Add None placeholder to maintain index alignment with animation actions
+            motion_point_actions.append(None)
             continue
             
         Debug.log(f"\n  --- Motion Points GANI {gani_index + 1}/{len(all_motion_point_gani_tracks)} ---")
@@ -665,7 +667,7 @@ def create_motion_points_animation_actions(
 
 # Armature #############################################################
 
-def get_action_frame_end(action: bpy.types.Action) -> int:
+def get_action_length(action: bpy.types.Action) -> int:
     """Get the frame end value from an action.
     
     First tries to use the action's manual frame_end if set.
@@ -690,11 +692,12 @@ def get_action_frame_end(action: bpy.types.Action) -> int:
 
 def create_nla_strips_for_actions(
     nla_track: bpy.types.NlaTrack,
-    actions: List[bpy.types.Action],
+    actions: List[Optional[bpy.types.Action]],
     mtar_file_name: str,
     strip_name_prefix: str,
     strip_suffix: str = "",
-    strip_padding: int = 10
+    strip_padding: int = 10,
+    reference_actions: Optional[List[bpy.types.Action]] = None
 ) -> int:
     """Create NLA strips for a list of actions on an NLA track.
     
@@ -703,43 +706,69 @@ def create_nla_strips_for_actions(
     
     Args:
         nla_track: NLA track to add strips to
-        actions: List of actions to create strips from
+        actions: List of actions to create strips from (may contain None for empty GANIs)
         mtar_file_name: Base name for strip naming
         strip_name_prefix: Prefix for strip names (e.g., "Strip", "MotionPoints_Strip")
         strip_suffix: Optional suffix to append to strip names (default: "")
         strip_padding: Frames to add between strips (default: 10)
+        reference_actions: Optional list of reference actions to determine frame offsets.
+                          If provided, offsets are calculated based on reference action lengths
+                          to maintain synchronization even when current actions are empty.
+                          Used to sync motion point strips with animation strips.
         
     Returns:
         Total offset reached after all strips (for chaining operations)
     """
     current_frame_offset: int = 0
     
-    for gani_index, action in enumerate(actions):
-        action_frame_end = get_action_frame_end(action)
+    for index, action in enumerate(actions):
+        # Skip None actions (GANIs without data)
+        if action is None:
+            Debug.log(f"  Skipped GANI {index} (no action data)")
+            # Still need to advance offset based on reference if available
+            if reference_actions and index < len(reference_actions):
+                reference_action_length = get_action_length(reference_actions[index])
+                if reference_action_length > 0:
+                    current_frame_offset += reference_action_length + strip_padding
+            continue
         
-        if action_frame_end > 0:
+        action_length = get_action_length(action)
+        
+        # Determine the reference frame length for offset calculation
+        # If reference_actions is provided, use the corresponding reference action's length
+        # Otherwise, use the current action's length
+        if reference_actions and index < len(reference_actions):
+            reference_action_length = get_action_length(reference_actions[index])
+        else:
+            reference_action_length = action_length
+        
+        if action_length > 0:
             strip: bpy.types.NlaStrip = nla_track.strips.new(
                 name="tmp",
                 start=int(current_frame_offset),
                 action=action
             )
-            strip.name = f"{mtar_file_name}_{strip_name_prefix}_{gani_index:03d}{strip_suffix}"
+            strip.name = f"{mtar_file_name}_{strip_name_prefix}_{index:03d}{strip_suffix}"
             # strip.frame_start = int(current_frame_offset)
-            strip.frame_end = strip.frame_start + action_frame_end
+            strip.frame_end = strip.frame_start + action_length
             strip.action_frame_start = 0
-            strip.action_frame_end = action_frame_end
+            strip.action_frame_end = action_length
             
-            Debug.log(f"  Created NLA strip '{strip.name}' at frame {current_frame_offset} (length: {action_frame_end})")
-            
-            # Update offset for next strip (add padding to prevent overlap)
-            current_frame_offset += action_frame_end + strip_padding
+            Debug.log(f"  Created NLA strip '{strip.name}' at frame {current_frame_offset} (length: {action_length})")
+        else:
+            Debug.log(f"  Skipped GANI {index} (no animation data)")
+        
+        # Update offset for next strip (add padding to prevent overlap)
+        # Use reference frame length to maintain synchronization across armatures
+        if reference_action_length > 0:
+            current_frame_offset += reference_action_length + strip_padding
     
     return current_frame_offset
 
-def setup_rig(imported_armature: bpy.types.Object, target_rig: bpy.types.Object, track_mapping: Optional[Dict[str, BoneParameters]] = None) -> None:
+def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object, track_mapping: Optional[Dict[str, BoneParameters]] = None) -> None:
     """Set up constraints on a Rigify rig to follow the imported animation armature.
     
-    This function processes the track mapping data to create constraints on the target rig
+    This function processes the track mapping data to create constraints on the custom rig
     that connect to bones in the imported armature. The specific constraints and settings
     are defined in the track mapping file.
     
@@ -765,19 +794,19 @@ def setup_rig(imported_armature: bpy.types.Object, target_rig: bpy.types.Object,
     
     Args:
         imported_armature: The armature created during MTAR import with animation data
-        target_rig: The Rigify rig that should follow the imported animation
+        custom_rig: The Rigify rig that should follow the imported animation
         track_mapping: Optional dictionary with constraint configuration from mapping file
     """
-    if not target_rig or not imported_armature:
+    if not custom_rig or not imported_armature:
         return
     
-    if target_rig.type != 'ARMATURE' or imported_armature.type != 'ARMATURE':
+    if custom_rig.type != 'ARMATURE' or imported_armature.type != 'ARMATURE':
         Debug.log_error("  Error: Both objects must be armatures")
         return
     
     Debug.log("\n=== Setting up Rigify constraints ===")
     Debug.log(f"Source armature: {imported_armature.name}")
-    Debug.log(f"Target rig: {target_rig.name}")
+    Debug.log(f"custom rig: {custom_rig.name}")
     
     if not track_mapping:
         Debug.log("No track mapping provided - skipping constraint setup")
@@ -794,11 +823,11 @@ def setup_rig(imported_armature: bpy.types.Object, target_rig: bpy.types.Object,
             continue
         
         # Check if target bone exists in rig
-        if target_bone_name not in target_rig.pose.bones:
+        if target_bone_name not in custom_rig.pose.bones:
             continue
         
         # Check if this mapping has rotation data (has rotation track in imported animation)
-        target_bone = target_rig.pose.bones[target_bone_name]
+        target_bone = custom_rig.pose.bones[target_bone_name]
         
         # Check for rotation FCurves
         has_rotation = False
@@ -827,8 +856,8 @@ def setup_rig(imported_armature: bpy.types.Object, target_rig: bpy.types.Object,
             continue
         
         # Check if target bone exists in rig
-        if target_bone_name not in target_rig.pose.bones:
-            Debug.log_warning(f"  Warning: Target bone '{target_bone_name}' not found in target rig, skipping")
+        if target_bone_name not in custom_rig.pose.bones:
+            Debug.log_warning(f"  Warning: Target bone '{target_bone_name}' not found in custom rig, skipping")
             continue
         
         # Check for space_r and space_l parameters (world space constraints)
@@ -846,16 +875,16 @@ def setup_rig(imported_armature: bpy.types.Object, target_rig: bpy.types.Object,
                 continue
             
             # Get target pose bone
-            target_pose_bone = target_rig.pose.bones[target_bone_name]
+            target_pose_bone = custom_rig.pose.bones[target_bone_name]
             
             # Create Copy Rotation constraint if space_r is set
             if has_space_r:
                 custom_bone = space_r.get('custom_bone')
                 
                 if custom_bone:
-                    Debug.log(f"  Creating world space Copy Rotation constraint: {target_rig.name}['{target_bone_name}'] <- {imported_armature.name}['{target_bone_name}'] (custom space: '{custom_bone}')")
+                    Debug.log(f"  Creating world space Copy Rotation constraint: {custom_rig.name}['{target_bone_name}'] <- {imported_armature.name}['{target_bone_name}'] (custom space: '{custom_bone}')")
                 else:
-                    Debug.log(f"  Creating world space Copy Rotation constraint: {target_rig.name}['{target_bone_name}'] <- {imported_armature.name}['{target_bone_name}']")
+                    Debug.log(f"  Creating world space Copy Rotation constraint: {custom_rig.name}['{target_bone_name}'] <- {imported_armature.name}['{target_bone_name}']")
                 
                 constraint = target_pose_bone.constraints.new('COPY_ROTATION')
                 constraint.name = f"MTAR_WS_Rot_{target_bone_name}"
@@ -868,12 +897,12 @@ def setup_rig(imported_armature: bpy.types.Object, target_rig: bpy.types.Object,
                 # Set owner space - either custom or world
                 if custom_bone:
                     # Validate custom bone exists
-                    if custom_bone not in target_rig.pose.bones:
-                        Debug.log_warning(f"    Warning: Custom space bone '{custom_bone}' not found in target rig, using world space")
+                    if custom_bone not in custom_rig.pose.bones:
+                        Debug.log_warning(f"    Warning: Custom space bone '{custom_bone}' not found in custom rig, using world space")
                         constraint.owner_space = 'WORLD'
                     else:
                         constraint.owner_space = 'CUSTOM'
-                        constraint.space_object = target_rig
+                        constraint.space_object = custom_rig
                         constraint.space_subtarget = custom_bone
                 else:
                     constraint.owner_space = 'WORLD'
@@ -887,7 +916,7 @@ def setup_rig(imported_armature: bpy.types.Object, target_rig: bpy.types.Object,
             
             # Create Copy Location constraint if space_l is set
             if has_space_l:
-                Debug.log(f"  Creating world space Copy Location constraint: {target_rig.name}['{target_bone_name}'] <- {imported_armature.name}['{target_bone_name}']")
+                Debug.log(f"  Creating world space Copy Location constraint: {custom_rig.name}['{target_bone_name}'] <- {imported_armature.name}['{target_bone_name}']")
                 
                 constraint = target_pose_bone.constraints.new('COPY_LOCATION')
                 constraint.name = f"MTAR_WS_Loc_{target_bone_name}"
@@ -907,9 +936,9 @@ def setup_rig(imported_armature: bpy.types.Object, target_rig: bpy.types.Object,
         if as_ik_up:
             bone_base = as_ik_up.bone_base
             
-            # Check if base bone exists in target rig
-            if bone_base not in target_rig.pose.bones:
-                Debug.log_warning(f"  Warning: as_ik_up base bone '{bone_base}' not found in target rig")
+            # Check if base bone exists in custom rig
+            if bone_base not in custom_rig.pose.bones:
+                Debug.log_warning(f"  Warning: as_ik_up base bone '{bone_base}' not found in custom rig")
                 continue
             
             # Check if target bone exists in imported armature (should have location animation)
@@ -918,14 +947,14 @@ def setup_rig(imported_armature: bpy.types.Object, target_rig: bpy.types.Object,
                 continue
             
             # Get target pose bone
-            target_pose_bone = target_rig.pose.bones[target_bone_name]
+            target_pose_bone = custom_rig.pose.bones[target_bone_name]
             
             Debug.log(f"  Creating directional IK constraints for '{target_bone_name}': base='{bone_base}', axis={as_ik_up.axis}")
             
             # Constraint 1: Copy Location (World Space) from base bone
             constraint1 = target_pose_bone.constraints.new('COPY_LOCATION')
             constraint1.name = f"MTAR_IK_Base_{bone_base}"
-            constraint1.target = target_rig
+            constraint1.target = custom_rig
             constraint1.subtarget = bone_base
             constraint1.target_space = 'WORLD'
             constraint1.owner_space = 'WORLD'
@@ -947,12 +976,12 @@ def setup_rig(imported_armature: bpy.types.Object, target_rig: bpy.types.Object,
             
             if custom_bone:
                 # Validate custom bone exists
-                if custom_bone not in target_rig.pose.bones:
-                    Debug.log_warning(f"    Warning: Custom space bone '{custom_bone}' not found in target rig, using world space for transformation")
+                if custom_bone not in custom_rig.pose.bones:
+                    Debug.log_warning(f"    Warning: Custom space bone '{custom_bone}' not found in custom rig, using world space for transformation")
                     constraint2.owner_space = 'WORLD'
                 else:
                     constraint2.owner_space = 'CUSTOM'
-                    constraint2.space_object = target_rig
+                    constraint2.space_object = custom_rig
                     constraint2.space_subtarget = custom_bone
                     Debug.log(f"    Using custom space '{custom_bone}' for transformation constraint")
             else:
@@ -991,7 +1020,7 @@ def create_and_setup_armature(
     all_gani_tracks: List[List[TrackUnitWrapper]],
     gani_actions: List[bpy.types.Action],
     layout_action: Optional[bpy.types.Action],
-    target_rig: Optional[bpy.types.Object],
+    custom_rig: Optional[bpy.types.Object],
     strip_suffix: str = "",
     strip_padding: int = 10
 ) -> bpy.types.Object:
@@ -1007,7 +1036,7 @@ def create_and_setup_armature(
         all_gani_tracks: List of GaniTrack lists (one per GANI file)
         gani_actions: Pre-created list of GANI actions
         layout_action: Pre-created layout track action
-        target_rig: Optional target rig for NLA tracks
+        custom_rig: Optional custom rig for NLA tracks
         strip_suffix: Optional suffix for strip names (default: "")
         strip_padding: Frames to add between animation strips (default: 10)
         
@@ -1074,15 +1103,29 @@ def create_and_setup_armature(
         layout_strip.blend_type = 'REPLACE'
         Debug.log("    Layout strip placed at frames -100 to -50")
     
-    # Also create NLA track on target rig if provided
+    # Also create NLA track on custom rig if provided
     target_nla_track: Optional[bpy.types.NlaTrack] = None
-    if target_rig:
-        Debug.log(f"Setting up animation data on target rig: {target_rig.name}")
-        if not target_rig.animation_data:
-            target_rig.animation_data_create()
-        target_nla_track = target_rig.animation_data.nla_tracks.new()
+    if custom_rig:
+        Debug.log(f"Setting up animation data on custom rig: {custom_rig.name}")
+        if not custom_rig.animation_data:
+            custom_rig.animation_data_create()
+        target_nla_track = custom_rig.animation_data.nla_tracks.new()
         target_nla_track.name = f"{mtar_file_name}_Animations"
-        Debug.log(f"Created NLA track on target rig: {target_nla_track.name}")
+        Debug.log(f"Created NLA track on custom rig: {target_nla_track.name}")
+        
+        # Add layout track action to custom rig as well
+        if layout_action:
+            Debug.log("Adding layout track action to custom rig NLA...")
+            layout_strip: bpy.types.NlaStrip = target_nla_track.strips.new(
+                name="tmp",
+                start=-100,
+                action=layout_action
+            )
+            layout_strip.name = f"{mtar_file_name}_LayoutTrack"
+            layout_strip.frame_start = -100
+            layout_strip.frame_end = -50
+            layout_strip.blend_type = 'REPLACE'
+            Debug.log("    Layout strip placed at frames -100 to -50 on custom rig")
 
     # Create NLA strips for animations on imported armature
     final_frame_offset = create_nla_strips_for_actions(
@@ -1094,7 +1137,7 @@ def create_and_setup_armature(
         strip_padding
     )
     
-    # Create NLA strips on target rig if provided
+    # Create NLA strips on custom rig if provided
     if target_nla_track:
         create_nla_strips_for_actions(
             target_nla_track,
@@ -1117,9 +1160,10 @@ def create_and_setup_motion_points_armature(
     context: bpy.types.Context,
     mtar_file_name: str,
     motion_points: Optional['MotionPointList2'],
-    motion_point_actions: List[bpy.types.Action],
+    motion_point_actions: List[Optional[bpy.types.Action]],
     strip_suffix: str = "",
-    strip_padding: int = 10
+    strip_padding: int = 10,
+    reference_actions: Optional[List[bpy.types.Action]] = None
 ) -> Optional[bpy.types.Object]:
     """Create and set up motion points armature with pre-created animation actions.
     
@@ -1131,6 +1175,12 @@ def create_and_setup_motion_points_armature(
         context: Blender context
         mtar_file_name: Base name for the armature
         motion_points: Motion points data
+        motion_point_actions: Pre-created motion point animation actions
+        strip_suffix: Optional suffix for NLA strip names
+        strip_padding: Number of frames between NLA strips
+        reference_actions: Optional list of reference actions (typically animation actions)
+                          to synchronize frame offsets when motion point GANIs are missing
+
         motion_point_actions: Pre-created motion point animation actions
         
     Returns:
@@ -1233,13 +1283,15 @@ def create_and_setup_motion_points_armature(
         Debug.log(f"Created NLA track: {nla_track.name}")
         
         # Create NLA strips for motion point actions using shared utility
+        # Pass reference_actions to synchronize frame offsets with animation strips
         motion_point_final_offset = create_nla_strips_for_actions(
             nla_track,
             motion_point_actions,
             mtar_file_name,
             "MotionPoints_Strip",
             strip_suffix,
-            strip_padding
+            strip_padding,
+            reference_actions
         )
         
         # Update scene frame range if motion points extend beyond current end
@@ -1254,7 +1306,7 @@ def create_and_setup_motion_points_armature(
 
 # MTAR import #############################################################
 
-def import_mtar(context: bpy.types.Context, filepath: str, frig: Optional[FrigFile], track_mapping: Optional[Dict[str, BoneParameters]] = None, gani_index: int = -1, target_rig: Optional[bpy.types.Object] = None, strip_padding: int = 10) -> Tuple[Dict[str, str], bpy.types.Object]:
+def import_mtar(context: bpy.types.Context, filepath: str, frig: Optional[FrigFile], track_mapping: Optional[Dict[str, BoneParameters]] = None, gani_index: int = -1, custom_rig: Optional[bpy.types.Object] = None, strip_padding: int = 10) -> Tuple[Dict[str, str], bpy.types.Object]:
     """Import MTAR animation data and create corresponding objects and animations.
     
     Args:
@@ -1263,26 +1315,26 @@ def import_mtar(context: bpy.types.Context, filepath: str, frig: Optional[FrigFi
         frig: FrigFile object containing rig data (can be None)
         track_mapping: Optional dictionary mapping source track name to BoneParameters (transformation data)
         gani_index: Index of the GANI file to import (-1 = import all)
-        target_rig: Optional Rigify armature to connect imported animation to
+        custom_rig: Optional Rigify armature to connect imported animation to
         strip_padding: Number of frames to insert between animation strips (default: 10)
     """
     
     # Import the mtar data
-    result, imported_armature = import_mtar_data(context, filepath, frig, track_mapping, gani_index, target_rig, strip_padding)
+    result, imported_armature = import_mtar_data(context, filepath, frig, track_mapping, gani_index, custom_rig, strip_padding)
     
-    # Set up rig constraints if target rig is provided
-    if target_rig and imported_armature:
-        setup_rig(imported_armature, target_rig, track_mapping)
+    # Set up rig constraints if custom rig is provided
+    if custom_rig and imported_armature:
+        setup_rig(imported_armature, custom_rig, track_mapping)
     
     return result, imported_armature
 
-def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[FrigFile], track_mapping: Optional[Dict[str, BoneParameters]] = None, gani_index: int = -1, target_rig: Optional[bpy.types.Object] = None, strip_padding: int = 10) -> Tuple[Dict[str, str], bpy.types.Object]:
+def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[FrigFile], track_mapping: Optional[Dict[str, BoneParameters]] = None, gani_index: int = -1, custom_rig: Optional[bpy.types.Object] = None, strip_padding: int = 10) -> Tuple[Dict[str, str], bpy.types.Object]:
     """Import MTAR animation data and create corresponding objects and animations.
     
     Each GANI file in the MTAR becomes one Blender action.
     Each MTAR file entry becomes one animation strip in the NLA (Non-Linear Animation) editor.
     
-    If a target_rig is provided, the NLA tracks and strips are also assigned to the target rig,
+    If a custom_rig is provided, the NLA tracks and strips are also assigned to the custom rig,
     allowing the animation to drive the rig through constraints set up by setup_rig().
     
     Args:
@@ -1291,7 +1343,7 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
         frig: FrigFile object containing rig data (can be None)
         track_mapping: Optional dictionary mapping source track name to transformation data
         gani_index: Index of the GANI file to import (-1 = import all)
-        target_rig: Optional Rigify armature to receive animation data and constraints
+        custom_rig: Optional Rigify armature to receive animation data and constraints
         strip_padding: Number of frames to insert between animation strips (default: 10)
         
     Returns:
@@ -1396,12 +1448,12 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
     update_progress(20, "Applying Mapping...")
     apply_track_transformations(all_gani_tracks, track_mapping)
     
-    # Extract rest pose from target rig if provided (merges with mapping file transformations)
+    # Extract rest pose from custom rig if provided (merges with mapping file transformations)
     # Check settings to see if rest pose correction is enabled
     enable_rest_pose = context.scene.mtar_properties.settings_props.enable_rest_pose_correction
-    if target_rig and enable_rest_pose:
-        extract_rest_pose_from_target_rig(all_gani_tracks, target_rig)
-    elif target_rig and not enable_rest_pose:
+    if custom_rig and enable_rest_pose:
+        extract_rest_pose_from_custom_rig(all_gani_tracks, custom_rig)
+    elif custom_rig and not enable_rest_pose:
         Debug.log("\nRest pose correction disabled in settings - skipping extraction")
     
     # Use the MTAR filename (without extension) as the armature name
@@ -1429,7 +1481,7 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
         all_gani_tracks,
         gani_actions,
         layout_action,
-        target_rig,
+        custom_rig,
         strip_suffix,
         strip_padding
     )
@@ -1445,6 +1497,7 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
     )
     
     # Create and setup motion points armature with animation data (optional secondary task)
+    # Pass gani_actions as reference to synchronize frame offsets across armatures
     update_progress(65, "Setting up Motion Points...")
     _motion_points_armature = create_and_setup_motion_points_armature(
         context,
@@ -1452,7 +1505,8 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
         motion_points,
         motion_point_actions,
         strip_suffix,
-        strip_padding
+        strip_padding,
+        gani_actions  # Reference actions for frame synchronization
     )
     
     Debug.log("\n=== MTAR Import Completed Successfully ===")
