@@ -161,7 +161,7 @@ def apply_track_mapping_transformation(track_blob: TrackDataBlobWrapper, mapping
     if mapping_data.as_ik_up:
         track_blob.as_ik_up = mapping_data.as_ik_up
         ik_data = mapping_data.as_ik_up
-        Debug.log(f"    Directional vector IK: base='{ik_data.bone_base}', axis={ik_data.axis}, distance={ik_data.distance}")
+        Debug.log(f"    Directional vector IK: base='{ik_data.bone_base}', axis={ik_data.axis}")
     
     # Store map_r rest pose transformation if present (for LOCAL space tracks - similarity transformation)
     if mapping_data.map_r:
@@ -283,10 +283,11 @@ def extract_rest_pose_from_target_rig(all_gani_tracks: List[List[TrackUnitWrappe
 
 # Animation #############################################################
 
-def import_keyframes_track(action: bpy.types.Action, keyframes_track: TrackDataBlobWrapper) -> int:
+def import_keyframes_track(context: bpy.types.Context, action: bpy.types.Action, keyframes_track: TrackDataBlobWrapper) -> int:
     """Import a single track data blob into a Blender action.
     
     Args:
+        context: Blender context (used to access import properties like ik_up_distance)
         action: Blender action to add keyframes to
         keyframes_track: TrackDataBlobWrapper object containing animation data
         
@@ -325,7 +326,11 @@ def import_keyframes_track(action: bpy.types.Action, keyframes_track: TrackDataB
             # Apply all rotation transformations BEFORE converting to location
             ik_data = keyframes_track.as_ik_up
             axis = ik_data.axis
-            distance = ik_data.distance
+            
+            # Get distance from import properties (shared setting)
+            distance: float = 1.0  # Default value
+            if hasattr(context.scene, 'mtar_properties'):
+                distance = context.scene.mtar_properties.import_props.ik_up_distance
             
             Debug.log(f"    Converting rotation to directional location (axis={axis}, distance={distance})")
             
@@ -448,10 +453,11 @@ def import_keyframes_track(action: bpy.types.Action, keyframes_track: TrackDataB
     
     return max_frame
 
-def import_gani_track(action: bpy.types.Action, gani_track: TrackUnitWrapper) -> int:
+def import_gani_track(context: bpy.types.Context, action: bpy.types.Action, gani_track: TrackUnitWrapper) -> int:
     """Import a GaniTrack (containing multiple segments) into a Blender action.
     
     Args:
+        context: Blender context (passed to import_keyframes_track)
         action: Blender action to add keyframes to
         gani_track: GaniTrack object containing multiple keyframes tracks (segments)
         
@@ -464,12 +470,13 @@ def import_gani_track(action: bpy.types.Action, gani_track: TrackUnitWrapper) ->
     
     # Process each keyframes track (segment) in the GaniTrack
     for keyframes_track in gani_track.segments_track_data:
-        track_max_frame: int = import_keyframes_track(action, keyframes_track)
+        track_max_frame: int = import_keyframes_track(context, action, keyframes_track)
         max_frame = max(max_frame, track_max_frame)
     
     return max_frame
 
 def create_animation_actions(
+    context: bpy.types.Context,
     mtar_file_name: str,
     all_gani_tracks: List[List[TrackUnitWrapper]],
     all_track_mini_headers: List[TrackMiniHeader],
@@ -490,6 +497,7 @@ def create_animation_actions(
         all_file_headers: File headers for path hashes
         layout_track: Optional layout track for metadata
         all_motion_events: All motion event headers
+        context: Blender context (passed to import functions for settings access)
         
     Returns:
         Tuple of (layout_action, gani_actions_list, max_frame_end)
@@ -567,7 +575,7 @@ def create_animation_actions(
         # Process each GaniTrack in this GANI file
         Debug.log(f"Processing {len(gani_tracks)} GaniTrack(s)...")
         for gani_track in gani_tracks:
-            import_gani_track(action, gani_track)
+            import_gani_track(context, action, gani_track)
 
         Debug.log(f"Track frame range: 0 - {gani_frame_count}")
         
@@ -582,6 +590,7 @@ def create_animation_actions(
     return layout_action, gani_actions, max_frame_end
 
 def create_motion_points_animation_actions(
+    context: bpy.types.Context,
     mtar_file_name: str,
     all_motion_point_gani_tracks: List[List[TrackUnitWrapper]],
     all_motion_point_layouts: List[Optional[Tracks]],
@@ -599,6 +608,7 @@ def create_motion_points_animation_actions(
         all_motion_point_layouts: Tracks objects for motion point metadata (like layout track)
         all_file_headers: File headers for path hashes
         all_motion_point_track_headers: Motion point track headers
+        context: Blender context (passed to import functions for settings access)
         
     Returns:
         List of motion point animation actions
@@ -640,7 +650,7 @@ def create_motion_points_animation_actions(
 
         Debug.log(f"  Processing {len(motion_point_tracks)} motion point track(s)...")
         for gani_track in motion_point_tracks:
-            track_max_frame: int = import_gani_track(action, gani_track)
+            track_max_frame: int = import_gani_track(context, action, gani_track)
             if motion_point_track_header is None:
                 gani_frame_count = max(gani_frame_count, track_max_frame)
         
@@ -910,7 +920,7 @@ def setup_rig(imported_armature: bpy.types.Object, target_rig: bpy.types.Object,
             # Get target pose bone
             target_pose_bone = target_rig.pose.bones[target_bone_name]
             
-            Debug.log(f"  Creating directional IK constraints for '{target_bone_name}': base='{bone_base}', axis={as_ik_up.axis}, distance={as_ik_up.distance}")
+            Debug.log(f"  Creating directional IK constraints for '{target_bone_name}': base='{bone_base}', axis={as_ik_up.axis}")
             
             # Constraint 1: Copy Location (World Space) from base bone
             constraint1 = target_pose_bone.constraints.new('COPY_LOCATION')
@@ -1402,6 +1412,7 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
     # Create animation actions first (primary task - can work without armature)
     update_progress(30, "Creating Actions...")
     layout_action, gani_actions, _ = create_animation_actions(
+        context,
         mtar_file_name,
         all_gani_tracks,
         all_track_mini_headers,
@@ -1426,6 +1437,7 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
     # Create motion points animation actions (primary task for motion points)
     update_progress(60, "Creating Motion Points...")
     motion_point_actions = create_motion_points_animation_actions(
+        context,
         mtar_file_name,
         all_motion_point_gani_tracks,
         all_motion_point_layouts,

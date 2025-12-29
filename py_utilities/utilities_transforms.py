@@ -42,7 +42,7 @@ def calculate_directional_location(bone_location: Vector, bone_rotation_quat: Qu
     
     return final_location
 
-def reverse_directional_location(location: Vector, base_location: Vector, axis: str, distance: float) -> Quaternion:
+def reverse_directional_location(location: Vector, base_location: Vector, axis: str) -> Quaternion:
     """Reverse the directional location calculation to get the original rotation.
     
     This is the inverse of calculate_directional_location.
@@ -53,7 +53,6 @@ def reverse_directional_location(location: Vector, base_location: Vector, axis: 
         location: The target location (world space or custom space)
         base_location: The base bone location
         axis: Which local axis was used ('X', 'Y', or 'Z')
-        distance: The distance parameter from as_ik_up
         
     Returns:
         Quaternion representing the rotation
@@ -61,11 +60,11 @@ def reverse_directional_location(location: Vector, base_location: Vector, axis: 
     # Calculate the direction vector from base to target
     direction = (location - base_location)
     
-    # Normalize if distance is non-zero
-    if distance > 0.0001:
+    # Normalize the direction vector
+    if direction.length > 0.0001:
         direction = direction.normalized()
     else:
-        # If distance is near zero, use default orientation
+        # If locations are too close, use default orientation
         return Quaternion((1, 0, 0, 0))
     
     # Define the local axis that was used

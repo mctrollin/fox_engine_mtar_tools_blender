@@ -219,7 +219,7 @@ class TrackDataBlobWrapper:
     rotation_axis_map: Optional[list] = None  # Optional axis mapping from name mapping (map_r parameter)
     map_r_rest_pose: Optional[dict] = None  # Optional rest pose for similarity transformation (from map_r parameter, local space only)
     space_r: Optional[dict] = None  # Optional space indicator (world space tracks use offset_r differently)
-    as_ik_up: Optional[dict] = None  # Optional directional vector IK params: bone_base, axis, distance
+    as_ik_up: Optional[dict] = None  # Optional directional vector IK params: bone_base, axis
 
 
 @dataclass

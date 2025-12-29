@@ -44,6 +44,14 @@ class MTAR_PG_ImportProperties(PropertyGroup):
         poll=lambda self, obj: obj.type == 'ARMATURE'
     )
     
+    ik_up_distance: FloatProperty(
+        name="IK Up Distance",
+        description="Distance for directional IK up vector calculation",
+        default=1.0,
+        min=0.0,
+        soft_max=10.0,
+    )
+    
     bake_after_import: BoolProperty(
         name="Bake Target Rig Constraints",
         description="Bake the constraints from the rig into the animation.",

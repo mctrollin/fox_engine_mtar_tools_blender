@@ -443,19 +443,29 @@ def parse_space_parameter(param_value: str) -> Optional[dict]:
 
 
 def parse_as_ik_up_parameter(param_value: str) -> Optional[dict]:
+    """Parse as_ik_up parameter from mapping file.
+    
+    Format: "bone_base,axis"
+    
+    Args:
+        param_value: "bone_base,axis" (e.g., "Root,Y")
+        
+    Returns:
+        Dict with 'bone_base' and 'axis' keys, or None if invalid
+    """
     try:
         parts = param_value.split(',')
-        if len(parts) != 3:
+        if len(parts) != 2:
             return None
 
         bone_base = parts[0].strip()
         axis = parts[1].strip().upper()
-        distance = float(parts[2].strip())
+        
         if axis not in ['X', 'Y', 'Z']:
             return None
         if not bone_base:
             return None
-        return {'bone_base': bone_base, 'axis': axis, 'distance': distance}
+        return {'bone_base': bone_base, 'axis': axis}
     except ValueError:
         return None
 

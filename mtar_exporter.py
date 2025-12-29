@@ -509,13 +509,12 @@ def _get_rotation_transform_fn(bone_params: BoneParameters, armature: bpy.types.
         # as_ik_up path: convert directional location to rotation
         as_ik_up_data = bone_params.as_ik_up
         axis = as_ik_up_data.axis
-        distance = as_ik_up_data.distance
         base_bone_name = as_ik_up_data.bone_base
         
         def get_rotation_as_ik_up(frame: int) -> Quaternion:
             ik_location, _ = get_world_space_transform(armature, blender_bone_name, frame, space_bone)
             base_location, _ = get_world_space_transform(armature, base_bone_name, frame, space_bone)
-            return reverse_directional_location(ik_location, base_location, axis, distance)
+            return reverse_directional_location(ik_location, base_location, axis)
         
         return get_rotation_as_ik_up
     else:

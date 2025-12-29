@@ -113,6 +113,10 @@ class MTAR_PT_ImportPanel(Panel):
         box_target_rig = box_import.box()
         box_target_rig.prop(import_props, "target_rig", text="", icon='ARMATURE_DATA')
         
+        # IK Up Distance (advanced setting, shown when advanced settings are enabled)
+        if settings_props.show_advanced_settings:
+            box_target_rig.prop(import_props, "ik_up_distance", text="IK Up Distance", icon='DRIVER_DISTANCE')
+        
         # Bake after import checkbox (only shown if advanced settings enabled and target rig is specified)
         if settings_props.show_advanced_settings and import_props.target_rig:
             draw_bool_prop_checkbox_icon(box_target_rig, import_props, "bake_after_import")

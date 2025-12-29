@@ -29,11 +29,9 @@ class IkUpParameters:
     Attributes:
         bone_base: Name of the base bone for directional calculation
         axis: Axis for directional vector ('x', 'y', or 'z')
-        distance: Distance for directional calculation
     """
     bone_base: str
     axis: str
-    distance: float
 
 @dataclass
 class BoneParameters:
@@ -88,8 +86,7 @@ class BoneParameters:
         if as_ik_up_data and isinstance(as_ik_up_data, dict):
             as_ik_up_obj = IkUpParameters(
                 bone_base=as_ik_up_data.get('bone_base', ''),
-                axis=as_ik_up_data.get('axis', 'y'),
-                distance=as_ik_up_data.get('distance', 1.0)
+                axis=as_ik_up_data.get('axis', 'x')
             )
         
         return cls(
@@ -247,7 +244,7 @@ def parse_mapping_line(line: str, line_num: int) -> Optional[Tuple[str, dict]]:
                 result = parse_as_ik_up_parameter(param_value)
                 if result:
                     mapping_data['as_ik_up'] = result
-                    Debug.log(f"  Mapping '{from_name}' -> '{to_name}' as directional vector: base='{result['bone_base']}', axis={result['axis']}, distance={result['distance']}")
+                    Debug.log(f"  Mapping '{from_name}' -> '{to_name}' as directional vector: base='{result['bone_base']}', axis={result['axis']}")
             
             else:
                 # Unknown parameter - store it anyway for future extensibility
