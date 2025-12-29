@@ -5,7 +5,8 @@ Track mapping files define transformations to apply to imported animation tracks
 including renaming, rotation transformations, constraint setup, and more.
 """
 
-from typing import Dict, Tuple, Optional
+from dataclasses import dataclass
+from typing import Dict, Tuple, Optional, List
 
 from ..py_utilities.utilities_logging import Debug
 
@@ -18,6 +19,90 @@ from .foxwrap_metadata import (
 )
 
 
+
+
+
+@dataclass
+class IkUpParameters:
+    """Parameters for as_ik_up directional vector IK.
+    
+    Attributes:
+        bone_base: Name of the base bone for directional calculation
+        axis: Axis for directional vector ('x', 'y', or 'z')
+        distance: Distance for directional calculation
+    """
+    bone_base: str
+    axis: str
+    distance: float
+
+@dataclass
+class BoneParameters:
+    """Parameters for bone mapping and transformation.
+    Used to convert from native fox animation data to a custom rig in blender and back.
+    
+    This class replaces the dictionary-based approach for bone parameters
+    with a type-safe structure containing all possible bone mapping options.
+    
+    Attributes:
+        fox_name: Fox Engine bone name (required)
+        rotation_offset: Optional list of rotation offset parameters (applied in order during import)
+        rotation_axis_map: Optional axis mapping parameters
+        space_r: Optional rotation space specification ('ws' or bone name)
+        space_l: Optional location space specification ('ws' or bone name)
+        as_ik_up: Optional IK up vector parameters
+        track_name: Optional track name from mapping file
+        map_r: Optional rest pose correction parameters for LOCAL space tracks (similarity transformation)
+    """
+    fox_name: str
+    rotation_offset: Optional[List[dict]] = None
+    rotation_axis_map: Optional[List[Dict[str, str | bool]]] = None
+    space_r: Optional[str] = None
+    space_l: Optional[str] = None
+    as_ik_up: Optional[IkUpParameters] = None
+    track_name: Optional[str] = None
+    map_r: Optional[dict] = None
+    
+    @classmethod
+    def from_mapping_dict(cls, fox_name: str, mapping_dict: dict) -> 'BoneParameters':
+        """Create BoneParameters from mapping file parser dictionary.
+        
+        Converts the dict format used by foxwrap_mapping.py parser to typed BoneParameters.
+        
+        Args:
+            fox_name: Fox Engine bone name
+            mapping_dict: Dictionary from parse_mapping_line() containing:
+                - 'name': Blender bone name (stored as track_name)
+                - 'rotation_offset': List of rotation offset dicts
+                - 'rotation_axis_map': Axis mapping list
+                - 'space_r': Rotation space specification
+                - 'space_l': Location space specification
+                - 'as_ik_up': IK up vector dict (converted to IkUpParameters)
+                - 'map_r': Rest pose correction dict
+                
+        Returns:
+            BoneParameters object with all fields properly typed
+        """
+        # Convert as_ik_up dict to IkUpParameters object if present
+        as_ik_up_data = mapping_dict.get('as_ik_up')
+        as_ik_up_obj = None
+        if as_ik_up_data and isinstance(as_ik_up_data, dict):
+            as_ik_up_obj = IkUpParameters(
+                bone_base=as_ik_up_data.get('bone_base', ''),
+                axis=as_ik_up_data.get('axis', 'y'),
+                distance=as_ik_up_data.get('distance', 1.0)
+            )
+        
+        return cls(
+            fox_name=fox_name,
+            rotation_offset=mapping_dict.get('rotation_offset'),
+            rotation_axis_map=mapping_dict.get('rotation_axis_map'),
+            space_r=mapping_dict.get('space_r'),
+            space_l=mapping_dict.get('space_l'),
+            as_ik_up=as_ik_up_obj,
+            track_name=mapping_dict.get('name'),  # Blender bone name from parser
+            map_r=mapping_dict.get('map_r')
+        )
+
 class TrackMappingData:
     """Container for all track mapping information from a mapping file.
     
@@ -25,35 +110,28 @@ class TrackMappingData:
     import and export operations in a single convenient structure.
     
     Attributes:
-        fox_to_blender: Maps fox_bone_name -> mapping_data dict (for import)
-        track_metadata: Maps track_name -> metadata dict (for import)
-        blender_to_fox: Maps blender_bone_name -> {fox_name, params} dict (for export)
+        fox_to_blender: Maps fox_bone_name -> BoneParameters
+        track_metadata: Maps track_name -> metadata dict
         fox_to_blender_names: Maps fox_bone_name -> blender_bone_name string (utility)
     """
     
     def __init__(self) -> None:
         """Initialize empty mapping data."""
-        self.fox_to_blender: Dict[str, dict] = {}  # For importer: fox_name -> mapping_data
-        self.track_metadata: Dict[str, dict] = {}  # For importer: track_name -> metadata
-        self.blender_to_fox: Dict[str, dict] = {}  # For exporter: blender_name -> {fox_name, params}
-        self.fox_to_blender_names: Dict[str, str] = {}  # Utility: fox_name -> blender_name
+        self.fox_to_blender: Dict[str, BoneParameters] = {}  # fox_name -> BoneParameters
+        self.track_metadata: Dict[str, dict] = {}  # track_name -> metadata
+        self.fox_to_blender_names: Dict[str, str] = {}  # fox_name -> blender_name
     
-    def add_bone_mapping(self, fox_name: str, blender_name: str, mapping_data: dict) -> None:
+    def add_bone_mapping(self, fox_name: str, blender_name: str, mapping_dict: dict) -> None:
         """Add a bone mapping entry.
         
         Args:
             fox_name: Fox Engine bone name (source)
             blender_name: Blender bone name (target)
-            mapping_data: Dictionary with transformation parameters
+            mapping_dict: Dictionary with transformation parameters from parser
         """
-        # Store for importer (fox -> blender with params)
-        self.fox_to_blender[fox_name] = mapping_data
-        
-        # Store for exporter (blender -> fox with params)
-        self.blender_to_fox[blender_name] = {
-            'fox_name': fox_name,
-            **mapping_data
-        }
+        # Create typed BoneParameters object
+        bone_params = BoneParameters.from_mapping_dict(fox_name, mapping_dict)
+        self.fox_to_blender[fox_name] = bone_params
         
         # Store simple name mapping
         self.fox_to_blender_names[fox_name] = blender_name
@@ -178,28 +256,33 @@ def parse_mapping_line(line: str, line_num: int) -> Optional[Tuple[str, dict]]:
     
     return (from_name, mapping_data)
 
-def validate_track_mappings(track_mapping: Dict[str, dict]) -> None:
+def validate_track_mappings(track_mapping: Dict[str, BoneParameters]) -> None:
     """Validate that only one rotation track and one location track map to each target bone.
     
     This allows separate rotation and location tracks to map to the same bone,
     but prevents conflicts like multiple rotation tracks targeting the same bone.
     
     Args:
-        track_mapping: Dictionary to validate (not modified)
+        track_mapping: Dictionary of fox_name -> BoneParameters to validate
     """
     # Track which source tracks map to each target, categorized by type
     target_to_rotation_sources = {}
     target_to_location_sources = {}
     
-    for source_name, mapping_data in track_mapping.items():
-        target_name = mapping_data.get('name')
+    for source_name, bone_params in track_mapping.items():
+        target_name = bone_params.track_name
         if not target_name:
             continue
         
         # Determine if this is a rotation or location track based on parameters
         # as_ik_up is still a rotation track (converted to location during import)
-        is_rotation_track = any(key in mapping_data for key in ['rotation_offset', 'rotation_axis_map', 'space_r', 'as_ik_up'])
-        is_location_track = 'space_l' in mapping_data
+        is_rotation_track = any([
+            bone_params.rotation_offset,
+            bone_params.rotation_axis_map,
+            bone_params.space_r,
+            bone_params.as_ik_up
+        ])
+        is_location_track = bone_params.space_l is not None
         
         # Track rotation sources
         if is_rotation_track:
@@ -223,6 +306,7 @@ def validate_track_mappings(track_mapping: Dict[str, dict]) -> None:
     for target_name, source_names in target_to_location_sources.items():
         if len(source_names) > 1:
             Debug.log_error(f"  ERROR: Multiple location tracks map to '{target_name}': {source_names}")
+            Debug.log_error("    Only one location track per target bone is allowed")
             Debug.log_error("    Only one location track per target bone is allowed")
 
 def parse_track_mapping_file(filepath: str) -> TrackMappingData:

@@ -32,8 +32,8 @@ def build_track_segment_bone_mapping_from_file(mapping_filepath: str, layout_act
     
     Debug.log(f"Loading bone mapping from: {mapping_filepath}")
     mapping_data = parse_track_mapping_file(mapping_filepath)
-    if mapping_data.blender_to_fox:
-        Debug.log(f"Loaded {len(mapping_data.blender_to_fox)} blender-to-fox bone mapping(s)")
+    if mapping_data.fox_to_blender:
+        Debug.log(f"Loaded {len(mapping_data.fox_to_blender)} fox-to-blender bone mapping(s)")
     
     # Build track_segment_bone_mapping using track indices from metadata
     # The mapping file defines fox_name -> blender_name mappings
@@ -54,12 +54,12 @@ def build_track_segment_bone_mapping_from_file(mapping_filepath: str, layout_act
     
     # Build track_bone_mapping in the order defined by the layout action
     # First, group bones by their base track name
-    track_segments = defaultdict(list)  # base_track_name -> [(segment_idx, blender_bone_name, fox_mapping)]
+    track_segments = defaultdict(list)  # base_track_name -> [(segment_idx, blender_bone_name, BoneParameters)]
     
     Debug.log(f"  Processing {len(mapping_data.fox_to_blender)} fox-to-blender mapping(s) from file...")
     
     # Use fox_to_blender to preserve all Fox bone names (multiple Fox bones can map to same Blender bone)
-    for fox_name, fox_mapping in mapping_data.fox_to_blender.items():
+    for fox_name, bone_params in mapping_data.fox_to_blender.items():
         blender_bone_name = mapping_data.fox_to_blender_names[fox_name]
         
         # Check if this bone exists in the armature
@@ -77,16 +77,16 @@ def build_track_segment_bone_mapping_from_file(mapping_filepath: str, layout_act
                 base_track_name = parts[0]
                 segment_idx = int(parts[1])
         
-        # Store segment info
-        track_segments[base_track_name].append((segment_idx, blender_bone_name, fox_mapping))
+        # Store segment info with BoneParameters object
+        track_segments[base_track_name].append((segment_idx, blender_bone_name, bone_params))
     
     # Now add them to the mapping object in the correct track order
     for track_name, track_idx in sorted(track_name_to_idx.items(), key=lambda x: x[1]):
         if track_name in track_segments:
             # Sort segments by index
             segments = sorted(track_segments[track_name], key=lambda x: x[0])
-            for seg_idx, blender_bone, fox_mapping in segments:
-                track_segment_bone_mapping.set_segment_mapping(track_idx, seg_idx, blender_bone, fox_mapping)
+            for seg_idx, blender_bone, bone_params in segments:
+                track_segment_bone_mapping.set_segment_mapping(track_idx, seg_idx, blender_bone, bone_params)
                 # Debug.log(f"    Mapped Track {track_idx} Seg {seg_idx}: {track_name} -> {blender_bone}")
         else:
             Debug.log_warning(f"    Warning: No mapping found for track '{track_name}' (index {track_idx})")

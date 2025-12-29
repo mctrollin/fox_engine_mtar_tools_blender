@@ -20,6 +20,7 @@ from .py_foxwrap.foxwrap_metadata import store_track_header_properties_on_action
 from .py_foxwrap.foxwrap_misc import TrackUnitWrapper, TrackDataBlobWrapper, Tracks
 from .py_foxwrap.foxwrap_motionevent import store_motion_events_on_action
 from .py_foxwrap.foxwrap_mtar_reader import MtarReader
+from .py_foxwrap.foxwrap_mapping import BoneParameters
 
 from .py_fox.fox_mtar_types import MotionPointList2, MtarTableList2
 from .py_fox.fox_gani_types import SegmentType, TrackUnitFlags, TrackHeader, TrackMiniHeader, EvpHeader
@@ -125,7 +126,7 @@ def store_track_metadata_on_action(
 
 # Mapping #############################################################
 
-def apply_track_mapping_transformation(track_blob: TrackDataBlobWrapper, mapping_data: dict, old_name: str) -> None:
+def apply_track_mapping_transformation(track_blob: TrackDataBlobWrapper, mapping_data: BoneParameters, old_name: str) -> None:
     """Apply transformation parameters from track mapping to a TrackDataBlobWrapper.
     
     This helper function extracts and applies all transformation parameters
@@ -133,50 +134,47 @@ def apply_track_mapping_transformation(track_blob: TrackDataBlobWrapper, mapping
     
     Args:
         track_blob: The TrackDataBlobWrapper to transform
-        mapping_data: Dictionary containing transformation parameters
+        mapping_data: BoneParameters containing transformation parameters
         old_name: Original track name (for logging)
     """
-    # Extract target name (backwards compatible - can be string or dict)
-    if isinstance(mapping_data, str):
-        new_name: str = mapping_data
-    else:
-        new_name: str = mapping_data.get('name', old_name)
+    # Use track_name from BoneParameters (defaults to fox_name if not set)
+    new_name: str = mapping_data.track_name if mapping_data.track_name else mapping_data.fox_name
     
     track_blob.name = new_name
     Debug.log(f"  '{old_name}' -> '{new_name}'")
     
     # Store rotation offset transformation if present (will be applied during import)
-    if isinstance(mapping_data, dict) and 'rotation_offset' in mapping_data:
-        track_blob.rotation_offset = mapping_data['rotation_offset']
+    if mapping_data.rotation_offset:
+        track_blob.rotation_offset = mapping_data.rotation_offset
         # rotation_offset is now a list of offsets
-        offset_list = mapping_data['rotation_offset']
+        offset_list = mapping_data.rotation_offset
         for i, offset in enumerate(offset_list, 1):
             Debug.log(f"    Rotation offset #{i}: ({offset['euler'][0]}, {offset['euler'][1]}, {offset['euler'][2]}) {offset['order']}")
     
     # Store rotation axis mapping transformation if present (will be applied during import)
-    if isinstance(mapping_data, dict) and 'rotation_axis_map' in mapping_data:
-        track_blob.rotation_axis_map = mapping_data['rotation_axis_map']
-        axis_str = ','.join([('-' if m['negate'] else '') + m['axis'] for m in mapping_data['rotation_axis_map']])
+    if mapping_data.rotation_axis_map:
+        track_blob.rotation_axis_map = mapping_data.rotation_axis_map
+        axis_str = ','.join([('-' if m['negate'] else '') + m['axis'] for m in mapping_data.rotation_axis_map])
         Debug.log(f"    Rotation axis mapping: {axis_str}")
     
     # Store directional vector IK transformation if present (will be applied during import)
-    if isinstance(mapping_data, dict) and 'as_ik_up' in mapping_data:
-        track_blob.as_ik_up = mapping_data['as_ik_up']
-        ik_data = mapping_data['as_ik_up']
-        Debug.log(f"    Directional vector IK: base='{ik_data['bone_base']}', axis={ik_data['axis']}, distance={ik_data['distance']}")
+    if mapping_data.as_ik_up:
+        track_blob.as_ik_up = mapping_data.as_ik_up
+        ik_data = mapping_data.as_ik_up
+        Debug.log(f"    Directional vector IK: base='{ik_data.bone_base}', axis={ik_data.axis}, distance={ik_data.distance}")
     
     # Store map_r rest pose transformation if present (for LOCAL space tracks - similarity transformation)
-    if isinstance(mapping_data, dict) and 'map_r' in mapping_data:
-        track_blob.map_r_rest_pose = mapping_data['map_r']
-        euler = mapping_data['map_r']['euler']
-        Debug.log(f"    Rest pose (map_r): ({euler[0]}, {euler[1]}, {euler[2]}) {mapping_data['map_r']['order']}")
+    if mapping_data.map_r:
+        track_blob.map_r_rest_pose = mapping_data.map_r
+        euler = mapping_data.map_r['euler']
+        Debug.log(f"    Rest pose (map_r): ({euler[0]}, {euler[1]}, {euler[2]}) {mapping_data.map_r['order']}")
     
     # Store space_r indicator if present (for WORLD space tracks - simple multiplication)
-    if isinstance(mapping_data, dict) and 'space_r' in mapping_data:
-        track_blob.space_r = mapping_data['space_r']
-        Debug.log(f"    Track space: {mapping_data['space_r']['space']}")
+    if mapping_data.space_r:
+        track_blob.space_r = mapping_data.space_r
+        Debug.log(f"    Track space: {mapping_data.space_r['space']}")
 
-def apply_track_transformations(all_gani_tracks: List[List[TrackUnitWrapper]], track_mapping: Optional[Dict[str, dict]] = None) -> None:
+def apply_track_transformations(all_gani_tracks: List[List[TrackUnitWrapper]], track_mapping: Optional[Dict[str, BoneParameters]] = None) -> None:
     """Apply rig-based naming and track mapping transformations to all tracks.
     
     First applies rig unit type based naming (e.g., appending segment indices for ARM/LIST types).
@@ -187,7 +185,7 @@ def apply_track_transformations(all_gani_tracks: List[List[TrackUnitWrapper]], t
     
     Args:
         all_gani_tracks: List of lists of GaniTrack objects
-        track_mapping: Optional dictionary mapping source track name to transformation data dict
+        track_mapping: Optional dictionary mapping source track name to BoneParameters
     """
     Debug.log("Applying rig unit type based naming...")
     for gani_tracks in all_gani_tracks:
@@ -211,12 +209,11 @@ def apply_track_transformations(all_gani_tracks: List[List[TrackUnitWrapper]], t
                 for track_blob in gani_track.segments_track_data:
                     if track_blob.name in track_mapping:
                         old_name: str = track_blob.name
-                        mapping_data: dict = track_mapping[old_name]
+                        mapping_data: BoneParameters = track_mapping[old_name]
                         apply_track_mapping_transformation(track_blob, mapping_data, old_name)
 
 
-def extract_rest_pose_from_target_rig(all_gani_tracks: List[List[TrackUnitWrapper]], 
-                                       target_rig: Optional[bpy.types.Object]) -> None:
+def extract_rest_pose_from_target_rig(all_gani_tracks: List[List[TrackUnitWrapper]], target_rig: Optional[bpy.types.Object]) -> None:
     """Extract rest pose rotations from target rig and merge with existing transformations.
     
     For each rotation track, extracts the bone's rest pose from the target rig and:
@@ -327,8 +324,8 @@ def import_keyframes_track(action: bpy.types.Action, keyframes_track: TrackDataB
             # Convert quaternion rotation data to location data using directional vector
             # Apply all rotation transformations BEFORE converting to location
             ik_data = keyframes_track.as_ik_up
-            axis = ik_data['axis']
-            distance = ik_data['distance']
+            axis = ik_data.axis
+            distance = ik_data.distance
             
             Debug.log(f"    Converting rotation to directional location (axis={axis}, distance={distance})")
             
@@ -729,7 +726,7 @@ def create_nla_strips_for_actions(
     
     return current_frame_offset
 
-def setup_rig(imported_armature: bpy.types.Object, target_rig: bpy.types.Object, track_mapping: Optional[Dict[str, dict]] = None) -> None:
+def setup_rig(imported_armature: bpy.types.Object, target_rig: bpy.types.Object, track_mapping: Optional[Dict[str, BoneParameters]] = None) -> None:
     """Set up constraints on a Rigify rig to follow the imported animation armature.
     
     This function processes the track mapping data to create constraints on the target rig
@@ -781,11 +778,8 @@ def setup_rig(imported_armature: bpy.types.Object, target_rig: bpy.types.Object,
     rotation_modes_changed = 0
     
     for source_name, mapping_data in track_mapping.items():
-        if not isinstance(mapping_data, dict):
-            continue
-        
         # Get target bone name from mapping
-        target_bone_name = mapping_data.get('name', None)
+        target_bone_name = mapping_data.track_name if mapping_data.track_name else mapping_data.fox_name
         if not target_bone_name:
             continue
         
@@ -817,11 +811,8 @@ def setup_rig(imported_armature: bpy.types.Object, target_rig: bpy.types.Object,
     constraints_added = 0
     
     for source_name, mapping_data in track_mapping.items():
-        if not isinstance(mapping_data, dict):
-            continue
-        
         # Get target bone name from mapping
-        target_bone_name = mapping_data.get('name', None)
+        target_bone_name = mapping_data.track_name if mapping_data.track_name else mapping_data.fox_name
         if not target_bone_name:
             continue
         
@@ -831,8 +822,8 @@ def setup_rig(imported_armature: bpy.types.Object, target_rig: bpy.types.Object,
             continue
         
         # Check for space_r and space_l parameters (world space constraints)
-        space_r = mapping_data.get('space_r', None)
-        space_l = mapping_data.get('space_l', None)
+        space_r = mapping_data.space_r
+        space_l = mapping_data.space_l
         
         # Check if we have space_r or space_l (now they're dicts with 'space' and optional 'custom_bone')
         has_space_r = space_r and isinstance(space_r, dict) and space_r.get('space') == 'WORLD'
@@ -902,9 +893,9 @@ def setup_rig(imported_armature: bpy.types.Object, target_rig: bpy.types.Object,
                 constraints_added += 1
         
         # Check for as_ik_up parameter (directional vector IK)
-        as_ik_up = mapping_data.get('as_ik_up', None)
+        as_ik_up = mapping_data.as_ik_up
         if as_ik_up:
-            bone_base = as_ik_up['bone_base']
+            bone_base = as_ik_up.bone_base
             
             # Check if base bone exists in target rig
             if bone_base not in target_rig.pose.bones:
@@ -919,7 +910,7 @@ def setup_rig(imported_armature: bpy.types.Object, target_rig: bpy.types.Object,
             # Get target pose bone
             target_pose_bone = target_rig.pose.bones[target_bone_name]
             
-            Debug.log(f"  Creating directional IK constraints for '{target_bone_name}': base='{bone_base}', axis={as_ik_up['axis']}, distance={as_ik_up['distance']}")
+            Debug.log(f"  Creating directional IK constraints for '{target_bone_name}': base='{bone_base}', axis={as_ik_up.axis}, distance={as_ik_up.distance}")
             
             # Constraint 1: Copy Location (World Space) from base bone
             constraint1 = target_pose_bone.constraints.new('COPY_LOCATION')
@@ -1253,14 +1244,14 @@ def create_and_setup_motion_points_armature(
 
 # MTAR import #############################################################
 
-def import_mtar(context: bpy.types.Context, filepath: str, frig: Optional[FrigFile], track_mapping: Optional[Dict[str, dict]] = None, gani_index: int = -1, target_rig: Optional[bpy.types.Object] = None, strip_padding: int = 10) -> Tuple[Dict[str, str], bpy.types.Object]:
+def import_mtar(context: bpy.types.Context, filepath: str, frig: Optional[FrigFile], track_mapping: Optional[Dict[str, BoneParameters]] = None, gani_index: int = -1, target_rig: Optional[bpy.types.Object] = None, strip_padding: int = 10) -> Tuple[Dict[str, str], bpy.types.Object]:
     """Import MTAR animation data and create corresponding objects and animations.
     
     Args:
         context: Blender context
         filepath: Path to the MTAR file
         frig: FrigFile object containing rig data (can be None)
-        track_mapping: Optional dictionary mapping source track name to transformation data
+        track_mapping: Optional dictionary mapping source track name to BoneParameters (transformation data)
         gani_index: Index of the GANI file to import (-1 = import all)
         target_rig: Optional Rigify armature to connect imported animation to
         strip_padding: Number of frames to insert between animation strips (default: 10)
@@ -1275,7 +1266,7 @@ def import_mtar(context: bpy.types.Context, filepath: str, frig: Optional[FrigFi
     
     return result, imported_armature
 
-def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[FrigFile], track_mapping: Optional[Dict[str, dict]] = None, gani_index: int = -1, target_rig: Optional[bpy.types.Object] = None, strip_padding: int = 10) -> Tuple[Dict[str, str], bpy.types.Object]:
+def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[FrigFile], track_mapping: Optional[Dict[str, BoneParameters]] = None, gani_index: int = -1, target_rig: Optional[bpy.types.Object] = None, strip_padding: int = 10) -> Tuple[Dict[str, str], bpy.types.Object]:
     """Import MTAR animation data and create corresponding objects and animations.
     
     Each GANI file in the MTAR becomes one Blender action.
@@ -1396,8 +1387,12 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
     apply_track_transformations(all_gani_tracks, track_mapping)
     
     # Extract rest pose from target rig if provided (merges with mapping file transformations)
-    if target_rig:
+    # Check settings to see if rest pose correction is enabled
+    enable_rest_pose = context.scene.mtar_properties.settings_props.enable_rest_pose_correction
+    if target_rig and enable_rest_pose:
         extract_rest_pose_from_target_rig(all_gani_tracks, target_rig)
+    elif target_rig and not enable_rest_pose:
+        Debug.log("\nRest pose correction disabled in settings - skipping extraction")
     
     # Use the MTAR filename (without extension) as the armature name
     mtar_file_name: str = os.path.splitext(os.path.basename(filepath))[0]

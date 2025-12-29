@@ -169,6 +169,12 @@ class MTAR_PG_SettingsProperties(PropertyGroup):
         description="Log performance timing information for import/export operations",
         default=False
     )
+    
+    enable_rest_pose_correction: BoolProperty(
+        name="Enable Rest Pose Correction",
+        description="Automatically extract and apply rest pose corrections from target rig/armature (map_r for local space, offset_r for world space). Disable to use only mapping file transformations",
+        default=True
+    )
 
     hash_generator_exe_path: StringProperty(
         name="Hash Generator Executable",

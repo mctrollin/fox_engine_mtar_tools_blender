@@ -13,48 +13,12 @@ from ..py_fox.fox_gani_types import TrackUnitFlags, EvpHeader
 from .foxwrap_metadata import parse_action_track_metadata, TrackMetaData, parse_track_property_key
 from .foxwrap_misc import Tracks, TrackUnitWrapper
 from .foxwrap_gani_writer import Gani2Writer
+from .foxwrap_mapping import BoneParameters
 
 
 
-@dataclass
-class IkUpParameters:
-    """Parameters for as_ik_up directional vector IK.
-    
-    Attributes:
-        bone_base: Name of the base bone for directional calculation
-        axis: Axis for directional vector ('x', 'y', or 'z')
-        distance: Distance for directional calculation
-    """
-    bone_base: str
-    axis: str
-    distance: float
 
 
-@dataclass
-class BoneParameters:
-    """Parameters for bone mapping and transformation.
-    
-    This class replaces the dictionary-based approach for bone parameters
-    with a type-safe structure containing all possible bone mapping options.
-    
-    Attributes:
-        fox_name: Fox Engine bone name (required)
-        rotation_offset: Optional list of rotation offset parameters (applied in order during import)
-        rotation_axis_map: Optional axis mapping parameters
-        space_r: Optional rotation space specification ('ws' or bone name)
-        space_l: Optional location space specification ('ws' or bone name)
-        as_ik_up: Optional IK up vector parameters
-        track_name: Optional track name from mapping file
-        map_r: Optional rest pose correction parameters for LOCAL space tracks (similarity transformation)
-    """
-    fox_name: str
-    rotation_offset: Optional[List[dict]] = None
-    rotation_axis_map: Optional[List[Dict[str, str | bool]]] = None
-    space_r: Optional[str] = None
-    space_l: Optional[str] = None
-    as_ik_up: Optional[IkUpParameters] = None
-    track_name: Optional[str] = None
-    map_r: Optional[dict] = None
 
 
 @dataclass

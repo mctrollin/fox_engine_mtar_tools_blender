@@ -39,6 +39,13 @@ class MTAR_PT_SettingsPanel(Panel):
         box.label(text="Logging", icon='PREFERENCES')
         box.prop(settings_props, "log_verbosity", text="", icon='INFO')
         draw_bool_prop_checkbox_icon(box, settings_props, "enable_timer_logs", toggle=True)
+        
+        # Rest Pose Correction toggle
+        rest_box = layout.box()
+        rest_box.label(text="Rest Pose Correction", icon='ARMATURE_DATA')
+        draw_bool_prop_checkbox_icon(rest_box, settings_props, "enable_rest_pose_correction", toggle=True)
+        if not settings_props.enable_rest_pose_correction:
+            rest_box.label(text="Only mapping file transforms", icon='INFO')
 
 
 classes = (

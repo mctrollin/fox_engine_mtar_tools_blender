@@ -3,7 +3,7 @@ Blender operators for MTAR import functionality.
 """
 import os
 import io
-from typing import Set, Optional, List
+from typing import Set, Optional, List, Dict, Any, Tuple
 import traceback
 
 import bpy
@@ -17,7 +17,7 @@ from .py_fox.fox_mtar_types import MtarHeader
 from .py_fox.fox_frig_types import FrigFile, RigUnitDef
 
 from .py_foxwrap.foxwrap_misc_import import CommonInfo
-from .py_foxwrap.foxwrap_mapping import parse_track_mapping_file
+from .py_foxwrap.foxwrap_mapping import parse_track_mapping_file, TrackMappingData, BoneParameters
 from .py_foxwrap.foxwrap_metadata import get_segments_for_track_type
 
 from .mtar_importer import import_mtar
@@ -85,7 +85,7 @@ def delete_imported_armature(imported_armature: Optional[bpy.types.Object],
 
 def handle_bake_result(bake_result: dict, target_rig: bpy.types.Object, 
                       imported_armature: Optional[bpy.types.Object],
-                      props, operator) -> None:
+                      props: bpy.types.Scene, operator: Operator) -> None:
     """Handle post-bake cleanup and reporting for both NLA and action bakes.
     
     Args:
@@ -146,15 +146,15 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
             return {'CANCELLED'}
         
         # Validate MTAR file path (optional but recommended)
-        mtar_data = None
+        mtar_data: Optional[Dict[str, Any]] = None
         if import_props.mtar_filepath and os.path.exists(import_props.mtar_filepath):
             try:
                 Debug.log(f"Reading MTAR file: {import_props.mtar_filepath}")
                 # Read MTAR to get CommonInfo with layout track
                 with open(import_props.mtar_filepath, 'rb') as f:
-                    file_data = f.read()
-                    br = io.BytesIO(file_data)
-                    header = MtarHeader.read(br)
+                    file_data: bytes = f.read()
+                    br: io.BytesIO = io.BytesIO(file_data)
+                    header: MtarHeader = MtarHeader.read(br)
                     
                     if header.common_info_offset != 0:
                         mtar_data = {
@@ -204,7 +204,7 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
                 unit_defs: List[RigUnitDef] = frig.rig_def.unit_defs
                 
                 # Get layout track units from MTAR if available
-                layout_track_units = None
+                layout_track_units: Optional[List[Any]] = None
                 if mtar_data and mtar_data['common_info'] and mtar_data['common_info'].layout_track:
                     layout_track_units = mtar_data['common_info'].layout_track.track_units
                     Debug.log(f"Using MTAR layout track with {len(layout_track_units)} units")
@@ -220,7 +220,7 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
                         if layout_unit.name:  # layout_unit.name is the StrCode32 hash
                             track_hash = layout_unit.name
                             # Try to resolve the hash to a track name
-                            track_hash_int = track_hash.to_int() if hasattr(track_hash, 'to_int') else int(track_hash)
+                            track_hash_int: int = track_hash.to_int() if hasattr(track_hash, 'to_int') else int(track_hash)
                             resolved_name: str = unhash_rig_type(track_hash_int)
                             if resolved_name:
                                 track_name = resolved_name
@@ -258,7 +258,7 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
                             segments_shorthand = ['q'] * segment_count
                         else:
                             # Get segments from track type
-                            segments = get_segments_for_track_type(track_type)
+                            segments: List[Dict[str, Any]] = get_segments_for_track_type(track_type)
                             # Convert to shorthand notation
                             for seg in segments:
                                 data_type: str = seg.get('data_type', '')
@@ -298,7 +298,7 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
                     if track_type:
                         # Detect MULTI_LOCAL_ORIENTATION: type with many quaternion segments
                         if track_type == 'MULTI_LOCAL_ORIENTATION' and len(segments_shorthand) > 3:
-                            count = len(segments_shorthand)
+                            count: int = len(segments_shorthand)
                             lines.append(f"@track {track_name} : type=MULTI_LOCAL_ORIENTATION ; count={count}")
                         else:
                             lines.append(f"@track {track_name} : type={track_type}")
@@ -360,7 +360,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
             return {'CANCELLED'}
         
         # Load FRIG file if provided
-        frig_data = None
+        frig_data: Optional[FrigFile] = None
         if import_props.frig_filepath:
             if not os.path.exists(import_props.frig_filepath):
                 self.report({'WARNING'}, f"FRIG file not found: {import_props.frig_filepath}")
@@ -387,13 +387,13 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
             Debug.log("No FRIG file specified, importing without rig data")
         
         # Load track mapping file if provided
-        track_mapping = None
+        track_mapping: Optional[Dict[str, BoneParameters]] = None
         if import_props.mapping_filepath:
             if not os.path.exists(import_props.mapping_filepath):
                 self.report({'WARNING'}, f"Track mapping file not found: {import_props.mapping_filepath}")
             else:
                 try:
-                    mapping_data = parse_track_mapping_file(import_props.mapping_filepath)
+                    mapping_data: TrackMappingData = parse_track_mapping_file(import_props.mapping_filepath)
                     track_mapping = mapping_data.fox_to_blender
                     if track_mapping:
                         Debug.log(f"Loaded {len(track_mapping)} track mapping(s)")
@@ -404,19 +404,21 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                     Debug.log_error(f"Track mapping load error: {e}")
         
         # Get target rig if specified
-        target_rig = import_props.target_rig if import_props.target_rig else None
+        target_rig: Optional[bpy.types.Object] = import_props.target_rig if import_props.target_rig else None
         
         # Initialize progress bar
-        wm = context.window_manager
+        wm: bpy.types.WindowManager = context.window_manager
         wm.progress_begin(0, 100)
         execution_props.operation_type = 'IMPORT'
         
         # Import MTAR animation
         try:
-            import_result = import_mtar(context, import_props.mtar_filepath, frig_data, track_mapping, import_props.gani_index, target_rig, import_props.strip_padding)
+            import_result: Tuple[Set[str], Optional[bpy.types.Object]] = import_mtar(context, import_props.mtar_filepath, frig_data, track_mapping, import_props.gani_index, target_rig, import_props.strip_padding)
             
             # Extract result and imported armature
             if isinstance(import_result, tuple):
+                result: Set[str]
+                imported_armature: Optional[bpy.types.Object]
                 result, imported_armature = import_result
             else:
                 result = import_result
@@ -436,7 +438,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                         # Check if target rig has NLA tracks (common after import)
                         if target_rig.animation_data and target_rig.animation_data.nla_tracks:
                             Debug.log("Baking NLA strips...")
-                            bake_result = bake_armature_nla_strips(
+                            bake_result: Dict[str, Any] = bake_armature_nla_strips(
                                 target_rig, 
                                 remove_constraints=True,
                                 new_action_suffix="_baked",
@@ -558,17 +560,19 @@ class MTAR_OT_ValidateHashGeneratorExe(Operator):
     bl_label = "Validate Executable"
     bl_description = "Validate that the executable path is valid and accessible"
     
-    def execute(self, context: Context) -> set:
+    def execute(self, context: Context) -> Set[str]:
         """Execute the validation."""
         from .py_tools.tools_hash_generator import validate_executable_path
         
         # Read exe path from main scene properties (no fallback)
-        scene = context.scene
+        scene: bpy.types.Scene = context.scene
         if not hasattr(scene, 'mtar_properties') or not scene.mtar_properties.settings_props.hash_generator_exe_path:
             self.report({'ERROR'}, "Executable path not configured in MTAR Settings")
             return {'CANCELLED'}
-        exe_path = scene.mtar_properties.settings_props.hash_generator_exe_path
+        exe_path: str = scene.mtar_properties.settings_props.hash_generator_exe_path
         
+        is_valid: bool
+        error_msg: str
         is_valid, error_msg = validate_executable_path(exe_path)
         
         if is_valid:

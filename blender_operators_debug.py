@@ -25,7 +25,7 @@ class MTAR_OT_InspectWorldSpaceTransform(Operator):
     
     def execute(self, context: Context) -> set:
         """Execute the inspection."""
-        props = context.scene.mtar_debug_properties
+        props = context.scene.mtar_debug_transform_properties
         
         # Validate inputs
         if not props.debug_armature:
@@ -81,7 +81,7 @@ class MTAR_OT_InspectLocalSpaceTransform(Operator):
     
     def execute(self, context: Context) -> set:
         """Execute the inspection."""
-        props = context.scene.mtar_debug_properties
+        props = context.scene.mtar_debug_transform_properties
         
         # Validate inputs
         if not props.debug_armature:
@@ -136,7 +136,7 @@ class MTAR_OT_CreateTransformDummies(Operator):
     
     def execute(self, context: Context) -> set:
         """Execute the dummy creation."""
-        props = context.scene.mtar_debug_properties
+        props = context.scene.mtar_debug_transform_properties
         
         # Validate inputs
         if not props.debug_armature:
@@ -261,7 +261,7 @@ class MTAR_OT_CopySingleResult(Operator):
     
     def execute(self, context: Context) -> set:
         """Execute the copy operation."""
-        props = context.scene.mtar_debug_properties
+        props = context.scene.mtar_debug_transform_properties
         
         # Get the appropriate result
         if self.result_type == 'WORLD':
@@ -295,7 +295,7 @@ class MTAR_OT_CopyTransformDebugResults(Operator):
     
     def execute(self, context: Context) -> set:
         """Execute the copy operation."""
-        props = context.scene.mtar_debug_properties
+        props = context.scene.mtar_debug_transform_properties
         
         # Collect results
         results_lines = []
@@ -334,7 +334,7 @@ class MTAR_OT_GenerateHashWithExternalExe(Operator):
         """Execute the hash conversion."""
         from .py_tools.tools_hash_generator import hash_filename_all_modes
         
-        props = context.scene.mtar_hash_generator_properties
+        props = context.scene.mtar_debug_hash_properties
         # The executable path is read strictly from main scene settings
         if not hasattr(context.scene, 'mtar_properties') or not context.scene.mtar_properties.settings_props.hash_generator_exe_path:
             self.report({'ERROR'}, "Hash Generator executable path not configured in MTAR Settings")
@@ -405,7 +405,7 @@ class MTAR_OT_CopyHashGeneratorOutput(Operator):
     
     def execute(self, context: Context) -> set:
         """Execute the copy."""
-        props = context.scene.mtar_hash_generator_properties
+        props = context.scene.mtar_debug_hash_properties
         
         # Get the appropriate result based on key
         result_map = {
@@ -443,7 +443,7 @@ class MTAR_OT_ClearHashGeneratorResults(Operator):
     
     def execute(self, context: Context) -> set:
         """Execute the clear."""
-        props = context.scene.mtar_hash_generator_properties
+        props = context.scene.mtar_debug_hash_properties
         
         props.hash_generator_input = ""
         props.hash_generator_hash_filename = ""

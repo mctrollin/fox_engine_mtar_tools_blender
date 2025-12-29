@@ -4,6 +4,8 @@ import os
 import bpy
 from bpy.props import StringProperty, BoolProperty
 from bpy_extras.io_utils import ImportHelper
+from .py_utilities.utilities_logging import Debug
+import traceback
 
 from .mtar_importer import import_mtar
 from . import blender_panel_import
@@ -49,9 +51,15 @@ class MTAR_AddonPreferences(bpy.types.AddonPreferences):
                 blender_debug_module.unregister()
                 # bpy.utils.unregister_class(MTAR_PT_DebugPanel)
                 _debug_registered = False
-        except Exception:
-            # Avoid raising errors in the UI
+        except Exception as e:
+            # Avoid raising errors in the UI, but log exception for debugging
             _debug_registered = False
+            try:
+                Debug.log_error(f"Error toggling debug tools: {e}")
+                Debug.log_error(traceback.format_exc())
+            except Exception:
+                # Fallback to printing if logging is unavailable
+                print(f"[ERROR] Error toggling debug tools: {e}")
 
     enable_debug_tools: BoolProperty(
         name="Enable Debug Tools",

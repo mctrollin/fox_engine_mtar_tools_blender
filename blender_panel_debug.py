@@ -10,6 +10,8 @@ import bpy
 from bpy.types import Panel, PropertyGroup, Context, Object
 from bpy.props import PointerProperty, StringProperty
 
+from . import blender_panel_debug_map_r
+
 from .blender_operators_debug import (
     MTAR_OT_InspectWorldSpaceTransform,
     MTAR_OT_InspectLocalSpaceTransform,
@@ -70,7 +72,7 @@ def create_or_update_dummy_object(
     return dummy_obj
 
 
-class MTAR_PG_DebugProperties(PropertyGroup):
+class MTAR_PG_DebugTransformProperties(PropertyGroup):
     """Property group for debug transform inspection settings."""
     
     debug_armature: PointerProperty(
@@ -107,10 +109,11 @@ class MTAR_PG_DebugProperties(PropertyGroup):
     )
 
 
-class MTAR_PT_DebugPanel(Panel):
+
+class MTAR_PT_DebugTransformPanel(Panel):
     """N-Panel for transform debugging and inspection."""
-    bl_label = "Transform Debug"
-    bl_idname = "MTAR_PT_debug_panel"
+    bl_label = "Debug - Transform"
+    bl_idname = "MTAR_PT_debug_transform_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = 'MTAR'
@@ -118,7 +121,7 @@ class MTAR_PT_DebugPanel(Panel):
     def draw(self, context: Context) -> None:
         """Draw the debug panel."""
         layout = self.layout
-        props = context.scene.mtar_debug_properties
+        props = context.scene.mtar_debug_transform_properties
         
         # Header
         box = layout.box()
@@ -202,7 +205,7 @@ class MTAR_PT_DebugPanel(Panel):
 
 # External Hash Generator Panel ################################################################
 
-class MTAR_PG_HashGeneratorProperties(PropertyGroup):
+class MTAR_PG_DebugHashProperties(PropertyGroup):
     """Property group for external hash generator settings."""
     
     # Note: the executable path is stored in scene.mtar_properties.settings_props.hash_generator_exe_path
@@ -277,10 +280,10 @@ class MTAR_PG_HashGeneratorProperties(PropertyGroup):
     )
 
 
-class MTAR_PT_HashGeneratorPanel(Panel):
+class MTAR_PT_DebugHashPanel(Panel):
     """N-Panel for external hash generator tool."""
-    bl_label = "Hash Generator"
-    bl_idname = "MTAR_PT_hash_generator_panel"
+    bl_label = "Debug - Hash"
+    bl_idname = "MTAR_PT_debug_hash_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = 'MTAR'
@@ -288,7 +291,7 @@ class MTAR_PT_HashGeneratorPanel(Panel):
     def draw(self, context: Context) -> None:
         """Draw the hash generator panel."""
         layout = self.layout
-        props = context.scene.mtar_hash_generator_properties
+        props = context.scene.mtar_debug_hash_properties
         scene = context.scene
 
         # If the hash generator exe path is not configured in the MTAR Settings, show an info
@@ -406,18 +409,18 @@ class MTAR_PT_HashGeneratorPanel(Panel):
 
 # Registration
 classes = (
-    MTAR_PG_DebugProperties,
+    MTAR_PG_DebugTransformProperties,
     MTAR_OT_InspectWorldSpaceTransform,
     MTAR_OT_InspectLocalSpaceTransform,
     MTAR_OT_CreateTransformDummies,
     MTAR_OT_CopySingleResult,
     MTAR_OT_CopyTransformDebugResults,
-    MTAR_PT_DebugPanel,
-    MTAR_PG_HashGeneratorProperties,
+    MTAR_PT_DebugTransformPanel,
+    MTAR_PG_DebugHashProperties,
     MTAR_OT_GenerateHashWithExternalExe,
     MTAR_OT_CopyHashGeneratorOutput,
     MTAR_OT_ClearHashGeneratorResults,
-    MTAR_PT_HashGeneratorPanel,
+    MTAR_PT_DebugHashPanel,
 )
 
 def register() -> None:
@@ -426,17 +429,23 @@ def register() -> None:
         bpy.utils.register_class(cls)
 
     # Add debug properties to scene
-    bpy.types.Scene.mtar_debug_properties = PointerProperty(type=MTAR_PG_DebugProperties)
-    bpy.types.Scene.mtar_hash_generator_properties = PointerProperty(type=MTAR_PG_HashGeneratorProperties)
+    bpy.types.Scene.mtar_debug_transform_properties = PointerProperty(type=MTAR_PG_DebugTransformProperties)
+    bpy.types.Scene.mtar_debug_hash_properties = PointerProperty(type=MTAR_PG_DebugHashProperties)
+    
+    # Register map_r debug module
+    blender_panel_debug_map_r.register()
 
 
 def unregister() -> None:
     """Unregister debug classes."""
+    # Unregister map_r debug module first
+    blender_panel_debug_map_r.unregister()
+    
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
 
     # Remove debug properties from scene
-    if hasattr(bpy.types.Scene, 'mtar_debug_properties'):
-        del bpy.types.Scene.mtar_debug_properties
-    if hasattr(bpy.types.Scene, 'mtar_hash_generator_properties'):
-        del bpy.types.Scene.mtar_hash_generator_properties
+    if hasattr(bpy.types.Scene, 'mtar_debug_transform_properties'):
+        del bpy.types.Scene.mtar_debug_transform_properties
+    if hasattr(bpy.types.Scene, 'mtar_debug_hash_properties'):
+        del bpy.types.Scene.mtar_debug_hash_properties

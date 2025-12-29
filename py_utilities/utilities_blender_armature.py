@@ -1,3 +1,9 @@
+"""Blender armature utility functions."""
+
+from typing import List, Tuple, Optional
+from mathutils import Euler
+
+
 # Rest Pose Utilities #############################################################
 
 def gather_known_bone_names_from_tracks(all_gani_tracks: List[List]) -> set:

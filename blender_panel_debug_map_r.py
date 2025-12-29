@@ -7,8 +7,8 @@ from .py_utilities.utilities_blender_armature import extract_rest_pose_rotation
 
 class MTAR_PT_DebugMapRPanel(bpy.types.Panel):
     """Debug panel for map_r parameter testing and animation rotation mapping."""
-    bl_label = "Map_R Debug"
-    bl_idname = "MTAR_PT_debug_map_r"
+    bl_label = "Debug - Map R"
+    bl_idname = "MTAR_PT_debug_map_r_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = 'MTAR'
@@ -23,18 +23,18 @@ class MTAR_PT_DebugMapRPanel(bpy.types.Panel):
         
         col = box.column(align=True)
         col.label(text="Test Animation Keyframe (Blender quaternion)")
-        col.prop(scene.mtar_debug_map_r_props, "test_keyframe_w", text="W")
-        col.prop(scene.mtar_debug_map_r_props, "test_keyframe_x", text="X")
-        col.prop(scene.mtar_debug_map_r_props, "test_keyframe_y", text="Y")
-        col.prop(scene.mtar_debug_map_r_props, "test_keyframe_z", text="Z")
+        col.prop(scene.mtar_debug_map_r_properties, "test_keyframe_w", text="W")
+        col.prop(scene.mtar_debug_map_r_properties, "test_keyframe_x", text="X")
+        col.prop(scene.mtar_debug_map_r_properties, "test_keyframe_y", text="Y")
+        col.prop(scene.mtar_debug_map_r_properties, "test_keyframe_z", text="Z")
         
         col.separator()
         col.label(text="As Euler angles (degrees):")
         row = col.row(align=True)
         row.enabled = False
-        row.prop(scene.mtar_debug_map_r_props, "test_keyframe_euler_x", text="X")
-        row.prop(scene.mtar_debug_map_r_props, "test_keyframe_euler_y", text="Y")
-        row.prop(scene.mtar_debug_map_r_props, "test_keyframe_euler_z", text="Z")
+        row.prop(scene.mtar_debug_map_r_properties, "test_keyframe_euler_x", text="X")
+        row.prop(scene.mtar_debug_map_r_properties, "test_keyframe_euler_y", text="Y")
+        row.prop(scene.mtar_debug_map_r_properties, "test_keyframe_euler_z", text="Z")
         
         col.separator()
         col.label(text="Example Blender quaternions:")
@@ -46,8 +46,8 @@ class MTAR_PT_DebugMapRPanel(bpy.types.Panel):
         box.label(text="Target Rig Bone Selection", icon='BONE_DATA')
         
         col = box.column(align=True)
-        col.prop(scene.mtar_debug_map_r_props, "target_armature", text="Armature")
-        col.prop(scene.mtar_debug_map_r_props, "target_bone", text="Bone")
+        col.prop(scene.mtar_debug_map_r_properties, "target_armature", text="Armature")
+        col.prop(scene.mtar_debug_map_r_properties, "target_bone", text="Bone")
         col.operator("mtar.debug_pick_selected_bone", text="Pick Selected Armature & Bone", icon='EYEDROPPER')
         
         # Analysis button
@@ -64,46 +64,46 @@ class MTAR_PT_DebugMapRPanel(bpy.types.Panel):
         col = box.column(align=True)
         col.label(text="Rest Pose Rotation (Euler degrees):")
         row = col.row(align=True)
-        row.prop(scene.mtar_debug_map_r_props, "output_rest_pose_euler_x", text="X")
-        row.prop(scene.mtar_debug_map_r_props, "output_rest_pose_euler_y", text="Y")
-        row.prop(scene.mtar_debug_map_r_props, "output_rest_pose_euler_z", text="Z")
+        row.prop(scene.mtar_debug_map_r_properties, "output_rest_pose_euler_x", text="X")
+        row.prop(scene.mtar_debug_map_r_properties, "output_rest_pose_euler_y", text="Y")
+        row.prop(scene.mtar_debug_map_r_properties, "output_rest_pose_euler_z", text="Z")
         row.operator("mtar.copy_rest_pose_euler", text="", icon='COPYDOWN')
         
         col.separator()
         col.label(text="Rest Pose Rotation (Quaternion):")
         row = col.row(align=True)
-        row.prop(scene.mtar_debug_map_r_props, "output_rest_pose_quat_w", text="W")
-        row.prop(scene.mtar_debug_map_r_props, "output_rest_pose_quat_x", text="X")
-        row.prop(scene.mtar_debug_map_r_props, "output_rest_pose_quat_y", text="Y")
-        row.prop(scene.mtar_debug_map_r_props, "output_rest_pose_quat_z", text="Z")
+        row.prop(scene.mtar_debug_map_r_properties, "output_rest_pose_quat_w", text="W")
+        row.prop(scene.mtar_debug_map_r_properties, "output_rest_pose_quat_x", text="X")
+        row.prop(scene.mtar_debug_map_r_properties, "output_rest_pose_quat_y", text="Y")
+        row.prop(scene.mtar_debug_map_r_properties, "output_rest_pose_quat_z", text="Z")
         row.operator("mtar.copy_rest_pose_quat", text="", icon='COPYDOWN')
         
         col.separator()
         col.label(text="Calculated Map_R Parameter:")
         row = col.row(align=True)
-        row.prop(scene.mtar_debug_map_r_props, "output_map_r", text="")
+        row.prop(scene.mtar_debug_map_r_properties, "output_map_r", text="")
         row.operator("mtar.copy_map_r_to_clipboard", text="", icon='COPYDOWN')
         
         col.separator()
         col.label(text="Mapped Animation Keyframe (after map_r):")
         row = col.row(align=True)
-        row.prop(scene.mtar_debug_map_r_props, "output_mapped_quat_w", text="W")
-        row.prop(scene.mtar_debug_map_r_props, "output_mapped_quat_x", text="X")
-        row.prop(scene.mtar_debug_map_r_props, "output_mapped_quat_y", text="Y")
-        row.prop(scene.mtar_debug_map_r_props, "output_mapped_quat_z", text="Z")
+        row.prop(scene.mtar_debug_map_r_properties, "output_mapped_quat_w", text="W")
+        row.prop(scene.mtar_debug_map_r_properties, "output_mapped_quat_x", text="X")
+        row.prop(scene.mtar_debug_map_r_properties, "output_mapped_quat_y", text="Y")
+        row.prop(scene.mtar_debug_map_r_properties, "output_mapped_quat_z", text="Z")
         row.operator("mtar.copy_mapped_quat", text="", icon='COPYDOWN')
         
         col.separator()
         col.label(text="As Euler angles (degrees):")
         row = col.row(align=True)
         row.enabled = False
-        row.prop(scene.mtar_debug_map_r_props, "output_mapped_euler_x", text="X")
-        row.prop(scene.mtar_debug_map_r_props, "output_mapped_euler_y", text="Y")
-        row.prop(scene.mtar_debug_map_r_props, "output_mapped_euler_z", text="Z")
+        row.prop(scene.mtar_debug_map_r_properties, "output_mapped_euler_x", text="X")
+        row.prop(scene.mtar_debug_map_r_properties, "output_mapped_euler_y", text="Y")
+        row.prop(scene.mtar_debug_map_r_properties, "output_mapped_euler_z", text="Z")
         
         col.separator()
         col.label(text="Debug Info:")
-        col.prop(scene.mtar_debug_map_r_props, "debug_log", text="")
+        col.prop(scene.mtar_debug_map_r_properties, "debug_log", text="")
 
 
 
@@ -115,7 +115,7 @@ class MTAR_OT_DebugAnalyzeMapR(bpy.types.Operator):
 
     def execute(self, context):
         scene = context.scene
-        props = scene.mtar_debug_map_r_props
+        props = scene.mtar_debug_map_r_properties
         
         # Validate inputs
         if not props.target_armature:
@@ -284,7 +284,7 @@ class MTAR_OT_DebugPickSelectedBone(bpy.types.Operator):
 
     def execute(self, context):
         scene = context.scene
-        props = scene.mtar_debug_map_r_props
+        props = scene.mtar_debug_map_r_properties
         
         # Get selected objects
         selected_objects = context.selected_objects
@@ -345,7 +345,7 @@ class MTAR_OT_CopyMapRToClipboard(bpy.types.Operator):
 
     def execute(self, context):
         scene = context.scene
-        map_r_value = scene.mtar_debug_map_r_props.output_map_r
+        map_r_value = scene.mtar_debug_map_r_properties.output_map_r
         
         if not map_r_value or map_r_value.startswith('#'):
             self.report({'WARNING'}, "No valid map_r parameter to copy")
@@ -365,7 +365,7 @@ class MTAR_OT_CopyRestPoseEuler(bpy.types.Operator):
     bl_description = "Copy rest pose Euler rotation (x, y, z) to clipboard"
 
     def execute(self, context):
-        props = context.scene.mtar_debug_map_r_props
+        props = context.scene.mtar_debug_map_r_properties
         euler_str = f"{props.output_rest_pose_euler_x:.2f}, {props.output_rest_pose_euler_y:.2f}, {props.output_rest_pose_euler_z:.2f}"
         bpy.context.window_manager.clipboard = euler_str
         self.report({'INFO'}, f"Copied Euler: {euler_str}")
@@ -379,7 +379,7 @@ class MTAR_OT_CopyRestPoseQuat(bpy.types.Operator):
     bl_description = "Copy rest pose quaternion (w, x, y, z) to clipboard"
 
     def execute(self, context):
-        props = context.scene.mtar_debug_map_r_props
+        props = context.scene.mtar_debug_map_r_properties
         quat_str = f"{props.output_rest_pose_quat_w:.4f}, {props.output_rest_pose_quat_x:.4f}, {props.output_rest_pose_quat_y:.4f}, {props.output_rest_pose_quat_z:.4f}"
         bpy.context.window_manager.clipboard = quat_str
         self.report({'INFO'}, f"Copied quaternion: {quat_str}")
@@ -393,7 +393,7 @@ class MTAR_OT_CopyMappedQuat(bpy.types.Operator):
     bl_description = "Copy mapped animation quaternion (w, x, y, z) to clipboard"
 
     def execute(self, context):
-        props = context.scene.mtar_debug_map_r_props
+        props = context.scene.mtar_debug_map_r_properties
         quat_str = f"{props.output_mapped_quat_w:.4f}, {props.output_mapped_quat_x:.4f}, {props.output_mapped_quat_y:.4f}, {props.output_mapped_quat_z:.4f}"
         bpy.context.window_manager.clipboard = quat_str
         self.report({'INFO'}, f"Copied quaternion: {quat_str}")
@@ -408,7 +408,7 @@ class MTAR_OT_DebugApplyInvertedRestPose(bpy.types.Operator):
 
     def execute(self, context):
         scene = context.scene
-        props = scene.mtar_debug_map_r_props
+        props = scene.mtar_debug_map_r_properties
         
         # Validate inputs
         if not props.target_armature:
@@ -473,7 +473,7 @@ class MTAR_OT_DebugApplyMappedRotation(bpy.types.Operator):
 
     def execute(self, context):
         scene = context.scene
-        props = scene.mtar_debug_map_r_props
+        props = scene.mtar_debug_map_r_properties
         
         # Validate inputs
         if not props.target_armature:
@@ -524,7 +524,7 @@ class MTAR_OT_DebugApplyMappedRotation(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class MTAR_DebugMapRProperties(bpy.types.PropertyGroup):
+class MTAR_PG_DebugMapRProperties(bpy.types.PropertyGroup):
     """Properties for map_r debug panel."""
     
     # Input: Test animation keyframe rotation (Blender quaternion after import)
@@ -715,5 +715,37 @@ class MTAR_DebugMapRProperties(bpy.types.PropertyGroup):
     )
 
 
-# Note: This module is registered/unregistered by blender_panel_debug.py as part of debug tools
+# Registration
 
+classes = (
+    MTAR_PG_DebugMapRProperties,
+    MTAR_OT_DebugAnalyzeMapR,
+    MTAR_OT_DebugPickSelectedBone,
+    MTAR_OT_CopyMapRToClipboard,
+    MTAR_OT_CopyRestPoseEuler,
+    MTAR_OT_CopyRestPoseQuat,
+    MTAR_OT_CopyMappedQuat,
+    MTAR_OT_DebugApplyInvertedRestPose,
+    MTAR_OT_DebugApplyMappedRotation,
+    MTAR_PT_DebugMapRPanel,
+)
+
+
+def register():
+    """Register map_r debug classes."""
+    for cls in classes:
+        bpy.utils.register_class(cls)
+    
+    # Add properties to scene
+    bpy.types.Scene.mtar_debug_map_r_properties = bpy.props.PointerProperty(type=MTAR_PG_DebugMapRProperties)
+
+
+def unregister():
+    """Unregister map_r debug classes."""
+    # Remove properties from scene
+    if hasattr(bpy.types.Scene, 'mtar_debug_map_r_properties'):
+        del bpy.types.Scene.mtar_debug_map_r_properties
+    
+    # Unregister classes
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)
