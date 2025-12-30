@@ -295,9 +295,19 @@ def collect_actions_for_export_from_armature(armature: bpy.types.Object, use_nla
                     Debug.log(f"    Strip {strip_idx} '{strip.name}': No action (skipping)")
                     continue
                 
+                # Skip layout track actions (they contain metadata, not animation data)
+                if 'layout' in strip.action.name.lower() or 'LAYOUT_TRACK' in strip.action.name:
+                    Debug.log(f"    Strip {strip_idx} '{strip.name}': Layout track (skipping - metadata only)")
+                    continue
+                
                 # Calculate frame range (use strip's frame range)
                 frame_start = int(strip.frame_start)
                 frame_end = int(strip.frame_end)
+                
+                # Skip animations in negative time range (e.g., layout track at frames -100 to -50)
+                if frame_end <= 0:
+                    Debug.log(f"    Strip {strip_idx} '{strip.name}': Negative time range {frame_start} to {frame_end} (skipping)")
+                    continue
                 
                 # Use strip name if available, otherwise action name
                 source = f'NLA Track "{track.name}" Strip "{strip.name}"'
@@ -322,19 +332,28 @@ def collect_actions_for_export_from_armature(armature: bpy.types.Object, use_nla
     # Fallback to active action
     if armature.animation_data.action:
         action = armature.animation_data.action
-        frame_start = int(action.frame_range[0])
-        frame_end = int(action.frame_range[1])
         
-        # Create export action data
-        export_action = ExportActionData(
-            action=action,
-            frame_start=frame_start,
-            frame_end=frame_end,
-            source='Active Action'
-        )
-        
-        actions_to_export.append(export_action)
-        Debug.log(f"\nUsing active action: {export_action.to_string()}")
+        # Skip layout track action (metadata only, not animation data)
+        if 'layout' in action.name.lower() or 'LAYOUT_TRACK' in action.name:
+            Debug.log(f"\nActive action '{action.name}' is a layout track (skipping - metadata only)")
+        else:
+            frame_start = int(action.frame_range[0])
+            frame_end = int(action.frame_range[1])
+            
+            # Skip animations in negative time range
+            if frame_end <= 0:
+                Debug.log(f"\nActive action '{action.name}' is in negative time range {frame_start} to {frame_end} (skipping)")
+            else:
+                # Create export action data
+                export_action = ExportActionData(
+                    action=action,
+                    frame_start=frame_start,
+                    frame_end=frame_end,
+                    source='Active Action'
+                )
+                
+                actions_to_export.append(export_action)
+                Debug.log(f"\nUsing active action: {export_action.to_string()}")
     else:
         Debug.log_warning("\n  Warning: No active action and no NLA strips found")
     
@@ -588,16 +607,22 @@ def export_location_segment(armature: bpy.types.Object, blender_bone_name: str,
                             bone_params: BoneParameters, export_frames: List[int],
                             frame_start: int, is_static: bool,
                             rig_unit_type: Optional[RigUnitType] = None) -> List['AnimKeyframe']:
-    """Export location segment keyframes."""
+    """Export location segment keyframes.
+    
+    Note: When space_l=ws,<custom_bone> is used, the import creates a Copy Location constraint
+    with X and Y axes inverted. During export, we need to reverse this by inverting X and Y again.
+    """
     keyframes = []
     start_timer("export_location_segment")
     
     # Get custom space if specified (constant across all frames)
-    space_bone = None
-    if bone_params.space_l:
-        space_l_value = bone_params.space_l
-        if isinstance(space_l_value, str) and not space_l_value.startswith('ws'):
-            space_bone = space_l_value
+    # Use the same extraction logic as rotation export for consistency
+    space_bone = TrackMetaData.extract_space_bone(bone_params.space_l)
+    
+    # Check if we need to invert X and Y (when using custom space bone)
+    # Import creates constraint with invert_x=True, invert_y=True when custom_bone is specified
+    # So we need to reverse that during export
+    invert_xy = space_bone is not None
     
     # is_world_space result is constant across all frames
     use_world_space = RigUnitType.is_world_space_unit_type(rig_unit_type)
@@ -611,6 +636,12 @@ def export_location_segment(armature: bpy.types.Object, blender_bone_name: str,
         else:
             # Use local space transforms for other types (LOCAL_ORIENTATION, TRANSFORM, ROOT, etc.)
             blender_location, _ = get_local_space_transform(armature, blender_bone_name, frame)
+        
+        # Reverse X and Y inversion if custom space bone was used during import
+        if invert_xy:
+            blender_location = blender_location.copy()
+            blender_location.x = -blender_location.x
+            blender_location.y = -blender_location.y
         
         # Convert to Fox Engine coordinate system
         fox_location = blender_to_fox_vector(blender_location)
@@ -1398,7 +1429,8 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
         frame_start = action_data.frame_start
         frame_end = action_data.frame_end
         # FrameCount is the last frame index (relative to frame_start), not the total number of frames
-        frame_count = frame_end - frame_start
+        # Use absolute value to handle any edge cases with negative ranges
+        frame_count = abs(frame_end - frame_start)
         gani_name = action_data.action.name
         gani_action = action_data.action
 

@@ -203,11 +203,14 @@ def read_track_header_properties_from_action(action: Optional[bpy.types.Action])
             result['unknown_b'] = int(action["unknown_b"])
         
         # Read frame_count from manual frame range instead of custom property
+        # Use frame_end - frame_start to get the duration, then take absolute value
+        # to handle negative time ranges (e.g., layout track at -100 to -50)
         if action.use_frame_range:
-            result['frame_count'] = int(action.frame_end)
+            frame_duration = int(action.frame_end - action.frame_start)
+            result['frame_count'] = abs(frame_duration)
         elif "frame_count" in action.keys():
             # Fallback: read from custom property if present (for backward compatibility)
-            result['frame_count'] = int(action["frame_count"])
+            result['frame_count'] = abs(int(action["frame_count"]))
         
         if "frame_rate" in action.keys():
             result['frame_rate'] = int(action["frame_rate"])
@@ -823,23 +826,27 @@ class TrackMetaData:
         return track_metadata_list
 
     @staticmethod
-    def extract_space_bone(space_param: Optional[str]) -> Optional[str]:
+    def extract_space_bone(space_param) -> Optional[str]:
         """Extract the space bone name from a space parameter.
         
         Space parameters can be:
         - None (use default world/local space)
-        - "ws" or "ws,bone_name" (world space, optionally with custom bone)
-        - "bone_name" (custom space bone)
+        - Dict format: {'space': 'WORLD', 'custom_bone': 'bone_name'} (new format from parse_space_parameter)
+        - String "ws" or "ws,bone_name" (world space, optionally with custom bone) [deprecated]
+        - String "bone_name" (custom space bone) [deprecated]
         
         Args:
-            space_param: Space parameter string (typically from bone_params.space_r or space_l)
+            space_param: Space parameter (dict or string, typically from bone_params.space_r or space_l)
             
         Returns:
             The custom space bone name if specified, None otherwise
         """
         if space_param:
-            # Handle string-format space parameters
-            if isinstance(space_param, str):
+            # Handle dict format (new format)
+            if isinstance(space_param, dict):
+                return space_param.get('custom_bone')
+            # Handle string-format space parameters (backward compatibility)
+            elif isinstance(space_param, str):
                 if not space_param.startswith('ws'):
                     # It's a custom bone name
                     return space_param

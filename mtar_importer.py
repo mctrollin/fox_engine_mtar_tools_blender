@@ -777,9 +777,18 @@ def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object,
                      Requires bone with the renamed name to exist in both armatures
                      Uses World Space for both Target and Owner, Mix mode = Replace
         
+        space_r=ws,<custom_bone> : Creates a world space Copy Rotation constraint with custom owner space
+                     Target space is World, Owner space is Custom (using specified bone)
+        
         space_l=ws : Creates a world space Copy Location constraint
                      Requires bone with the renamed name to exist in both armatures
                      Uses World Space for both Target and Owner
+                     X and Y axes are inverted
+        
+        space_l=ws,<custom_bone> : Creates a world space Copy Location constraint with custom owner space
+                     Target space is World, Owner space is Custom (using specified bone)
+                     X and Y axes are inverted
+                     Example: space_l=ws,torso_root
         
         Multiple source tracks can map to the same target bone (e.g., one with rotation data
         using space_r=ws, another with location data using space_l=ws). Parameters are merged
@@ -916,18 +925,40 @@ def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object,
             
             # Create Copy Location constraint if space_l is set
             if has_space_l:
-                Debug.log(f"  Creating world space Copy Location constraint: {custom_rig.name}['{target_bone_name}'] <- {imported_armature.name}['{target_bone_name}']")
+                custom_bone = space_l.get('custom_bone')
+                
+                if custom_bone:
+                    Debug.log(f"  Creating world space Copy Location constraint: {custom_rig.name}['{target_bone_name}'] <- {imported_armature.name}['{target_bone_name}'] (custom space: '{custom_bone}')")
+                else:
+                    Debug.log(f"  Creating world space Copy Location constraint: {custom_rig.name}['{target_bone_name}'] <- {imported_armature.name}['{target_bone_name}']")
                 
                 constraint = target_pose_bone.constraints.new('COPY_LOCATION')
                 constraint.name = f"MTAR_WS_Loc_{target_bone_name}"
                 constraint.target = imported_armature
                 constraint.subtarget = target_bone_name
                 
-                # Set to World Space for both
+                # Set target space to World
                 constraint.target_space = 'WORLD'
-                constraint.owner_space = 'WORLD'
                 
-                # Rest use defaults (influence=1.0, all axes enabled, etc.)
+                # Set owner space - either custom or world
+                if custom_bone:
+                    # Validate custom bone exists
+                    if custom_bone not in custom_rig.pose.bones:
+                        Debug.log_warning(f"    Warning: Custom space bone '{custom_bone}' not found in custom rig, using world space")
+                        constraint.owner_space = 'WORLD'
+                    else:
+                        constraint.owner_space = 'CUSTOM'
+                        constraint.space_object = custom_rig
+                        constraint.space_subtarget = custom_bone
+                else:
+                    constraint.owner_space = 'WORLD'
+                
+                # Invert X and Y axes
+                if custom_bone:
+                    constraint.invert_x = True
+                    constraint.invert_y = True
+                
+                # Rest use defaults (influence=1.0, Z not inverted, etc.)
                 
                 constraints_added += 1
         
