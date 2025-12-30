@@ -218,22 +218,27 @@ class Gani2Reader:
         # Read each segment in this animation_track unit
         for segment_index in range(track_unit.segment_count):
 
-            # Get header
+            # Get header from layout track
             segment_track_data: TrackData = track_unit.segments_data[segment_index]
             
-            Debug.log(f"          Segment {segment_index}: type={segment_track_data.td_type.name}, component_bits={segment_track_data.component_bit_size}")
+            # Get the actual component_bit_size from track_mini_header.segment_headers (per-track metadata)
+            # This has priority over the layout track information
+            segment_header_from_mini = track_mini_header.segment_headers[keyframes_track_index_abs]
+            actual_component_bit_size = segment_header_from_mini.component_bit_size
+            
+            Debug.log(f"          Segment {segment_index}: type={segment_track_data.td_type.name}, component_bits={actual_component_bit_size} (layout={segment_track_data.component_bit_size})")
             
             # Read segment into keyframes
-            br.seek(segment_track_data.data_offset)
             keyframes_track, keyframes_track_index_abs = self.read_segment(
                 br,
                 segment_track_data,
                 unit_flags_int,
                 gani2_trackdata_base,
                 keyframes_track_index_abs,
-                    file_data,
-                    track_mini_header.frame_count,
-                )
+                file_data,
+                track_mini_header.frame_count,
+                actual_component_bit_size,  # Pass the per-track component_bit_size
+            )
             # Keep the StrCode32 object for now, will be resolved to bone name later
             keyframes_track.name = track_unit.name
             keyframes_track.segment_index = segment_index
@@ -260,8 +265,14 @@ class Gani2Reader:
         keyframes_track_index_abs: int,
         file_data: bytes,
         frame_count: int,
+        component_bit_size: int,  # Per-track component_bit_size (has priority over layout)
     ) -> Tuple[TrackDataBlobWrapper, int]:
-        """Read a single animation_track segment and return (animation_track, new_abs_track_data_index)."""
+        """Read a single animation_track segment and return (animation_track, new_abs_track_data_index).
+        
+        Args:
+            component_bit_size: The actual component bit size from track_mini_header.segment_headers.
+                               This has priority over segment_track_data.component_bit_size from layout.
+        """
 
         # Read segment header: the corresponding Gani2TrackData for this absolute index
         br.seek(gani2_trackdata_base + keyframes_track_index_abs * Gani2TrackData.ENTRY_SIZE)
@@ -271,11 +282,13 @@ class Gani2Reader:
         data_blob_offset = gani2_trackdata_base + keyframes_track_index_abs * Gani2TrackData.ENTRY_SIZE + segment_header.data_offset
 
         # Read keyframes using TrackDataBlob
+        # Use the per-track component_bit_size (from track_mini_header.segment_headers)
+        # instead of the layout track's component_bit_size
         keyframes = TrackDataBlob.read(
             file_data=file_data,
             data_offset=data_blob_offset,
             segment_type=segment_track_data.td_type,
-            component_bit_size=segment_track_data.component_bit_size,
+            component_bit_size=component_bit_size,  # Use per-track metadata
             unit_flags=unit_flags,
             frame_count=frame_count
         )
@@ -284,7 +297,7 @@ class Gani2Reader:
         is_static = (unit_flags & TrackUnitFlags.IS_STATIC) != 0
         data_blob = TrackDataBlob.from_keyframes(
             segment_type=SegmentType(segment_track_data.td_type),
-            component_bit_size=segment_track_data.component_bit_size,
+            component_bit_size=component_bit_size,  # Use per-track metadata
             is_static=is_static,
             keyframes=keyframes
         )

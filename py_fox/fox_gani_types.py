@@ -14,6 +14,7 @@ from ..py_utilities.utilities_binary_read import (
     read_vector2,
     read_vector3,
     read_vector4,
+    read_anim_half,
 )
 from ..py_utilities.utilities_binary_write import (
     write_unaligned_bits,
@@ -22,6 +23,7 @@ from ..py_utilities.utilities_binary_write import (
     write_vector2,
     write_vector3,
     write_vector4,
+    write_anim_half,
     align_buffer,
     align_bytearray,
 )
@@ -104,7 +106,7 @@ class AnimKeyframe:
         # 3D Vectors (Positions, etc.)
         elif segment_type in [SegmentType.VECTOR3, SegmentType.VECTOR_DIFF]:
             offset = data_offset
-            vec, offset = read_vector3(file_data, offset)
+            vec, offset = read_vector3(file_data, offset, component_bit_size)
             keyframes.append(AnimKeyframe(frame=current_frame, value=vec))
             
             if not is_static:
@@ -112,13 +114,18 @@ class AnimKeyframe:
                     frame_delta = file_data[offset]
                     offset += 1
                     current_frame += frame_delta
-                    vec, offset = read_vector3(file_data, offset)
+                    vec, offset = read_vector3(file_data, offset, component_bit_size)
+                    if abs(vec[0]) > 100 or abs(vec[1]) > 100 or abs(vec[2]) > 100:
+                        Debug.log_error("too big")
                     keyframes.append(AnimKeyframe(frame=current_frame, value=vec))
         
         # Floats (Single values)
         elif segment_type == SegmentType.FLOAT:
             offset = data_offset
-            value, offset = read_float(file_data, offset)
+            if component_bit_size == 16:
+                value, offset = read_anim_half(file_data, offset)
+            else:  # component_bit_size == 32
+                value, offset = read_float(file_data, offset)
             keyframes.append(AnimKeyframe(frame=current_frame, value=[value]))
             
             if not is_static:
@@ -126,13 +133,16 @@ class AnimKeyframe:
                     frame_delta = file_data[offset]
                     offset += 1
                     current_frame += frame_delta
-                    value, offset = read_float(file_data, offset)
+                    if component_bit_size == 16:
+                        value, offset = read_anim_half(file_data, offset)
+                    else:  # component_bit_size == 32
+                        value, offset = read_float(file_data, offset)
                     keyframes.append(AnimKeyframe(frame=current_frame, value=[value]))
         
         # 2D Vectors
         elif segment_type == SegmentType.VECTOR2:
             offset = data_offset
-            vec, offset = read_vector2(file_data, offset)
+            vec, offset = read_vector2(file_data, offset, component_bit_size)
             keyframes.append(AnimKeyframe(frame=current_frame, value=vec))
             
             if not is_static:
@@ -140,13 +150,13 @@ class AnimKeyframe:
                     frame_delta = file_data[offset]
                     offset += 1
                     current_frame += frame_delta
-                    vec, offset = read_vector2(file_data, offset)
+                    vec, offset = read_vector2(file_data, offset, component_bit_size)
                     keyframes.append(AnimKeyframe(frame=current_frame, value=vec))
         
         # 4D Vectors
         elif segment_type == SegmentType.VECTOR4:
             offset = data_offset
-            vec, offset = read_vector4(file_data, offset)
+            vec, offset = read_vector4(file_data, offset, component_bit_size)
             keyframes.append(AnimKeyframe(frame=current_frame, value=vec))
             
             if not is_static:
@@ -154,7 +164,7 @@ class AnimKeyframe:
                     frame_delta = file_data[offset]
                     offset += 1
                     current_frame += frame_delta
-                    vec, offset = read_vector4(file_data, offset)
+                    vec, offset = read_vector4(file_data, offset, component_bit_size)
                     keyframes.append(AnimKeyframe(frame=current_frame, value=vec))
         
         else:
@@ -228,7 +238,7 @@ class AnimKeyframe:
             
             # Write initial vector3
             initial_vec = keyframes[0].data.value
-            write_vector3(buffer, initial_vec)
+            write_vector3(buffer, initial_vec, component_bit_size)
             
             # Write subsequent keyframes if this is not a static track
             if has_frames and len(keyframes) > 1:
@@ -248,7 +258,7 @@ class AnimKeyframe:
                     
                     # Write vector3
                     vec = keyframes[i].data.value
-                    write_vector3(buffer, vec)
+                    write_vector3(buffer, vec, component_bit_size)
             
             # Align to 2-byte boundary (FAlign(2) in binary template)
             align_buffer(buffer, 2)
@@ -261,7 +271,10 @@ class AnimKeyframe:
             
             # Write initial float
             initial_value = keyframes[0].data.value[0] if isinstance(keyframes[0].data.value, list) else keyframes[0].data.value
-            write_float(buffer, initial_value)
+            if component_bit_size == 16:
+                write_anim_half(buffer, initial_value)
+            else:  # component_bit_size == 32
+                write_float(buffer, initial_value)
             
             # Write subsequent keyframes if this is not a static track
             if has_frames and len(keyframes) > 1:
@@ -281,7 +294,10 @@ class AnimKeyframe:
                     
                     # Write float
                     value = keyframes[i].data.value[0] if isinstance(keyframes[i].data.value, list) else keyframes[i].data.value
-                    write_float(buffer, value)
+                    if component_bit_size == 16:
+                        write_anim_half(buffer, value)
+                    else:  # component_bit_size == 32
+                        write_float(buffer, value)
             
             # Align to 2-byte boundary (FAlign(2) in binary template)
             align_buffer(buffer, 2)
@@ -294,7 +310,7 @@ class AnimKeyframe:
             
             # Write initial vector2
             initial_vec = keyframes[0].data.value
-            write_vector2(buffer, initial_vec)
+            write_vector2(buffer, initial_vec, component_bit_size)
             
             # Write subsequent keyframes if this is not a static track
             if has_frames and len(keyframes) > 1:
@@ -314,7 +330,7 @@ class AnimKeyframe:
                     
                     # Write vector2
                     vec = keyframes[i].data.value
-                    write_vector2(buffer, vec)
+                    write_vector2(buffer, vec, component_bit_size)
             
             # Align to 2-byte boundary (FAlign(2) in binary template)
             align_buffer(buffer, 2)
@@ -327,7 +343,7 @@ class AnimKeyframe:
             
             # Write initial vector4
             initial_vec = keyframes[0].data.value
-            write_vector4(buffer, initial_vec)
+            write_vector4(buffer, initial_vec, component_bit_size)
             
             # Write subsequent keyframes if this is not a static track
             if has_frames and len(keyframes) > 1:
@@ -347,7 +363,7 @@ class AnimKeyframe:
                     
                     # Write vector4
                     vec = keyframes[i].data.value
-                    write_vector4(buffer, vec)
+                    write_vector4(buffer, vec, component_bit_size)
             
             # Align to 2-byte boundary (FAlign(2) in binary template)  
             align_buffer(buffer, 2)

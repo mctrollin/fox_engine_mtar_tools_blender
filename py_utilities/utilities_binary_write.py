@@ -149,39 +149,111 @@ def write_unaligned_quaternion(buffer: bytearray, bit_pos: int, quat: List[float
     return bit_pos
 
 
+def write_anim_half(f: BinaryIO, value: float) -> None:
+    """Write an AnimHalf (Fox Engine 16-bit half-precision float) to file.
+    
+    AnimHalf is a custom 16-bit float format used by Fox Engine.
+    This is the reverse of read_anim_half().
+    
+    Conversion algorithm (reverse of anim_common.bt read):
+    The read algorithm is:
+        num1 = (value & 0x7C00)  # Extract exponent bits 10-14
+        if num1 > 0:
+            num1 = (num1 + 0x1dc00) << 13
+        num1 |= ((value & 0x8000) << 16) | ((value & 0x3FF) << 13)
+        result = interpret num1 as float32
+    
+    The write algorithm reverses this process.
+    
+    Args:
+        f: File object to write to
+        value: Float value to write
+    """
+    # Convert float to uint32 bits
+    float_bits = struct.unpack('<I', struct.pack('<f', value))[0]
+    
+    # Extract components from float32
+    sign = (float_bits >> 31) & 0x1  # Bit 31
+    mantissa_float = (float_bits >> 13) & 0x3FF  # Bits 13-22 -> AnimHalf bits 0-9
+    
+    # Extract and convert exponent
+    # Read does: num1 = (value & 0x7C00); if num1 > 0: num1 = (num1 + 0x1dc00) << 13
+    # So we need to reverse: (num1 >> 13) - 0x1dc00 if num1 > 0, else 0
+    exp_shifted = (float_bits >> 13) & 0x7C00  # Bits 13-27, mask to bits 10-14 range
+    if exp_shifted > 0x1dc00:
+        exp_half = (exp_shifted - 0x1dc00) >> 13  # Reverse the +0x1dc00 and <<13
+    else:
+        exp_half = 0
+    
+    # Pack into 16-bit AnimHalf format
+    # Bit 15: sign
+    # Bits 10-14: exponent (5 bits)
+    # Bits 0-9: mantissa (10 bits)
+    anim_half_value = (sign << 15) | ((exp_half & 0x1F) << 10) | (mantissa_float & 0x3FF)
+    
+    f.write(struct.pack('<H', anim_half_value))
+
+
 def write_float(f: BinaryIO, value: float) -> None:
     """Write a single float (32-bit little-endian) to file."""
     f.write(struct.pack('<f', value))
 
 
-def write_vector2(f: BinaryIO, vec: List[float]) -> None:
-    """Write a 2D vector (two floats) to file.
+def write_vector2(f: BinaryIO, vec: List[float], component_bit_size: int = 32) -> None:
+    """Write a 2D vector to file.
     
     Args:
         f: File object to write to
         vec: Vector [x, y]
+        component_bit_size: Bit size per component (16 for AnimHalf, 32 for float)
     """
-    f.write(struct.pack('<ff', vec[0], vec[1]))
+    if component_bit_size == 16:
+        # Write as AnimHalf (2 bytes per component)
+        write_anim_half(f, vec[0])
+        write_anim_half(f, vec[1])
+    else:  # component_bit_size == 32
+        # Write as float (4 bytes per component)
+        f.write(struct.pack('<ff', vec[0], vec[1]))
 
 
-def write_vector3(f: BinaryIO, vec: List[float]) -> None:
+def write_vector3(f: BinaryIO, vec: List[float], component_bit_size: int = 32) -> None:
     """Write a 3D vector to file.
     
     Args:
         f: File object to write to
         vec: Vector [x, y, z]
+        component_bit_size: Bit size per component (0 for empty, 16 for AnimHalf, 32 for float)
     """
-    f.write(struct.pack('<fff', vec[0], vec[1], vec[2]))
+    if component_bit_size == 0:
+        # Empty vector (no data written)
+        return
+    elif component_bit_size == 16:
+        # Write as AnimHalf (2 bytes per component)
+        write_anim_half(f, vec[0])
+        write_anim_half(f, vec[1])
+        write_anim_half(f, vec[2])
+    else:  # component_bit_size == 32
+        # Write as float (4 bytes per component)
+        f.write(struct.pack('<fff', vec[0], vec[1], vec[2]))
 
 
-def write_vector4(f: BinaryIO, vec: List[float]) -> None:
-    """Write a 4D vector (four floats) to file.
+def write_vector4(f: BinaryIO, vec: List[float], component_bit_size: int = 32) -> None:
+    """Write a 4D vector to file.
     
     Args:
         f: File object to write to
         vec: Vector [x, y, z, w]
+        component_bit_size: Bit size per component (16 for AnimHalf, 32 for float)
     """
-    f.write(struct.pack('<ffff', vec[0], vec[1], vec[2], vec[3]))
+    if component_bit_size == 16:
+        # Write as AnimHalf (2 bytes per component)
+        write_anim_half(f, vec[0])
+        write_anim_half(f, vec[1])
+        write_anim_half(f, vec[2])
+        write_anim_half(f, vec[3])
+    else:  # component_bit_size == 32
+        # Write as float (4 bytes per component)
+        f.write(struct.pack('<ffff', vec[0], vec[1], vec[2], vec[3]))
 
 
 

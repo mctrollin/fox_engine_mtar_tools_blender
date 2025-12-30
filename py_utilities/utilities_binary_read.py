@@ -99,6 +99,36 @@ def read_unaligned_quaternion(buffer: bytes, bit_pos: int, bit_size: int) -> tup
     return [qx, qy, qz, qw], bit_pos
 
 
+def read_anim_half(buffer: bytes, offset: int) -> Tuple[float, int]:
+    """Read an AnimHalf (Fox Engine 16-bit half-precision float) from buffer.
+    
+    AnimHalf is a custom 16-bit float format used by Fox Engine:
+    - Bits 0-9 (10 bits): Mantissa
+    - Bits 10-14 (5 bits): Exponent  
+    - Bit 15 (1 bit): Sign
+    
+    Conversion algorithm from anim_common.bt:
+        num1 = (value & 0x7C00)
+        if num1 > 0:
+            num1 = (num1 + 0x1dc00) << 13
+        num1 |= ((value & 0x8000) << 16) | ((value & 0x3FF) << 13)
+        result = interpret num1 as float32
+    
+    Returns (float_value, new_offset).
+    """
+    value = struct.unpack('<H', buffer[offset:offset+2])[0]
+    
+    num1 = value & 0x7C00  # Extract exponent bits
+    if num1 > 0:
+        num1 = (num1 + 0x1dc00) << 13
+    num1 |= ((value & 0x8000) << 16) | ((value & 0x3FF) << 13)
+    
+    # Convert uint32 to float32
+    float_value = struct.unpack('<f', struct.pack('<I', num1))[0]
+    
+    return float_value, offset + 2
+
+
 def read_float(buffer: bytes, offset: int) -> Tuple[float, int]:
     """Read a single float (32-bit little-endian) from buffer at offset.
 
@@ -108,26 +138,71 @@ def read_float(buffer: bytes, offset: int) -> Tuple[float, int]:
     return value, offset + 4
 
 
-def read_vector2(buffer: bytes, offset: int) -> Tuple[List[float], int]:
-    """Read a 2D vector (two floats) from buffer at offset.
-
+def read_vector2(buffer: bytes, offset: int, component_bit_size: int = 32) -> Tuple[List[float], int]:
+    """Read a 2D vector from buffer at offset.
+    
+    Args:
+        buffer: Binary data buffer
+        offset: Starting offset in bytes
+        component_bit_size: Bit size per component (16 for AnimHalf, 32 for float)
+    
     Returns ( [x, y], new_offset ).
     """
-    vec = struct.unpack('<ff', buffer[offset:offset+8])
-    return [vec[0], vec[1]], offset + 8
+    if component_bit_size == 16:
+        # Read as AnimHalf (2 bytes per component)
+        x, offset = read_anim_half(buffer, offset)
+        y, offset = read_anim_half(buffer, offset)
+        return [x, y], offset
+    else:  # component_bit_size == 32
+        # Read as float (4 bytes per component)
+        vec = struct.unpack('<ff', buffer[offset:offset+8])
+        return [vec[0], vec[1]], offset + 8
 
 
-def read_vector3(buffer: bytes, offset: int) -> Tuple[List[float], int]:
-    """Read a 3D vector from the buffer."""
-    vec = struct.unpack('<fff', buffer[offset:offset+12])
-    return list(vec), offset + 12
+def read_vector3(buffer: bytes, offset: int, component_bit_size: int = 32) -> Tuple[List[float], int]:
+    """Read a 3D vector from buffer at offset.
+    
+    Args:
+        buffer: Binary data buffer
+        offset: Starting offset in bytes
+        component_bit_size: Bit size per component (0 for empty, 16 for AnimHalf, 32 for float)
+    
+    Returns ( [x, y, z], new_offset ).
+    """
+    if component_bit_size == 0:
+        # Empty vector (no data)
+        return [0.0, 0.0, 0.0], offset
+    elif component_bit_size == 16:
+        # Read as AnimHalf (2 bytes per component)
+        x, offset = read_anim_half(buffer, offset)
+        y, offset = read_anim_half(buffer, offset)
+        z, offset = read_anim_half(buffer, offset)
+        return [x, y, z], offset
+    else:  # component_bit_size == 32
+        # Read as float (4 bytes per component)
+        vec = struct.unpack('<fff', buffer[offset:offset+12])
+        return list(vec), offset + 12
 
 
-def read_vector4(buffer: bytes, offset: int) -> Tuple[List[float], int]:
-    """Read a 4D vector (four floats) from buffer at offset.
-
+def read_vector4(buffer: bytes, offset: int, component_bit_size: int = 32) -> Tuple[List[float], int]:
+    """Read a 4D vector from buffer at offset.
+    
+    Args:
+        buffer: Binary data buffer
+        offset: Starting offset in bytes
+        component_bit_size: Bit size per component (16 for AnimHalf, 32 for float)
+    
     Returns ( [x, y, z, w], new_offset ).
     """
-    vec = struct.unpack('<ffff', buffer[offset:offset+16])
-    return [vec[0], vec[1], vec[2], vec[3]], offset + 16
+    if component_bit_size == 16:
+        # Read as AnimHalf (2 bytes per component)
+        x, offset = read_anim_half(buffer, offset)
+        y, offset = read_anim_half(buffer, offset)
+        z, offset = read_anim_half(buffer, offset)
+        w, offset = read_anim_half(buffer, offset)
+        return [x, y, z, w], offset
+    else:  # component_bit_size == 32
+        # Read as float (4 bytes per component)
+        vec = struct.unpack('<ffff', buffer[offset:offset+16])
+        return [vec[0], vec[1], vec[2], vec[3]], offset + 16
 
