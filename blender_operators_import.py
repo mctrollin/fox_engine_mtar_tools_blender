@@ -12,6 +12,7 @@ from bpy.props import StringProperty
 
 from .py_utilities.utilities_logging import Debug, update_progress
 from .py_utilities.utilities_rig_hash import unhash_rig_type
+from .py_utilities.utilities_parsing import parse_index_selection
 
 from .py_fox.fox_mtar_types import MtarHeader
 from .py_fox.fox_frig_types import FrigFile, RigUnitDef
@@ -19,6 +20,7 @@ from .py_fox.fox_frig_types import FrigFile, RigUnitDef
 from .py_foxwrap.foxwrap_misc_import import CommonInfo
 from .py_foxwrap.foxwrap_mapping import parse_track_mapping_file, TrackMappingData, BoneParameters
 from .py_foxwrap.foxwrap_metadata import get_segments_for_track_type
+from .py_foxwrap.foxwrap_mtar_reader import MtarReader
 
 from .mtar_importer import import_mtar
 from .py_tools.tools_blender_animation_bake import bake_armature_action, bake_armature_nla_strips
@@ -406,6 +408,26 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
         # Get custom rig if specified
         custom_rig: Optional[bpy.types.Object] = import_props.custom_rig if import_props.custom_rig else None
         
+        # Parse GANI indices from user input
+        gani_indices: Optional[List[int]] = None
+        if import_props.gani_indices_str.strip():
+            try:
+                # Get total GANI count from MTAR header
+                reader = MtarReader(import_props.mtar_filepath)
+                header_info = reader.get_header_info()
+                
+                # Parse selection with validation
+                gani_indices = parse_index_selection(import_props.gani_indices_str, header_info.file_count)
+                Debug.log(f"Parsed GANI selection: {gani_indices}")
+            except ValueError as e:
+                self.report({'ERROR'}, f"Invalid GANI selection: {e}")
+                return {'CANCELLED'}
+            except Exception as e:
+                self.report({'ERROR'}, f"Error parsing GANI selection: {e}")
+                Debug.log_error(f"GANI selection parse error: {e}")
+                traceback.print_exc()
+                return {'CANCELLED'}
+        
         # Initialize progress bar
         wm: bpy.types.WindowManager = context.window_manager
         wm.progress_begin(0, 100)
@@ -413,7 +435,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
         
         # Import MTAR animation
         try:
-            import_result: Tuple[Set[str], Optional[bpy.types.Object]] = import_mtar(context, import_props.mtar_filepath, frig_data, track_mapping, import_props.gani_index, custom_rig, import_props.strip_padding)
+            import_result: Tuple[Set[str], Optional[bpy.types.Object]] = import_mtar(context, import_props.mtar_filepath, frig_data, track_mapping, gani_indices, custom_rig, import_props.strip_padding)
             
             # Extract result and imported armature
             if isinstance(import_result, tuple):

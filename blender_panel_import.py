@@ -1,11 +1,14 @@
 """
 Blender N-Panels for MTAR import/export functionality.
 """
+import os
 from typing import Optional
 
 import bpy
 from bpy.types import Panel, PropertyGroup, Context, UILayout, Object
 from bpy.props import StringProperty, PointerProperty, IntProperty
+
+from .py_foxwrap.foxwrap_mtar_reader import MtarReader
 
 from .blender_operators_import import (
     MTAR_OT_GenerateTrackMappingTemplateFile,
@@ -83,6 +86,19 @@ class MTAR_PT_ImportPanel(Panel):
         row.prop(import_props, "mtar_filepath", text="", icon='ANIM')
         row.operator("mtar.select_import_mtar_file", text="", icon='FILE_FOLDER')
 
+        # MTAR header preview (read-only display)
+        info_box = mtar_box.box()
+        if import_props.mtar_filepath and os.path.exists(import_props.mtar_filepath):
+            try:
+                reader = MtarReader(import_props.mtar_filepath)
+                header_info = reader.get_header_info()
+                
+                row = info_box.row()
+                row.label(text=f"v: {header_info.version}")
+                row.label(text=f"Files: {header_info.file_count}")
+            except Exception as e:
+                info_box.label(text=f"Error reading MTAR: {e}", icon='ERROR')
+
         # FRIG file picker
         mapping_box = box_import.box()
         row = mapping_box.row(align=True)
@@ -101,9 +117,9 @@ class MTAR_PT_ImportPanel(Panel):
         row.prop(import_props, "mapping_filepath", text="", icon='TEXT')
         row.operator("mtar.select_mapping_file", text="", icon='FILE_FOLDER')
 
-        # GANI index selector
+        # GANI selection field
         box = box_import
-        box.prop(import_props, "gani_index", text="Gani File Index", icon='FILTER')
+        box.prop(import_props, "gani_indices_str", text="", icon='FILTER')
         
         # Strip padding (advanced setting)
         if settings_props.show_advanced_settings:

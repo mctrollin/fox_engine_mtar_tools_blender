@@ -89,15 +89,26 @@ def apply_track_naming(gani_tracks: List[TrackUnitWrapper], prefix: Optional[str
 class Gani2Reader:
     """Reader for GANI2 animation data."""
 
-
-
     def read_gani(self, file_data: bytes, layout_track: Tracks, file_header: MtarTableList2, track_count: int, is_new_format: bool) -> Tuple[List[TrackUnitWrapper], List[TrackUnitWrapper], Optional[EvpHeader], TrackMiniHeader, Optional[Tracks], Optional[TrackHeader]]:
+        """Read GANI data from a byte buffer.
+        
+        Args:
+            file_data: Complete MTAR file data (or GANI-sized chunk for selective reading)
+            layout_track: Layout track structure from CommonInfo
+            file_header: MTAR file header with offsets
+            track_count: Number of tracks to read
+            is_new_format: Whether this is new MTAR format
+            
+        Returns:
+            Tuple of (gani_tracks, motion_point_tracks, motion_events, track_mini_header, motion_point_layout, motion_point_track_header)
+        """
         Debug.log("  Reading GANI data:")
+        Debug.log(f"    Buffer size: {len(file_data)} bytes ({len(file_data) / 1024:.1f} KB)")
         Debug.log(f"    Track count: {track_count}")
         Debug.log(f"    Tracks offset: 0x{file_header.tracks_offset:X}")
         Debug.log(f"    New format: {is_new_format}")
-
-        # Tracks: Let gani_reader handle the track data reading
+        
+        # Tracks: Read track data
         gani_tracks, track_mini_header = self.read_all_tracks(
             file_data,
             file_header.tracks_offset,

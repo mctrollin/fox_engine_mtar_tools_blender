@@ -504,6 +504,13 @@ def create_animation_actions(
         Note: max_frame_end is the sum of action frame counts without padding.
         Padding is applied separately when creating NLA strips.
     """
+    # Debug: Log list lengths to diagnose IndexError
+    Debug.log(f"create_animation_actions received lists with lengths:")
+    Debug.log(f"  all_gani_tracks: {len(all_gani_tracks)}")
+    Debug.log(f"  all_track_mini_headers: {len(all_track_mini_headers)}")
+    Debug.log(f"  all_file_headers: {len(all_file_headers)}")
+    Debug.log(f"  all_motion_events: {len(all_motion_events)}")
+    
     # Create layout track action to store metadata
     layout_action: Optional[bpy.types.Action] = None
     if layout_track and layout_track.track_units:
@@ -1337,7 +1344,7 @@ def create_and_setup_motion_points_armature(
 
 # MTAR import #############################################################
 
-def import_mtar(context: bpy.types.Context, filepath: str, frig: Optional[FrigFile], track_mapping: Optional[Dict[str, BoneParameters]] = None, gani_index: int = -1, custom_rig: Optional[bpy.types.Object] = None, strip_padding: int = 10) -> Tuple[Dict[str, str], bpy.types.Object]:
+def import_mtar(context: bpy.types.Context, filepath: str, frig: Optional[FrigFile], track_mapping: Optional[Dict[str, BoneParameters]] = None, gani_indices: Optional[List[int]] = None, custom_rig: Optional[bpy.types.Object] = None, strip_padding: int = 10) -> Tuple[Dict[str, str], bpy.types.Object]:
     """Import MTAR animation data and create corresponding objects and animations.
     
     Args:
@@ -1345,13 +1352,13 @@ def import_mtar(context: bpy.types.Context, filepath: str, frig: Optional[FrigFi
         filepath: Path to the MTAR file
         frig: FrigFile object containing rig data (can be None)
         track_mapping: Optional dictionary mapping source track name to BoneParameters (transformation data)
-        gani_index: Index of the GANI file to import (-1 = import all)
+        gani_indices: List of GANI indices to import (None = import all, [] = import nothing)
         custom_rig: Optional Rigify armature to connect imported animation to
         strip_padding: Number of frames to insert between animation strips (default: 10)
     """
     
     # Import the mtar data
-    result, imported_armature = import_mtar_data(context, filepath, frig, track_mapping, gani_index, custom_rig, strip_padding)
+    result, imported_armature = import_mtar_data(context, filepath, frig, track_mapping, gani_indices, custom_rig, strip_padding)
     
     # Set up rig constraints if custom rig is provided
     if custom_rig and imported_armature:
@@ -1359,7 +1366,7 @@ def import_mtar(context: bpy.types.Context, filepath: str, frig: Optional[FrigFi
     
     return result, imported_armature
 
-def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[FrigFile], track_mapping: Optional[Dict[str, BoneParameters]] = None, gani_index: int = -1, custom_rig: Optional[bpy.types.Object] = None, strip_padding: int = 10) -> Tuple[Dict[str, str], bpy.types.Object]:
+def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[FrigFile], track_mapping: Optional[Dict[str, BoneParameters]] = None, gani_indices: Optional[List[int]] = None, custom_rig: Optional[bpy.types.Object] = None, strip_padding: int = 10) -> Tuple[Dict[str, str], bpy.types.Object]:
     """Import MTAR animation data and create corresponding objects and animations.
     
     Each GANI file in the MTAR becomes one Blender action.
@@ -1373,7 +1380,7 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
         filepath: Path to the MTAR file
         frig: FrigFile object containing rig data (can be None)
         track_mapping: Optional dictionary mapping source track name to transformation data
-        gani_index: Index of the GANI file to import (-1 = import all)
+        gani_indices: List of GANI indices to import (None = import all, [] = import nothing)
         custom_rig: Optional Rigify armature to receive animation data and constraints
         strip_padding: Number of frames to insert between animation strips (default: 10)
         
@@ -1389,7 +1396,7 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
     
     reader: MtarReader = MtarReader(filepath)
 
-    # Read all animation tracks, motion point tracks, and events
+    # Read animation tracks - selective or all
     Debug.log("Reading MTAR file data...")
     update_progress(10, "Reading MTAR...")
     all_gani_tracks: List[List[TrackUnitWrapper]]
@@ -1399,8 +1406,42 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
     all_motion_point_layouts: List[Optional[Tracks]]  # List of Tracks objects (motion point track structures)
     all_file_headers: List[MtarTableList2]  # List of MtarTableList2 objects with path hash
     all_motion_point_track_headers: List[Optional['TrackHeader']]  # List of TrackHeader objects for motion points
-    all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers = reader.read_all_tracks()
-    Debug.log(f"Found {len(all_gani_tracks)} GANI file(s)")
+    
+    if gani_indices is not None:
+        # Selective import - use read_selected_ganis()
+        if not gani_indices:
+            # Empty list = import nothing
+            Debug.log("Empty GANI selection - importing nothing")
+            all_gani_tracks = []
+            all_motion_point_gani_tracks = []
+            all_motion_events = []
+            all_track_mini_headers = []
+            all_motion_point_layouts = []
+            all_file_headers = []
+            all_motion_point_track_headers = []
+        else:
+            # Import selected GANIs
+            Debug.log(f"Selective import: GANI indices {gani_indices}")
+            results_dict = reader.read_selected_ganis(gani_indices)
+            
+            # Convert dict to sorted lists
+            all_gani_tracks = [results_dict[i][0] for i in sorted(results_dict.keys())]
+            all_motion_point_gani_tracks = [results_dict[i][1] for i in sorted(results_dict.keys())]
+            all_motion_events = [results_dict[i][2] for i in sorted(results_dict.keys())]
+            all_track_mini_headers = [results_dict[i][3] for i in sorted(results_dict.keys())]
+            all_motion_point_layouts = [results_dict[i][4] for i in sorted(results_dict.keys())]
+            all_file_headers = [results_dict[i][5] for i in sorted(results_dict.keys())]
+            all_motion_point_track_headers = [results_dict[i][6] for i in sorted(results_dict.keys())]
+            Debug.log(f"Imported {len(all_gani_tracks)} GANI file(s)")
+            Debug.log(f"List lengths: gani_tracks={len(all_gani_tracks)}, motion_point_tracks={len(all_motion_point_gani_tracks)}, "
+                     f"motion_events={len(all_motion_events)}, track_mini_headers={len(all_track_mini_headers)}, "
+                     f"motion_point_layouts={len(all_motion_point_layouts)}, file_headers={len(all_file_headers)}, "
+                     f"motion_point_track_headers={len(all_motion_point_track_headers)}")
+    else:
+        # Import all GANIs
+        Debug.log("Importing all GANIs")
+        all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers = reader.read_all_tracks()
+        Debug.log(f"Found {len(all_gani_tracks)} GANI file(s)")
     
     # Get layout track for metadata storage
     layout_track = None
@@ -1415,51 +1456,6 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
         Debug.log(f"Motion points found: {motion_points.count} point(s)")
         for entry in motion_points.entries:
             Debug.log(f"  MotionPoint {entry.name}: name={str(entry.name)}, parent={str(entry.parent_name)}")
-    
-    # Filter to specific GANI index if requested
-    if gani_index >= 0:
-        if gani_index < len(all_gani_tracks):
-            Debug.log(f"Importing only GANI index {gani_index}")
-            all_gani_tracks = [all_gani_tracks[gani_index]]
-            # Also filter motion point data to match the selected GANI
-            if gani_index < len(all_motion_point_gani_tracks):
-                all_motion_point_gani_tracks = [all_motion_point_gani_tracks[gani_index]]
-            else:
-                all_motion_point_gani_tracks = []
-            
-            if gani_index < len(all_motion_point_layouts):
-                all_motion_point_layouts = [all_motion_point_layouts[gani_index]]
-            else:
-                all_motion_point_layouts = []
-            
-            if gani_index < len(all_motion_point_track_headers):
-                all_motion_point_track_headers = [all_motion_point_track_headers[gani_index]]
-            else:
-                all_motion_point_track_headers = []
-            
-            if gani_index < len(all_motion_events):
-                all_motion_events = [all_motion_events[gani_index]]
-            else:
-                all_motion_events = []
-            
-            if gani_index < len(all_track_mini_headers):
-                all_track_mini_headers = [all_track_mini_headers[gani_index]]
-            else:
-                all_track_mini_headers = []
-            
-            if gani_index < len(all_file_headers):
-                all_file_headers = [all_file_headers[gani_index]]
-            else:
-                all_file_headers = []
-        else:
-            Debug.log_warning(f"  Warning: GANI index {gani_index} out of range (0-{len(all_gani_tracks)-1}), importing nothing")
-            all_gani_tracks = []
-            all_motion_point_gani_tracks = []
-            all_motion_point_layouts = []
-            all_motion_point_track_headers = []
-            all_motion_events = []
-            all_track_mini_headers = []
-            all_file_headers = []
     
     # If FRIG data is available, set rig_unit_type for each GaniTrack
     # The index of gani_tracks correlates with the rig unit defs in the FRIG file

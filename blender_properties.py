@@ -30,11 +30,19 @@ class MTAR_PG_ImportProperties(PropertyGroup):
         maxlen=1024,
     )
     
-    gani_index: IntProperty(
-        name="GANI Index",
-        description="Index of the GANI file to import (-1 = import all)",
-        default=-1,
-        min=-1,
+    gani_indices_str: StringProperty(
+        name="GANI Selection",
+        description=(
+            "Select GANI indices to import. Leave empty to import all.\n"
+            "Syntax:\n"
+            "  • Ranges: 0-2 (indices 0,1,2)\n"
+            "  • Individual: 30,40\n"
+            "  • Exclusion: !300 (exclude index 300)\n"
+            "  • Exclusion ranges: !400-500\n"
+            "  • Combined: 0-2,30,40,!300,!400-500"
+        ),
+        default="",
+        maxlen=256,
     )
     
     custom_rig: PointerProperty(
