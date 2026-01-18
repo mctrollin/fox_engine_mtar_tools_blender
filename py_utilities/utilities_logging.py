@@ -2,6 +2,8 @@
 
 Provides a small Unity-like Debug API and a simple verbosity filter.
 
+Warnings and errors are also shown to the Blender user as a popup for improved visibility.
+
 API:
   Debug.log(msg)         -> informational message (INFO)
   Debug.log_warning(msg) -> warning message (WARNING)
@@ -89,6 +91,33 @@ def _should_log_timers() -> bool:
     return False
 
 
+def _notify_player(message: str, level: _LogLevel) -> None:
+    """Show a minimal Blender popup for warnings/errors.
+
+    This forwards the provided message directly to the user via a small
+    popup menu. It's intentionally minimal and best-effort: any failures
+    are silently ignored so logging remains safe in background contexts.
+    """
+    try:
+        # Draw function for popup_menu expects (self, context)
+        def _draw(self, _context):
+            # Preserve message lines; empty lines need a placeholder label
+            for line in str(message).splitlines():
+                self.layout.label(text=line if line else " ")
+
+        title = "MTAR: Error" if level == _LogLevel.ERROR else "MTAR: Warning"
+        icon = 'ERROR' if level == _LogLevel.ERROR else 'ERROR'
+
+        # Attempt to show the popup; this requires a UI context
+        try:
+            bpy.context.window_manager.popup_menu(_draw, title=title, icon=icon)
+        except Exception:
+            # UI may not be available (background mode); ignore gracefully
+            pass
+    except Exception:
+        # Never raise from the logger - keep it robust in all contexts
+        pass
+
 class Debug:
     """Static logging helpers.
 
@@ -110,14 +139,24 @@ class Debug:
 
     @staticmethod
     def log_warning(message: str) -> None:
-        """Log a warning message (WARNING)."""
+        """Log a warning message (WARNING). Also notify Blender user via popup."""
+        # Notify the user with a popup regardless of panel verbosity (per request)
+        try:
+            _notify_player(message, _LogLevel.WARNING)
+        except Exception:
+            pass
         if not _should_log(_LogLevel.WARNING):
             return
         print(f"[WARNING] {message}")
 
     @staticmethod
     def log_error(message: str) -> None:
-        """Log an error message (ERROR)."""
+        """Log an error message (ERROR). Also notify Blender user via popup."""
+        # Notify the user with a popup regardless of panel verbosity (per request)
+        try:
+            _notify_player(message, _LogLevel.ERROR)
+        except Exception:
+            pass
         if not _should_log(_LogLevel.ERROR):
             return
         print(f"[ERROR] {message}")
