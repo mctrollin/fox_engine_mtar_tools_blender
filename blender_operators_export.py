@@ -167,26 +167,27 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
         execution_props.operation_type = 'EXPORT'
         
         try:
-            # Export MTAR with layout track extracted from metadata
-            result = export_mtar(
-                context=context,
-                filepath=export_props.filepath,
-                armature=export_props.armature,
-                track_segment_bone_mapping=track_segment_bone_mapping,
-                use_nla=export_props.use_nla
-            )
-            
-            Debug.log("\n========= Finished EXPORT MTAR OPERATION =========\n")
-
-            # Result is a dict like {'FINISHED': 'message'} or {'CANCELLED': 'message'}
-            if 'FINISHED' in result:
-                self.report({'INFO'}, result['FINISHED'])
-                update_progress(100, "Done")
-                return {'FINISHED'}
-            else:
-                self.report({'ERROR'}, result.get('CANCELLED', 'Export failed'))
-                return {'CANCELLED'}
+            with Debug.busy_cursor():
+                # Export MTAR with layout track extracted from metadata
+                result = export_mtar(
+                    context=context,
+                    filepath=export_props.filepath,
+                    armature=export_props.armature,
+                    track_segment_bone_mapping=track_segment_bone_mapping,
+                    use_nla=export_props.use_nla
+                )
                 
+                Debug.log("\n========= Finished EXPORT MTAR OPERATION =========\n")
+
+                # Result is a dict like {'FINISHED': 'message'} or {'CANCELLED': 'message'}
+                if 'FINISHED' in result:
+                    self.report({'INFO'}, result['FINISHED'])
+                    update_progress(100, "Done")
+                    return {'FINISHED'}
+                else:
+                    self.report({'ERROR'}, result.get('CANCELLED', 'Export failed'))
+                    return {'CANCELLED'}
+        
         except (OSError, ValueError) as e:  # noqa: E722
             self.report({'ERROR'}, f"Export failed: {str(e)}")
             traceback.print_exc()

@@ -376,7 +376,7 @@ def apply_rest_pose_correction_local(quat: Quaternion, map_r_dict: dict) -> Quat
 def apply_rest_pose_correction_world(quat: Quaternion, offset_r_dict: dict) -> Quaternion:
     """Apply world space rest pose correction using simple quaternion multiplication.
     
-    For WORLD space tracks (indicated by space_r=ws), the offset_r parameter
+    For WORLD space tracks (indicated by space_r=world), the offset_r parameter
     applies a simple rotation offset via quaternion multiplication.
     
     Args:

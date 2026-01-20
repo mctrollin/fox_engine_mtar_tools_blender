@@ -435,82 +435,83 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
         
         # Import MTAR animation
         try:
-            import_result: Tuple[Set[str], Optional[bpy.types.Object]] = import_mtar(context, import_props.mtar_filepath, frig_data, track_mapping, gani_indices, custom_rig, import_props.strip_padding)
-            
-            # Extract result and imported armature
-            if isinstance(import_result, tuple):
-                result: Set[str]
-                imported_armature: Optional[bpy.types.Object]
-                result, imported_armature = import_result
-            else:
-                result = import_result
-                imported_armature = None
-            
-            Debug.log("\n========= Finished IMPORT MTAR OPERATION =========\n")
+            with Debug.busy_cursor():
+                import_result: Tuple[Set[str], Optional[bpy.types.Object]] = import_mtar(context, import_props.mtar_filepath, frig_data, track_mapping, gani_indices, custom_rig, import_props.strip_padding)
+                
+                # Extract result and imported armature
+                if isinstance(import_result, tuple):
+                    result: Set[str]
+                    imported_armature: Optional[bpy.types.Object]
+                    result, imported_armature = import_result
+                else:
+                    result = import_result
+                    imported_armature = None
+                
+                Debug.log("\n========= Finished IMPORT MTAR OPERATION =========\n")
 
-            if result == {'FINISHED'}:
-                self.report({'INFO'}, "MTAR animation imported successfully")
-                
-                # Bake custom rig if requested
-                if import_props.bake_after_import and custom_rig:
-                    try:
-                        Debug.log("\n========= STARTING BAKE OPERATION =========\n")
-                        update_progress(75, "Baking...")
-                        
-                        # Check if custom rig has NLA tracks (common after import)
-                        if custom_rig.animation_data and custom_rig.animation_data.nla_tracks:
-                            Debug.log("Baking NLA strips...")
-                            bake_result: Dict[str, Any] = bake_armature_nla_strips(
-                                custom_rig, 
-                                remove_constraints=True,
-                                new_action_suffix="_baked",
-                                only_unmuted=True,
-                                source_armature=imported_armature,
-                                create_new_action=not import_props.delete_import_armature
-                            )
+                if result == {'FINISHED'}:
+                    self.report({'INFO'}, "MTAR animation imported successfully")
+                    
+                    # Bake custom rig if requested
+                    if import_props.bake_after_import and custom_rig:
+                        try:
+                            Debug.log("\n========= STARTING BAKE OPERATION =========\n")
+                            update_progress(75, "Baking...")
                             
-                            handle_bake_result(bake_result, custom_rig, imported_armature, props, self)
-                        
-                        # Fall back to baking active action if no NLA tracks
-                        elif custom_rig.animation_data and custom_rig.animation_data.action:
-                            Debug.log("Baking active action...")
-                            bake_result = bake_armature_action(
-                                custom_rig, 
-                                custom_rig.animation_data.action, 
-                                remove_constraints=True,
-                                create_new_action=True,
-                                new_action_suffix="_baked",
-                                source_armature=imported_armature
-                            )
+                            # Check if custom rig has NLA tracks (common after import)
+                            if custom_rig.animation_data and custom_rig.animation_data.nla_tracks:
+                                Debug.log("Baking NLA strips...")
+                                bake_result: Dict[str, Any] = bake_armature_nla_strips(
+                                    custom_rig, 
+                                    remove_constraints=True,
+                                    new_action_suffix="_baked",
+                                    only_unmuted=True,
+                                    source_armature=imported_armature,
+                                    create_new_action=not import_props.delete_import_armature
+                                )
+                                
+                                handle_bake_result(bake_result, custom_rig, imported_armature, props, self)
                             
-                            handle_bake_result(bake_result, custom_rig, imported_armature, props, self)
+                            # Fall back to baking active action if no NLA tracks
+                            elif custom_rig.animation_data and custom_rig.animation_data.action:
+                                Debug.log("Baking active action...")
+                                bake_result = bake_armature_action(
+                                    custom_rig, 
+                                    custom_rig.animation_data.action, 
+                                    remove_constraints=True,
+                                    create_new_action=True,
+                                    new_action_suffix="_baked",
+                                    source_armature=imported_armature
+                                )
+                                
+                                handle_bake_result(bake_result, custom_rig, imported_armature, props, self)
+                            else:
+                                self.report({'WARNING'}, "custom rig has no NLA tracks or active action to bake")
+                                Debug.log_warning("custom rig has no NLA tracks or active action to bake")
+                            
+                            Debug.log("\n========= Finished BAKE OPERATION =========\n")
+                            
+                        except Exception as e:  # noqa: E722
+                            self.report({'ERROR'}, f"Failed to bake custom rig: {str(e)}")
+                            Debug.log_error(f"Bake error: {e}")
+                            traceback.print_exc()
+                            # Continue regardless of bake failure
+                    
+                    # Clear all transforms from custom rig after import/bake
+                    if custom_rig:
+                        update_progress(95, "Cleaning up...")
+                        if clear_armature_transforms(custom_rig):
+                            Debug.log("Transforms cleared from custom rig")
+                            self.report({'INFO'}, "Cleared transforms from custom rig")
                         else:
-                            self.report({'WARNING'}, "custom rig has no NLA tracks or active action to bake")
-                            Debug.log_warning("custom rig has no NLA tracks or active action to bake")
-                        
-                        Debug.log("\n========= Finished BAKE OPERATION =========\n")
-                        
-                    except Exception as e:  # noqa: E722
-                        self.report({'ERROR'}, f"Failed to bake custom rig: {str(e)}")
-                        Debug.log_error(f"Bake error: {e}")
-                        traceback.print_exc()
-                        # Continue regardless of bake failure
-                
-                # Clear all transforms from custom rig after import/bake
-                if custom_rig:
-                    update_progress(95, "Cleaning up...")
-                    if clear_armature_transforms(custom_rig):
-                        Debug.log("Transforms cleared from custom rig")
-                        self.report({'INFO'}, "Cleared transforms from custom rig")
-                    else:
-                        self.report({'WARNING'}, "Could not clear transforms from custom rig")
-                
-                update_progress(100, "Done")
-                return {'FINISHED'}
-            else:
-                self.report({'WARNING'}, "MTAR import completed with warnings")
-                return {'FINISHED'}
-                
+                            self.report({'WARNING'}, "Could not clear transforms from custom rig")
+                    
+                    update_progress(100, "Done")
+                    return {'FINISHED'}
+                else:
+                    self.report({'WARNING'}, "MTAR import completed with warnings")
+                    return {'FINISHED'}
+        
         except (OSError, ValueError) as e:  # noqa: E722
             self.report({'ERROR'}, f"Failed to import MTAR: {str(e)}")
             Debug.log_error(f"MTAR import error: {e}")

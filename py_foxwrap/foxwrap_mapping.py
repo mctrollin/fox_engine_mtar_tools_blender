@@ -45,8 +45,8 @@ class BoneParameters:
         fox_name: Fox Engine bone name (required)
         rotation_offset: Optional list of rotation offset parameters (applied in order during import)
         rotation_axis_map: Optional axis mapping parameters
-        space_r: Optional rotation space specification ('ws' or bone name)
-        space_l: Optional location space specification ('ws' or bone name)
+        space_r: Optional rotation space specification ('world' or 'custom,<bone>')
+        space_l: Optional location space specification ('world' or 'custom,<bone>')
         as_ik_up: Optional IK up vector parameters
         track_name: Optional track name from mapping file
         map_r: Optional rest pose correction parameters for LOCAL space tracks (similarity transformation)
@@ -228,17 +228,19 @@ def parse_mapping_line(line: str, line_num: int) -> Optional[Tuple[str, dict]]:
                 result = parse_space_parameter(param_value)
                 if result:
                     mapping_data['space_r'] = result
-                    custom_bone = result.get('custom_bone')
-                    if custom_bone:
-                        Debug.log(f"  Mapping '{from_name}' -> '{to_name}' with world space rotation constraint (custom space: '{custom_bone}')")
+                    if result.get('space') == 'CUSTOM':
+                        Debug.log(f"  Mapping '{from_name}' -> '{to_name}' with world-space rotation constraint (owner custom bone: '{result.get('custom_bone')}')")
                     else:
-                        Debug.log(f"  Mapping '{from_name}' -> '{to_name}' with world space rotation constraint")
+                        Debug.log(f"  Mapping '{from_name}' -> '{to_name}' with world-space rotation constraint")
             
             elif param_name == 'space_l':
                 result = parse_space_parameter(param_value)
                 if result:
                     mapping_data['space_l'] = result
-                    Debug.log(f"  Mapping '{from_name}' -> '{to_name}' with world space location constraint")
+                    if result.get('space') == 'CUSTOM':
+                        Debug.log(f"  Mapping '{from_name}' -> '{to_name}' with world-space location constraint (owner custom bone: '{result.get('custom_bone')}')")
+                    else:
+                        Debug.log(f"  Mapping '{from_name}' -> '{to_name}' with world-space location constraint")
             
             elif param_name == 'as_ik_up':
                 result = parse_as_ik_up_parameter(param_value)
@@ -329,10 +331,10 @@ def parse_track_mapping_file(filepath: str) -> TrackMappingData:
     - offset_r: Rotation offset as euler_x,euler_y,euler_z,order (e.g., offset_r=90,0,0,xyz)
                 Can be specified multiple times; offsets are applied in order of appearance
     - map_r: Rotation axis mapping (e.g., map_r=x,y,z or map_r=y,-x,z)
-    - space_r: Rotation constraint space (e.g., space_r=ws or space_r=ws,bone_name)
-                Format: ws or ws,custom_bone_name
+    - space_r: Rotation constraint space (e.g., space_r=world or space_r=custom,<bone_name>)
+                Format: world or custom,custom_bone_name
                 Creates Copy Rotation constraint. Optional second parameter sets owner space to custom bone.
-    - space_l: Location constraint space (space_l=ws for world space Copy Location constraint)
+    - space_l: Location constraint space (space_l=world for world space Copy Location constraint)
     - as_ik_up: Convert rotation track to directional location IK (e.g., as_ik_up=base_bone,Z,1.0)
                 Format: bone_base,axis,distance
                 Creates constraints: Copy Location from base + Transformation (Add) from imported offset
@@ -345,8 +347,8 @@ def parse_track_mapping_file(filepath: str) -> TrackMappingData:
     Root : torso_root ; offset_r=90,0,0,xyz ; map_r=y,x,z
     
     @track LArm : segments=q|v|q ; type=ARM ; bits=14
-    LArm_0 : shoulder.L ; space_r=ws,torso_root
-    LArm_1 : hand_ik.L ; space_l=ws
+    LArm_0 : shoulder.L ; space_r=custom,torso_root
+    LArm_1 : hand_ik.L ; space_l=world
     LArm_2 : upper_arm_ik_target.L ; as_ik_up=upper_arm_ik.L,x,1
     
     Args:

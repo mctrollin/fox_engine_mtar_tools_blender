@@ -118,49 +118,6 @@ def _notify_player(message: str, level: _LogLevel) -> None:
         # Never raise from the logger - keep it robust in all contexts
         pass
 
-class Debug:
-    """Static logging helpers.
-
-    Usage:
-        Debug.log("info")
-        Debug.log_warning("warn")
-        Debug.log_error("err")
-    """
-
-    @staticmethod
-    def log(message: str) -> None:
-        """Log an informational message (INFO).
-
-        These messages are shown when the global level is set to INFO or DEBUG.
-        """
-        if not _should_log(_LogLevel.INFO):
-            return
-        print(message)
-
-    @staticmethod
-    def log_warning(message: str) -> None:
-        """Log a warning message (WARNING). Also notify Blender user via popup."""
-        # Notify the user with a popup regardless of panel verbosity (per request)
-        try:
-            _notify_player(message, _LogLevel.WARNING)
-        except Exception:
-            pass
-        if not _should_log(_LogLevel.WARNING):
-            return
-        print(f"[WARNING] {message}")
-
-    @staticmethod
-    def log_error(message: str) -> None:
-        """Log an error message (ERROR). Also notify Blender user via popup."""
-        # Notify the user with a popup regardless of panel verbosity (per request)
-        try:
-            _notify_player(message, _LogLevel.ERROR)
-        except Exception:
-            pass
-        if not _should_log(_LogLevel.ERROR):
-            return
-        print(f"[ERROR] {message}")
-
 
 
 def is_logging_enabled() -> bool:
@@ -271,3 +228,119 @@ def update_progress_status(text: str) -> None:
                 pass
     except (ImportError, AttributeError, RuntimeError):
         pass
+
+
+from contextlib import contextmanager
+
+
+def set_busy_cursor(enabled: bool) -> None:
+    """Set or clear the busy/wait cursor in Blender (best-effort).
+
+    This is intentionally non-throwing and best-effort so it can be used
+    from background contexts, threads, or places where the UI may not be
+    available. Use ``set_busy_cursor(True)`` at the start of a long-running
+    operation and ``set_busy_cursor(False)`` in a finally block.
+
+    Args:
+        enabled: True to set busy/wait cursor, False to restore default cursor
+    """
+    try:
+        # Prefer the window-level cursor API when available
+        try:
+            bpy.context.window.cursor_set('WAIT' if enabled else 'DEFAULT')
+            return
+        except Exception:
+            # Fallback to window manager or ignore
+            pass
+
+        try:
+            wm = bpy.context.window_manager
+            # Some Blender builds may provide cursor methods on window manager
+            # (this is defensive; cursor_set on window is more common)
+            if hasattr(wm, 'cursor_modal_set'):
+                if enabled:
+                    wm.cursor_modal_set('WAIT')
+                else:
+                    # cursor_modal_set(None) clears modal cursor, but may not exist
+                    try:
+                        wm.cursor_modal_restore()
+                    except Exception:
+                        pass
+            elif hasattr(wm, 'cursor_set'):
+                wm.cursor_set('WAIT' if enabled else 'DEFAULT')
+        except Exception:
+            # Ignore issues probing window manager methods
+            pass
+    except Exception:
+        # Never raise from utility functions used by UI code
+        pass
+
+
+@contextmanager
+def busy_cursor():
+    """Context manager that sets a busy cursor for the duration of the context.
+
+    Usage:
+        with busy_cursor():
+            long_running_task()
+    """
+    set_busy_cursor(True)
+    try:
+        yield
+    finally:
+        set_busy_cursor(False)
+
+
+# Convenience passthrough on Debug for callers elsewhere in the codebase
+class Debug:
+    """Static logging helpers.
+
+    Usage:
+        Debug.log("info")
+        Debug.log_warning("warn")
+        Debug.log_error("err")
+    """
+
+    @staticmethod
+    def log(message: str) -> None:
+        """Log an informational message (INFO).
+
+        These messages are shown when the global level is set to INFO or DEBUG.
+        """
+        if not _should_log(_LogLevel.INFO):
+            return
+        print(message)
+
+    @staticmethod
+    def log_warning(message: str) -> None:
+        """Log a warning message (WARNING). Also notify Blender user via popup."""
+        # Notify the user with a popup regardless of panel verbosity (per request)
+        try:
+            _notify_player(message, _LogLevel.WARNING)
+        except Exception:
+            pass
+        if not _should_log(_LogLevel.WARNING):
+            return
+        print(f"[WARNING] {message}")
+
+    @staticmethod
+    def log_error(message: str) -> None:
+        """Log an error message (ERROR). Also notify Blender user via popup."""
+        # Notify the user with a popup regardless of panel verbosity (per request)
+        try:
+            _notify_player(message, _LogLevel.ERROR)
+        except Exception:
+            pass
+        if not _should_log(_LogLevel.ERROR):
+            return
+        print(f"[ERROR] {message}")
+
+    @staticmethod
+    def set_busy_cursor(enabled: bool) -> None:
+        """Convenience wrapper for set_busy_cursor defined at module level."""
+        set_busy_cursor(enabled)
+
+    @staticmethod
+    def busy_cursor():
+        """Return a context manager that sets a busy cursor for the duration of the context."""
+        return busy_cursor()

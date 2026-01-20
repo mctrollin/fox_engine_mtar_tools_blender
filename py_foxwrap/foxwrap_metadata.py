@@ -433,16 +433,36 @@ def parse_map_r_parameter(param_value: str) -> Optional[List[dict]]:
 
 
 def parse_space_parameter(param_value: str) -> Optional[dict]:
-    parts = param_value.split(',')
+    """
+    Parse the space parameter from mapping files.
+
+    Recognized formats (case-insensitive):
+      - "world" -> {'space': 'WORLD'}
+      - "custom,<bone>" -> {'space': 'CUSTOM', 'custom_bone': '<bone>'}
+
+    Returns None for invalid values. Emits warnings for invalid usages (e.g., world with a bone, or custom without a bone).
+    """
+    parts = param_value.split(',', 1)
     space_value = parts[0].strip().lower()
-    if space_value != 'ws':
+
+    # World-space: ignore any trailing bone and warn the user
+    if space_value == 'world':
+        if len(parts) > 1 and parts[1].strip():
+            Debug.log_warning("Warning: 'space=world,<bone>' specified a custom bone which is invalid for 'world'; the custom bone will be ignored. Use 'space=custom,<bone>' to set a custom owner bone.")
+        return {'space': 'WORLD'}
+
+    # Custom-space: requires a bone name
+    if space_value == 'custom':
+        if len(parts) > 1:
+            custom_bone = parts[1].strip()
+            if custom_bone:
+                return {'space': 'CUSTOM', 'custom_bone': custom_bone}
+        Debug.log_warning("Warning: 'space=custom' requires a bone name (e.g. 'space=custom,torso_root'); parameter will be ignored.")
         return None
-    result = {'space': 'WORLD'}
-    if len(parts) > 1:
-        custom_bone = parts[1].strip()
-        if custom_bone:
-            result['custom_bone'] = custom_bone
-    return result
+
+    # Unknown token
+    Debug.log_warning(f"Warning: 'space={space_value}' is unspecified. Use either 'space=world' or 'space=custom,<bone>'.")
+    return None
 
 
 def parse_as_ik_up_parameter(param_value: str) -> Optional[dict]:
@@ -830,26 +850,18 @@ class TrackMetaData:
         """Extract the space bone name from a space parameter.
         
         Space parameters can be:
-        - None (use default world/local space)
-        - Dict format: {'space': 'WORLD', 'custom_bone': 'bone_name'} (new format from parse_space_parameter)
-        - String "ws" or "ws,bone_name" (world space, optionally with custom bone) [deprecated]
-        - String "bone_name" (custom space bone) [deprecated]
+        - None (use default local/world behavior)
+        - Dict format: {'space': 'WORLD'} or {'space': 'CUSTOM', 'custom_bone': 'bone_name'} (from parse_space_parameter)
         
         Args:
-            space_param: Space parameter (dict or string, typically from bone_params.space_r or space_l)
+            space_param: Space parameter (dict, typically from bone_params.space_r or space_l)
             
         Returns:
             The custom space bone name if specified, None otherwise
         """
         if space_param:
-            # Handle dict format (new format)
             if isinstance(space_param, dict):
                 return space_param.get('custom_bone')
-            # Handle string-format space parameters (backward compatibility)
-            elif isinstance(space_param, str):
-                if not space_param.startswith('ws'):
-                    # It's a custom bone name
-                    return space_param
         return None
 
     def to_dict(self) -> Dict[str, Any]:

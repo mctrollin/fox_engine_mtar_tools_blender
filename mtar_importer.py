@@ -263,7 +263,7 @@ def extract_rest_pose_from_custom_rig(all_gani_tracks: List[List[TrackUnitWrappe
                     if track_blob.rotation_offset is None:
                         track_blob.rotation_offset = []
                     track_blob.rotation_offset.append(rest_pose_dict)
-                    Debug.log(f"  {track_blob.name} [WS]: Added rest pose to offset_r: ({euler_deg[0]:.1f}, {euler_deg[1]:.1f}, {euler_deg[2]:.1f})")
+                    Debug.log(f"  {track_blob.name} [WORLD]: Added rest pose to offset_r: ({euler_deg[0]:.1f}, {euler_deg[1]:.1f}, {euler_deg[2]:.1f})")
                 else:
                     # LOCAL space track - merge with existing map_r_rest_pose or set if missing
                     if track_blob.map_r_rest_pose is None:
@@ -395,7 +395,7 @@ def import_keyframes_track(context: bpy.types.Context, action: bpy.types.Action,
                 )
                 
                 # Apply rest pose correction based on track space type
-                # World space tracks (space_r=ws): use offset_r with simple multiplication
+                # World space tracks (space_r=world): use offset_r with simple multiplication
                 # Local space tracks (default): use map_r with similarity transformation
                 if keyframes_track.space_r:
                     # World space track - use offset_r if present
@@ -780,25 +780,25 @@ def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object,
     are defined in the track mapping file.
     
     Supported mapping file parameters:
-        space_r=ws : Creates a world space Copy Rotation constraint
+        space_r=world : Creates a world space Copy Rotation constraint
                      Requires bone with the renamed name to exist in both armatures
-                     Uses World Space for both Target and Owner, Mix mode = Replace
+                     Uses World Space for Target and Owner
         
-        space_r=ws,<custom_bone> : Creates a world space Copy Rotation constraint with custom owner space
+        space_r=custom,<custom_bone> : Creates a world-space Copy Rotation constraint with custom owner space
                      Target space is World, Owner space is Custom (using specified bone)
         
-        space_l=ws : Creates a world space Copy Location constraint
+        space_l=world : Creates a world space Copy Location constraint
                      Requires bone with the renamed name to exist in both armatures
                      Uses World Space for both Target and Owner
                      X and Y axes are inverted
         
-        space_l=ws,<custom_bone> : Creates a world space Copy Location constraint with custom owner space
+        space_l=custom,<custom_bone> : Creates a world space Copy Location constraint with custom owner space
                      Target space is World, Owner space is Custom (using specified bone)
                      X and Y axes are inverted
-                     Example: space_l=ws,torso_root
+                     Example: space_l=custom,torso_root
         
         Multiple source tracks can map to the same target bone (e.g., one with rotation data
-        using space_r=ws, another with location data using space_l=ws). Parameters are merged
+        using space_r=world, another with location data using space_l=world). Parameters are merged
         automatically during parsing.
         
         Note: Constraints are created based solely on the mapping parameters. The presence or
@@ -881,8 +881,8 @@ def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object,
         space_l = mapping_data.space_l
         
         # Check if we have space_r or space_l (now they're dicts with 'space' and optional 'custom_bone')
-        has_space_r = space_r and isinstance(space_r, dict) and space_r.get('space') == 'WORLD'
-        has_space_l = space_l and isinstance(space_l, dict) and space_l.get('space') == 'WORLD'
+        has_space_r = space_r and isinstance(space_r, dict) and space_r.get('space') in ('WORLD', 'CUSTOM')
+        has_space_l = space_l and isinstance(space_l, dict) and space_l.get('space') in ('WORLD', 'CUSTOM')
         
         if has_space_r or has_space_l:
             # World space constraint: check if imported armature has bone with exact renamed name
@@ -895,26 +895,26 @@ def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object,
             
             # Create Copy Rotation constraint if space_r is set
             if has_space_r:
-                custom_bone = space_r.get('custom_bone')
-                
+                space_type = space_r.get('space')
+                custom_bone = space_r.get('custom_bone') if space_type == 'CUSTOM' else None
+
                 if custom_bone:
-                    Debug.log(f"  Creating world space Copy Rotation constraint: {custom_rig.name}['{target_bone_name}'] <- {imported_armature.name}['{target_bone_name}'] (custom space: '{custom_bone}')")
+                    Debug.log(f"  Creating world-space Copy Rotation constraint: {custom_rig.name}['{target_bone_name}'] <- {imported_armature.name}['{target_bone_name}'] (owner custom bone: '{custom_bone}')")
                 else:
-                    Debug.log(f"  Creating world space Copy Rotation constraint: {custom_rig.name}['{target_bone_name}'] <- {imported_armature.name}['{target_bone_name}']")
-                
+                    Debug.log(f"  Creating world-space Copy Rotation constraint: {custom_rig.name}['{target_bone_name}'] <- {imported_armature.name}['{target_bone_name}']")
+
                 constraint = target_pose_bone.constraints.new('COPY_ROTATION')
                 constraint.name = f"MTAR_WS_Rot_{target_bone_name}"
                 constraint.target = imported_armature
                 constraint.subtarget = target_bone_name
-                
+
                 # Set target space to World
                 constraint.target_space = 'WORLD'
-                
-                # Set owner space - either custom or world
+
+                # Set owner space - custom only if provided
                 if custom_bone:
-                    # Validate custom bone exists
                     if custom_bone not in custom_rig.pose.bones:
-                        Debug.log_warning(f"    Warning: Custom space bone '{custom_bone}' not found in custom rig, using world space")
+                        Debug.log_warning(f"    Warning: Custom owner bone '{custom_bone}' not found in custom rig, using world owner space")
                         constraint.owner_space = 'WORLD'
                     else:
                         constraint.owner_space = 'CUSTOM'
@@ -922,36 +922,36 @@ def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object,
                         constraint.space_subtarget = custom_bone
                 else:
                     constraint.owner_space = 'WORLD'
-                
+
                 # Set Mix to Replace
                 constraint.mix_mode = 'REPLACE'
-                
+
                 # Rest use defaults (influence=1.0, all axes enabled, etc.)
-                
+
                 constraints_added += 1
             
             # Create Copy Location constraint if space_l is set
             if has_space_l:
-                custom_bone = space_l.get('custom_bone')
-                
+                space_type_l = space_l.get('space')
+                custom_bone = space_l.get('custom_bone') if space_type_l == 'CUSTOM' else None
+
                 if custom_bone:
-                    Debug.log(f"  Creating world space Copy Location constraint: {custom_rig.name}['{target_bone_name}'] <- {imported_armature.name}['{target_bone_name}'] (custom space: '{custom_bone}')")
+                    Debug.log(f"  Creating world-space Copy Location constraint: {custom_rig.name}['{target_bone_name}'] <- {imported_armature.name}['{target_bone_name}'] (owner custom bone: '{custom_bone}')")
                 else:
-                    Debug.log(f"  Creating world space Copy Location constraint: {custom_rig.name}['{target_bone_name}'] <- {imported_armature.name}['{target_bone_name}']")
-                
+                    Debug.log(f"  Creating world-space Copy Location constraint: {custom_rig.name}['{target_bone_name}'] <- {imported_armature.name}['{target_bone_name}']")
+
                 constraint = target_pose_bone.constraints.new('COPY_LOCATION')
                 constraint.name = f"MTAR_WS_Loc_{target_bone_name}"
                 constraint.target = imported_armature
                 constraint.subtarget = target_bone_name
-                
+
                 # Set target space to World
                 constraint.target_space = 'WORLD'
-                
-                # Set owner space - either custom or world
+
+                # Set owner space - custom only if provided
                 if custom_bone:
-                    # Validate custom bone exists
                     if custom_bone not in custom_rig.pose.bones:
-                        Debug.log_warning(f"    Warning: Custom space bone '{custom_bone}' not found in custom rig, using world space")
+                        Debug.log_warning(f"    Warning: Custom owner bone '{custom_bone}' not found in custom rig, using world owner space")
                         constraint.owner_space = 'WORLD'
                     else:
                         constraint.owner_space = 'CUSTOM'
@@ -959,14 +959,14 @@ def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object,
                         constraint.space_subtarget = custom_bone
                 else:
                     constraint.owner_space = 'WORLD'
-                
+
                 # Invert X and Y axes
                 if custom_bone:
                     constraint.invert_x = True
                     constraint.invert_y = True
-                
+
                 # Rest use defaults (influence=1.0, Z not inverted, etc.)
-                
+
                 constraints_added += 1
         
         # Check for as_ik_up parameter (directional vector IK)
@@ -1007,15 +1007,14 @@ def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object,
             # Source space - always world
             constraint2.target_space = 'WORLD'
             
-            # Owner space - check if space_r has custom bone (also applies to as_ik_up)
+            # Owner space - use custom owner only when space_r indicates CUSTOM
             custom_bone = None
-            if has_space_r and space_r:
+            if has_space_r and space_r and space_r.get('space') == 'CUSTOM':
                 custom_bone = space_r.get('custom_bone')
-            
+
             if custom_bone:
-                # Validate custom bone exists
                 if custom_bone not in custom_rig.pose.bones:
-                    Debug.log_warning(f"    Warning: Custom space bone '{custom_bone}' not found in custom rig, using world space for transformation")
+                    Debug.log_warning(f"    Warning: Custom owner bone '{custom_bone}' not found in custom rig, using world owner space for transformation")
                     constraint2.owner_space = 'WORLD'
                 else:
                     constraint2.owner_space = 'CUSTOM'
@@ -1356,7 +1355,6 @@ def import_mtar(context: bpy.types.Context, filepath: str, frig: Optional[FrigFi
         custom_rig: Optional Rigify armature to connect imported animation to
         strip_padding: Number of frames to insert between animation strips (default: 10)
     """
-    
     # Import the mtar data
     result, imported_armature = import_mtar_data(context, filepath, frig, track_mapping, gani_indices, custom_rig, strip_padding)
     
@@ -1388,7 +1386,6 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
         Tuple of (result dict, imported armature object)
     """
     start_timer("MTAR Import")
-    
     Debug.log("=== MTAR Import Started ===")
     Debug.log(f"File: {filepath}")
     if frig:
@@ -1404,9 +1401,9 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
     all_motion_events: List[Optional['EvpHeader']]  # Motion events for each GANI
     all_track_mini_headers: List[TrackMiniHeader]  # List of TrackMiniHeader objects with segment_headers (main tracks)
     all_motion_point_layouts: List[Optional[Tracks]]  # List of Tracks objects (motion point track structures)
-    all_file_headers: List[MtarTableList2]  # List of MtarTableList2 objects with path hash
+    all_file_headers: List[MtarTableList2]  # List of MtarTable2 objects with path hash
     all_motion_point_track_headers: List[Optional['TrackHeader']]  # List of TrackHeader objects for motion points
-    
+
     if gani_indices is not None:
         # Selective import - use read_selected_ganis()
         if not gani_indices:
@@ -1442,7 +1439,7 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
         Debug.log("Importing all GANIs")
         all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers = reader.read_all_tracks()
         Debug.log(f"Found {len(all_gani_tracks)} GANI file(s)")
-    
+
     # Get layout track for metadata storage
     layout_track = None
     motion_points = None

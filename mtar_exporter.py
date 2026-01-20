@@ -231,7 +231,7 @@ def extract_rest_pose_correction_mapping_from_armature(track_segment_bone_mappin
                     if 'rotation_offset' not in bone_params or bone_params['rotation_offset'] is None:
                         bone_params['rotation_offset'] = []
                     bone_params['rotation_offset'].append(rest_pose_dict)
-                Debug.log(f"  {blender_bone_name} [WS]: Added rest pose to offset_r: ({euler_deg[0]:.1f}, {euler_deg[1]:.1f}, {euler_deg[2]:.1f})")
+                Debug.log(f"  {blender_bone_name} [WORLD]: Added rest pose to offset_r: ({euler_deg[0]:.1f}, {euler_deg[1]:.1f}, {euler_deg[2]:.1f})")
             else:
                 # LOCAL space track - merge with existing map_r or set if missing
                 existing_map_r = getattr(bone_params, 'map_r', None) if hasattr(bone_params, 'map_r') else bone_params.get('map_r') if isinstance(bone_params, dict) else None
@@ -578,9 +578,9 @@ def export_rotation_segment(armature: bpy.types.Object, blender_bone_name: str,
         blender_quat = get_rotation(frame)
         
         # Apply reverse rest pose corrections (must happen BEFORE axis mapping and offsets)
-        # World space tracks (space_r=ws): reverse offset_r using simple multiplication
+        # World space tracks (space_r=world): reverse offset_r using simple multiplication
         # Local space tracks (default): reverse map_r using similarity transformation
-        if space_r_value and isinstance(space_r_value, dict) and space_r_value.get('space') == 'ws':
+        if space_r_value and isinstance(space_r_value, dict) and space_r_value.get('space') == 'WORLD':
             # World space track - reverse offset_r if present
             if rotation_offset:
                 # Use first offset as the offset_r (world space offset)
@@ -609,7 +609,7 @@ def export_location_segment(armature: bpy.types.Object, blender_bone_name: str,
                             rig_unit_type: Optional[RigUnitType] = None) -> List['AnimKeyframe']:
     """Export location segment keyframes.
     
-    Note: When space_l=ws,<custom_bone> is used, the import creates a Copy Location constraint
+    Note: When space_l=custom,<custom_bone> is used, the import creates a Copy Location constraint
     with X and Y axes inverted. During export, we need to reverse this by inverting X and Y again.
     """
     keyframes = []
@@ -1279,7 +1279,7 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
         return {'CANCELLED': 'Object is not an armature'}
     
     Debug.log(f"Exporting armature: {armature.name}")
-    
+
     # =============================
     # =============================
 
@@ -1300,7 +1300,7 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
                 idx, 0, bone_name, BoneParameters(fox_name=bone_name)
             )
             Debug.log(f"  Track {idx}: {bone_name}")
-    
+
     # Extract rest pose from armature (merges with mapping file transformations)
     # Check settings to see if rest pose correction is enabled
     enable_rest_pose = context.scene.mtar_properties.settings_props.enable_rest_pose_correction
