@@ -824,6 +824,16 @@ def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object,
     Debug.log(f"Source armature: {imported_armature.name}")
     Debug.log(f"custom rig: {custom_rig.name}")
     
+    # Remove any action currently assigned to the custom rig to ensure constraints and
+    # baked animations applied during import do not accidentally modify an existing action.
+    try:
+        if hasattr(custom_rig, 'animation_data') and custom_rig.animation_data and custom_rig.animation_data.action:
+            Debug.log(f"Removing existing action '{custom_rig.animation_data.action.name}' from custom rig '{custom_rig.name}'")
+            custom_rig.animation_data.action = None
+    except Exception:
+        # Best-effort: do not fail the import if we cannot modify the rig's animation_data
+        pass
+
     if not track_mapping:
         Debug.log("No track mapping provided - skipping constraint setup")
         return

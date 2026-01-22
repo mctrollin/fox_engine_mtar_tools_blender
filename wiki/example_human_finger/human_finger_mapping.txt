@@ -1,64 +1,64 @@
 # Track 0 (qd, vd)
 @track Root : type=ROOT
-Root : torso_root 				; offset_r=0,0,180,zyx
+Root : torso_root               ; offset_r=0,0,180,zyx
 
 # Track 1 (q, v)
 @track Waist : type=TRANSFORM
-Waist : torso				; space_r=custom,torso_root ; space_l=custom,torso_root
+Waist : torso                   ; space_r=custom,torso_root ; space_l=custom,torso_root
 
 # Track 2 (q)
 @track Spine : type=ORIENTATION
-Spine : spine_fk.001			; space_r=custom,torso_root
+Spine : spine_fk.001            ; space_r=custom,torso_root
 
 # Track 3 (q)
 @track Chest : type=ORIENTATION
-Chest : spine_fk.002			; space_r=custom,torso_root
+Chest : spine_fk.002            ; space_r=custom,torso_root
 
 # Track 4 (q)
 @track Neck : type=ORIENTATION
-Neck : neck					; space_r=custom,torso_root
+Neck : neck                     ; space_r=custom,torso_root
 
 # Track 5 (q)
 @track Head : type=ORIENTATION
-Head : head					; space_r=custom,torso_root
+Head : head                     ; space_r=custom,torso_root
 
 # Track 6 (q, v, q)
 @track LArm : type=ARM
-LArm_0 : shoulder.L			; space_r=custom,torso_root
-LArm_1 : hand_ik.L			; space_l=world
-LArm_2 : upper_arm_ik_target.L	; space_r=custom,torso_root ; as_ik_up=upper_arm_ik.L,x
+LArm_0 : shoulder.L             ; space_r=custom,torso_root
+LArm_1 : hand_ik.L              ; space_l=world
+LArm_2 : upper_arm_ik_target.L  ; space_r=custom,torso_root ; as_ik_up=upper_arm_ik.L,x
 
 # Track 7 (q)
 @track LHand : type=ORIENTATION
-LHand : hand_ik.L			; space_r=custom,torso_root
+LHand : hand_ik.L               ; space_r=custom,torso_root
 
 # Track 8 (q, v, q)
 @track RArm : type=ARM
-RArm_0 : shoulder.R			; space_r=custom,torso_root
-RArm_1 : hand_ik.R			; space_l=world
-RArm_2 : upper_arm_ik_target.R	; space_r=custom,torso_root ; as_ik_up=upper_arm_ik.R,x
+RArm_0 : shoulder.R             ; space_r=custom,torso_root
+RArm_1 : hand_ik.R              ; space_l=world
+RArm_2 : upper_arm_ik_target.R  ; space_r=custom,torso_root ; as_ik_up=upper_arm_ik.R,x
 
 # Track 9 (q)
 @track RHand : type=ORIENTATION
-RHand : hand_ik.R			; space_r=custom,torso_root
+RHand : hand_ik.R               ; space_r=custom,torso_root
 
 # Track 10 (v, q)
 @track LLeg : type=TWO_BONE
-LLeg_0 : foot_ik.L 				; space_l=world
-LLeg_1 : thigh_ik_target.L	; space_r=custom,torso_root ; as_ik_up=thigh_ik.L,x
+LLeg_0 : foot_ik.L              ; space_l=world
+LLeg_1 : thigh_ik_target.L      ; space_r=custom,torso_root ; as_ik_up=thigh_ik.L,x
 
 # Track 11 (q)
 @track LFoot : type=ORIENTATION
-LFoot : foot_ik.L 		; space_r=custom,torso_root
+LFoot : foot_ik.L               ; space_r=custom,torso_root
 
 # Track 12 (v, q)
 @track RLeg : type=TWO_BONE
-RLeg_0 : foot_ik.R 				; space_l=world
-RLeg_1 : thigh_ik_target.R	; space_r=custom,torso_root ; as_ik_up=thigh_ik.R,x
+RLeg_0 : foot_ik.R              ; space_l=world
+RLeg_1 : thigh_ik_target.R      ; space_r=custom,torso_root ; as_ik_up=thigh_ik.R,x
 
 # Track 13 (q)
 @track RFoot : type=ORIENTATION
-RFoot : foot_ik.R 		; space_r=custom,torso_root
+RFoot : foot_ik.R       ; space_r=custom,torso_root
 
 # Track 14 (q)
 @track LToe : type=LOCAL_ORIENTATION
@@ -70,38 +70,38 @@ RToe : toe_ik.R
 
 # Track 16 (q * 16)
 @track LFingers : type=MULTI_LOCAL_ORIENTATION ; count=16
-LFingers_0 : thumb.01.L 		
-LFingers_1 : thumb.02.L 		
-LFingers_2 : thumb.03.L 		
-LFingers_3 : f_index.01.L 		
-LFingers_4 : f_index.02.L 		
-LFingers_5 : f_index.03.L 		
-LFingers_6 : f_middle.01.L 		
-LFingers_7 : f_middle.02.L 		
-LFingers_8 : f_middle.03.L 		
-LFingers_9 : palm.L 			
-LFingers_10 : f_ring.01.L 		
-LFingers_11 : f_ring.02.L 		
-LFingers_12 : f_ring.03.L 		
-LFingers_13 : f_pinky.01.L 		
-LFingers_14 : f_pinky.02.L 		
-LFingers_15 : f_pinky.03.L 		
+LFingers_0 : thumb.01.L         
+LFingers_1 : thumb.02.L         
+LFingers_2 : thumb.03.L         
+LFingers_3 : f_index.01.L       
+LFingers_4 : f_index.02.L       
+LFingers_5 : f_index.03.L       
+LFingers_6 : f_middle.01.L      
+LFingers_7 : f_middle.02.L      
+LFingers_8 : f_middle.03.L      
+LFingers_9 : palm.L             
+LFingers_10 : f_ring.01.L       
+LFingers_11 : f_ring.02.L       
+LFingers_12 : f_ring.03.L       
+LFingers_13 : f_pinky.01.L      
+LFingers_14 : f_pinky.02.L      
+LFingers_15 : f_pinky.03.L      
 
 # Track 17 (q * 16)
 @track RFingers : type=MULTI_LOCAL_ORIENTATION ; count=16
-RFingers_0 : thumb.01.R 		
-RFingers_1 : thumb.02.R 		
-RFingers_2 : thumb.03.R 		
-RFingers_3 : f_index.01.R 		
-RFingers_4 : f_index.02.R 		
-RFingers_5 : f_index.03.R 		
-RFingers_6 : f_middle.01.R 		
-RFingers_7 : f_middle.02.R 		
-RFingers_8 : f_middle.03.R 		
-RFingers_9 : palm.R 			
-RFingers_10 : f_ring.01.R 		
-RFingers_11 : f_ring.02.R 		
-RFingers_12 : f_ring.03.R 		
-RFingers_13 : f_pinky.01.R 		
-RFingers_14 : f_pinky.02.R 		
-RFingers_15 : f_pinky.03.R 		
+RFingers_0 : thumb.01.R         
+RFingers_1 : thumb.02.R         
+RFingers_2 : thumb.03.R         
+RFingers_3 : f_index.01.R       
+RFingers_4 : f_index.02.R       
+RFingers_5 : f_index.03.R       
+RFingers_6 : f_middle.01.R      
+RFingers_7 : f_middle.02.R      
+RFingers_8 : f_middle.03.R      
+RFingers_9 : palm.R             
+RFingers_10 : f_ring.01.R       
+RFingers_11 : f_ring.02.R       
+RFingers_12 : f_ring.03.R       
+RFingers_13 : f_pinky.01.R      
+RFingers_14 : f_pinky.02.R      
+RFingers_15 : f_pinky.03.R      

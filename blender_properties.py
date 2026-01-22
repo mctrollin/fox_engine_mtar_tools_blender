@@ -127,6 +127,12 @@ class MTAR_PG_ExportProperties(PropertyGroup):
         default=True
     )
 
+    force_highest_bit_encoding: BoolProperty(
+        name="Force highest bit encoding",
+        description="When enabled, export uses the highest available bit encoding for each segment (may increase file size)",
+        default=False
+    )
+
     motion_points_armature: PointerProperty(
         name="Motion Points Armature",
         description="Optional armature that contains motion point bones to export (name should match <base>_MotionPoints if auto-detected).",

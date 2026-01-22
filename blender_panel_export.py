@@ -83,6 +83,10 @@ class MTAR_PT_ExportPanel(Panel):
             # Export info file option
             row = box.row()
             draw_bool_prop_checkbox_icon(row, export_props, "info_file")
+
+            # Force highest bit encoding option
+            row2 = box.row()
+            draw_bool_prop_checkbox_icon(row2, export_props, "force_highest_bit_encoding")
         
         # Export button
         box_button = layout.box()

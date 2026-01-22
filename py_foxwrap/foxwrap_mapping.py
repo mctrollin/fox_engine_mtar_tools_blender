@@ -6,7 +6,7 @@ including renaming, rotation transformations, constraint setup, and more.
 """
 
 from dataclasses import dataclass
-from typing import Dict, Tuple, Optional, List
+from typing import Dict, Tuple, Optional, List, Union
 
 from ..py_utilities.utilities_logging import Debug
 
@@ -53,7 +53,7 @@ class BoneParameters:
     """
     fox_name: str
     rotation_offset: Optional[List[dict]] = None
-    rotation_axis_map: Optional[List[Dict[str, str | bool]]] = None
+    rotation_axis_map: Optional[List[Dict[str, Union[str, bool]]]] = None
     space_r: Optional[str] = None
     space_l: Optional[str] = None
     as_ik_up: Optional[IkUpParameters] = None

@@ -41,6 +41,27 @@ from .py_fox.fox_frig_types import RigUnitType
 from .py_fox.fox_misc_types import StrCode32
 
 
+# Utility Functions ###############################################################
+
+def get_highest_bit_size_for_segment(segment_type: SegmentType) -> int:
+    """Return the highest available bit encoding for a given segment type.
+    
+    Args:
+        segment_type: The segment type to get bit size for
+        
+    Returns:
+        Maximum component_bit_size for the segment type:
+        - QUAT/QUAT_DIFF: 15 bits
+        - VECTOR2/3/4/VECTOR_DIFF/FLOAT: 32 bits
+        - Other types: 0 (no override)
+    """
+    if segment_type in [SegmentType.QUAT, SegmentType.QUAT_DIFF]:
+        return 15
+    elif segment_type in [SegmentType.VECTOR2, SegmentType.VECTOR3, SegmentType.VECTOR4, SegmentType.VECTOR_DIFF, SegmentType.FLOAT]:
+        return 32
+    return 0
+
+
 # Layout and MetaData #############################################################
 
 def find_layout_track_action() -> Optional[bpy.types.Action]:
@@ -63,13 +84,15 @@ def find_layout_track_action() -> Optional[bpy.types.Action]:
 
 def build_layout_track_from_metadata(track_segment_bone_mapping: TrackSegmentBoneMapping, 
                                      metadata_dict: Dict[str, TrackMetaData],
-                                     layout_action: Optional[bpy.types.Action] = None) -> 'Tracks':
+                                     layout_action: Optional[bpy.types.Action] = None,
+                                     force_highest_bit_encoding: bool = False) -> 'Tracks':
     """Build a Tracks (layout track) object from metadata.
     
     Args:
         track_segment_bone_mapping: Unified mapping from (track_idx, segment_idx) to (bone_name, fox_mapping_params)
         metadata_dict: Dictionary of fox_track_name -> TrackMetaData
         layout_action: Optional layout action containing header properties (t_id, unknown_a, unknown_b, frame_rate)
+        force_highest_bit_encoding: If True, use highest available bit sizes for all segments
         
     Returns:
         Tracks object with TrackUnits built from metadata
@@ -113,7 +136,13 @@ def build_layout_track_from_metadata(track_segment_bone_mapping: TrackSegmentBon
                 component_bit_size = 0
                 if metadata.component_bit_sizes and segment_idx < len(metadata.component_bit_sizes):
                     component_bit_size = metadata.component_bit_sizes[segment_idx]
-                
+
+                # If export setting forces highest bit encoding, override component_bit_size accordingly
+                if force_highest_bit_encoding:
+                    highest_bits = get_highest_bit_size_for_segment(segment_type)
+                    if highest_bits > 0:
+                        component_bit_size = max(component_bit_size, highest_bits)
+
                 # Create TrackData with proper fields
                 track_data = TrackData(
                     data_offset=0,  # Not used in layout track (disableTrackData=true in template)
@@ -658,7 +687,8 @@ def export_location_segment(armature: bpy.types.Object, blender_bone_name: str,
 def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
                      track_segment_bone_mapping: TrackSegmentBoneMapping, frame_start: int, frame_end: int,
                      action: bpy.types.Action, layout_metadata: Optional[TrackMetaData],
-                     fcurve_cache: Optional[FCurveCache] = None) -> 'TrackUnitWrapper':
+                     fcurve_cache: Optional[FCurveCache] = None,
+                     force_highest_bit_encoding: bool = False) -> 'TrackUnitWrapper':
     """Export a GaniTrack (all segments for one track).
     
     This is the export counterpart to import_gani_track().
@@ -677,6 +707,7 @@ def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
         action: Animation action containing keyframes
         layout_metadata: TrackMetaData instance containing track structure metadata for this track
         fcurve_cache: Optional pre-built FCurveCache for fast lookups
+        force_highest_bit_encoding: If True, use highest available bit sizes for all segments
         
     Returns:
         GaniTrack object with all keyframes tracks
@@ -788,7 +819,13 @@ def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
             component_bit_size = 16  # Default for export
             if merged_metadata.component_bit_sizes and segment_idx < len(merged_metadata.component_bit_sizes):
                 component_bit_size = merged_metadata.component_bit_sizes[segment_idx]
-            
+
+            # Optionally force highest bit encoding based on export setting
+            if force_highest_bit_encoding:
+                highest_bits = get_highest_bit_size_for_segment(segment_type)
+                if highest_bits > 0:
+                    component_bit_size = max(component_bit_size, highest_bits)
+
             # Create TrackDataBlob
             data_blob = TrackDataBlob.from_keyframes(
                 segment_type=segment_type,
@@ -813,7 +850,13 @@ def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
             component_bit_size = 16
             if merged_metadata.component_bit_sizes and segment_idx < len(merged_metadata.component_bit_sizes):
                 component_bit_size = merged_metadata.component_bit_sizes[segment_idx]
-            
+
+            # Respect force-highest-bit setting for empty segments as well
+            if force_highest_bit_encoding:
+                highest_bits = get_highest_bit_size_for_segment(segment_type)
+                if highest_bits > 0:
+                    component_bit_size = max(component_bit_size, highest_bits)
+
             # Create empty TrackDataBlob
             empty_data_blob = TrackDataBlob.from_keyframes(
                 segment_type=segment_type,
@@ -842,7 +885,8 @@ def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
 def export_gani_tracks_from_action(armature: bpy.types.Object,
                        action_data: ExportActionData,
                        track_segment_bone_mapping: Optional[TrackSegmentBoneMapping],
-                       layout_metadata_dict: Dict[str, TrackMetaData]) -> List['TrackUnitWrapper']:
+                       layout_metadata_dict: Dict[str, TrackMetaData],
+                       force_highest_bit_encoding: bool = False) -> List['TrackUnitWrapper']:
     """Export a single action as GANI track data.
     
     This is the export counterpart to the per-GANI processing in import_track_data().
@@ -854,6 +898,7 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
         action_data: ExportActionData containing action and export parameters
     track_segment_bone_mapping: Optional unified mapping from (track_idx, segment_idx) to (bone_name, fox_mapping_params). If None, fallback mode is used.
     layout_metadata_dict: Dictionary mapping fox track name to TrackMetaData. If empty, fallback mode is used.
+        force_highest_bit_encoding: If True, use highest available bit sizes for all segments
         
     Returns:
         List of GaniTrack objects
@@ -912,7 +957,8 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
 
                 gani_track = export_gani_track_from_action(
                     armature, track_idx,
-                    track_segment_bone_mapping, frame_start, frame_end, action, layout_metadata, fcurve_cache
+                    track_segment_bone_mapping, frame_start, frame_end, action, layout_metadata, fcurve_cache,
+                    force_highest_bit_encoding
                 )
                 gani_tracks.append(gani_track)
         else:
@@ -962,7 +1008,8 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
                 gani_track = export_gani_track_from_action(
                     armature, track_idx,
                     temp_mapping, frame_start, frame_end, action,
-                    bone_metadata, fcurve_cache
+                    bone_metadata, fcurve_cache,
+                    force_highest_bit_encoding
                 )
                 
                 # Only add tracks that have segments
@@ -1267,6 +1314,9 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
     props = context.scene.mtar_properties
     export_props = props.export_props
 
+    # Get force_highest_bit_encoding once here to avoid multiple context accesses
+    force_highest_bit_encoding = export_props.force_highest_bit_encoding
+
     Debug.log("\n=== MTAR Data Export Started ===")
     Debug.log(f"Export path: {filepath}\n")
     
@@ -1331,7 +1381,7 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
         
         # Build layout track from metadata (including header properties)
         Debug.log("\nBuilding layout track structure...")
-        layout_track = build_layout_track_from_metadata(track_segment_bone_mapping, metadata_dict, layout_action)
+        layout_track = build_layout_track_from_metadata(track_segment_bone_mapping, metadata_dict, layout_action, force_highest_bit_encoding)
     else:
         # Create placeholder layout track without metadata
         
@@ -1442,7 +1492,8 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
 
         gani_tracks: List[TrackUnitWrapper] = export_gani_tracks_from_action(
             armature, action_data,
-            track_segment_bone_mapping, metadata_dict
+            track_segment_bone_mapping, metadata_dict,
+            force_highest_bit_encoding
         )
 
         tracks_data = GaniTracksData(
@@ -1477,7 +1528,8 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
                 motion_points_armature,
                 motion_point_action_data,
                 None,  # No bone mapping needed yet for motion points
-                motion_point_metadata_dict  # Pass the built metadata dict
+                motion_point_metadata_dict,  # Pass the built metadata dict
+                force_highest_bit_encoding
             )
             Debug.log(f"    Exported {len(motion_point_tracks)} motion point track(s)")
         

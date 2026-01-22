@@ -249,7 +249,7 @@ def set_busy_cursor(enabled: bool) -> None:
         try:
             bpy.context.window.cursor_set('WAIT' if enabled else 'DEFAULT')
             return
-        except Exception:
+        except Exception:  # Best-effort: UI may not be available (background/headless mode)
             # Fallback to window manager or ignore
             pass
 

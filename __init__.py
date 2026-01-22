@@ -25,7 +25,7 @@ bl_info = {
     "description": "Import and Export MTAR animations from Metal Gear Solid V",
     "author": "Till - rollin - Maginot",
     "version": (1, 0),
-    "blender": (2, 93, 0),
+    "blender": (3, 0, 0),
     "location" : "View3D Panel",
     "category": "Import-Export",
 }
