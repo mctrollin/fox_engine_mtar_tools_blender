@@ -1,0 +1,257 @@
+# Max 32 bones per mesh;
+
+
+# Body.Main (33 bones) ######################################################;
+
+########## Root;
+
+DEF-spine                   :           SKL_000_WAIST               ;
+DEF-spine.001               :           SKL_001_SPINE               ;
+DEF-spine.002               :           SKL_002_CHEST               ;
+DEF-spine.003               :           SKL_003_NECK                ;
+
+########## Head;
+
+DEF-spine.004               :           SKL_004_HEAD                ;
+
+########## Left Arm;
+
+DEF-shoulder.L              :           SKL_010_LSHLD               ;
+DEF-upper_arm.L             :           SKL_503_LUARL_HLP           ; # LUARL: upper_arm to shoulder
+DEF-upper_arm.L.001         :           SKL_011_LUARM               ;
+DEF-forearm.L               :           SKL_012_LFARM               ;
+DEF-forearm.L.001           :           SKL_506_LTNB_HLP            ; # LTNB: forearm twist helper 1
+DEF-forearm.L.002           :           SKL_505_LFARL_HLP           ; # LFARL: forearm twist helper 2
+DEF-hand.L                  :           SKL_013_LHAND               ;
+
+DEF-shoulder_help.L         :           SKL_500_LLRPZ_HLP           ;
+DEF-humerus_help.L          :           SKL_502_LHMRS_HLP           ; # LHMRS: (armpit / latissimus dorsi)
+DEF-elbow_help.L            :           SKL_504_LELBW_HLP           ;
+DEF-twist_of_wrist_help.L   :           SKL_507_LTOW_HLP            ;
+
+########## Right Arm;
+
+DEF-shoulder.R              :           SKL_020_RSHLD               ;
+DEF-upper_arm.R             :           SKL_512_RUARL_HLP           ; # RUARL == upper_arm to shoulder
+DEF-upper_arm.R.001         :           SKL_021_RUARM               ;
+DEF-forearm.R               :           SKL_022_RFARM               ;
+DEF-forearm.R.001           :           SKL_515_RTNB_HLP            ; # RTNB: forearm twist helper 1
+DEF-forearm.R.002           :           SKL_514_RFARL_HLP           ; # RFARL: forearm twist helper 2
+DEF-hand.R                  :           SKL_023_RHAND               ;
+
+DEF-shoulder_help.R         :           SKL_509_RLRPZ_HLP           ;
+DEF-humerus_help.R          :           SKL_511_RHMRS_HLP           ; # RHMRS: (armpit / latissimus dorsi)
+DEF-elbow_help.R            :           SKL_513_RELBW_HLP           ;
+DEF-twist_of_wrist_help.R   :           SKL_516_RTOW_HLP            ;
+
+
+########## Left Leg;
+
+DEF-thigh.L                 :           SKL_519_LMRF_HLP            ;
+DEF-thigh.L.001             :           SKL_030_LTHIGH              ;
+DEF-shin.L                  :           SKL_031_LLEG                ;
+DEF-shin.L.001              :           SKL_031_LLEG                ;
+DEF-foot.L                  :           SKL_032_LFOOT               ;
+DEF-toe.L                   :           SKL_033_LTOE                ;
+
+DEF-patella_help.L          :           SKL_520_LPTL_HLP            ; # LPTL: knee bend helper
+
+########## Right Leg;
+
+DEF-thigh.R                 :           SKL_525_RMRF_HLP            ;
+DEF-thigh.R.001             :           SKL_040_RTHIGH              ;
+DEF-shin.R                  :           SKL_041_RLEG                ;
+DEF-shin.R.001              :           SKL_041_RLEG                ;
+DEF-foot.R                  :           SKL_042_RFOOT               ;
+DEF-toe.R                   :           SKL_043_RTOE                ;
+
+DEF-patella_help.R          :           SKL_526_RPTL_HLP            ; # RPTL: knee bend helper
+
+
+# Body.Finger (32 bones) ######################################################;
+
+########## Left Hand Finger;
+
+DEF-f_index.01.L            :           SKL_104_LF21                ;
+DEF-f_index.02.L            :           SKL_105_LF22                ;
+DEF-f_index.03.L            :           SKL_106_LF23                ;
+DEF-thumb.01.L              :           SKL_101_LF10                ;
+DEF-thumb.02.L              :           SKL_102_LF11                ;
+DEF-thumb.03.L              :           SKL_103_LF12                ;
+DEF-f_middle.01.L           :           SKL_107_LF31                ;
+DEF-f_middle.02.L           :           SKL_108_LF32                ;
+DEF-f_middle.03.L           :           SKL_109_LF33                ;
+DEF-palm.03.L               :           SKL_110_LF40                ;
+DEF-f_ring.01.L             :           SKL_111_LF41                ;
+DEF-f_ring.02.L             :           SKL_112_LF42                ;
+DEF-f_ring.03.L             :           SKL_113_LF43                ;
+DEF-f_pinky.01.L            :           SKL_114_LF51                ;
+DEF-f_pinky.02.L            :           SKL_115_LF52                ;
+DEF-f_pinky.03.L            :           SKL_116_LF53                ;
+
+########## Right Hand Finger;
+
+DEF-f_index.01.R            :           SKL_204_RF21                ;
+DEF-f_index.02.R            :           SKL_205_RF22                ;
+DEF-f_index.03.R            :           SKL_206_RF23                ;
+DEF-thumb.01.R              :           SKL_201_RF10                ;
+DEF-thumb.02.R              :           SKL_202_RF11                ;
+DEF-thumb.03.R              :           SKL_203_RF12                ;
+DEF-f_middle.01.R           :           SKL_207_RF31                ;
+DEF-f_middle.02.R           :           SKL_208_RF32                ;
+DEF-f_middle.03.R           :           SKL_209_RF33                ;
+DEF-palm.03.R               :           SKL_210_RF40                ;
+DEF-f_ring.01.R             :           SKL_211_RF41                ;
+DEF-f_ring.02.R             :           SKL_212_RF42                ;
+DEF-f_ring.03.R             :           SKL_213_RF43                ;
+DEF-f_pinky.01.R            :           SKL_214_RF51                ;
+DEF-f_pinky.02.R            :           SKL_215_RF52                ;
+DEF-f_pinky.03.R            :           SKL_216_RF53                ;
+
+
+# Helper Misc ######################################################;
+
+DEF-belt_utility_dyn_help.L :           SKL_518_LBUD_HLP            ; # thig straps | jacket, lower, back | various straps
+DEF-belt_utility_dyn_help.R :           SKL_524_RBUD_HLP            ; # thig straps | jacket, lower, back | various straps
+DEF-jacket_help             :           SKL_527_JACT_HLP            ;
+DEF-ankle_help.L            :           SKL_528_LAKL_HLP            ;
+DEF-upper_arm_scarf_help.R  :           SKL_529_RUARS_HLP           ; # scarf right shoulder
+DEF-collar_help             :           SKL_530_CLVR_HLP            ; # collar, scarf neck back
+DEF-scarf_f_a_help          :           SKL_531_SCFA_HLP            ; # left
+DEF-scarf_f_b_help          :           SKL_532_SCFB_HLP            ; # right
+DEF-scarf_r_l_help          :           SKL_533_SCRL_HLP            ; # ?
+DEF-holster_help.R          :           SKL_534_RHOL_HLP            ;
+DEF-scarf_p_h_help          :           SKL_535_SCPH_HLP            ; # scarf front (534 in battledress)
+
+########## Battledess;
+
+DEF-neck_help.L             :           SKL_537_LNECK_HLP           ;
+DEF-neck_help.R             :           SKL_538_RNECK_HLP           ;
+DEF-neck_back_help          :           SKL_539_BNECK_HLP           ;
+DEF-waist_armour_help.L     :           SKL_535_LWAM_HLP            ;
+DEF-waist_armour_help.R     :           SKL_536_RWAM_HLP            ;
+
+########## Fatigues (NS)
+
+DEF-shoulder_s_help.L       :           SKL_532_LLRPS_HLP           ;
+DEF-shoulder_s_help.R       :           SKL_531_RLRPS_HLP           ;
+DEF-coat_arm.L              :           SKL_538_COATARML_HLP        ;
+DEF-coat_arm.R              :           SKL_539_COATARMR_HLP        ;
+DEF-knee_help.L             :           SKL_550_KNEEL_HLP           ;
+DEF-knee_help.R             :           SKL_551_KNEER_HLP           ;
+
+
+# Head ######################################################;
+
+########## Face (Minimum set used in e.g. battle suit);
+
+DEF-head_root               :           SKL_400_HEADROOT            ;
+
+DEF-mouth_root              :           SKL_401_MOUTHROOT           ;
+
+DEF-jaws                    :           SKL_404_JAWS                ; # minimum set
+DEF-upper_lip.L             :           SKL_405_LPUL                ; # minimum set
+DEF-upper_lip.R             :           SKL_406_LPUR                ; # minimum set
+DEF-lower_lip.L             :           SKL_407_LPLL                ; # minimum set
+DEF-lower_lip.R             :           SKL_408_LPLR                ; # minimum set
+DEF-mouth_corner.L          :           SKL_409_LPML                ;
+DEF-mouth_corner.R          :           SKL_410_LPMR                ;
+DEF-lip_crease.L            :           SKL_411_LPNL                ;
+DEF-lip_crease.L.001        :           SKL_412_LPCL                ;
+DEF-lip_crease.R            :           SKL_413_LPNR                ;
+DEF-lower_lip_base.R        :           SKL_414_LPCR                ;
+DEF-upper_lip_inner         :           SKL_415_LPUI                ;
+DEF-lower_lip_inner         :           SKL_416_LPLI                ;
+DEF-mandible.L              :           SKL_417_MDBL                ;
+DEF-mandible.R              :           SKL_418_MDBR                ;
+DEF-tongue                  :           SKL_419_TONE                ;
+
+DEF-eye_root.L              :           SKL_402_EYELROOT            ;
+DEF-eye.L                   :           SKL_430_EYEL                ; # minimum set
+DEF-upper_eyelid_mid.L      :           SKL_432_EIUL                ; # minimum set
+DEF-lower_eyelid.L          :           SKL_434_EYLL                ;
+
+DEF-eye_root.R              :           SKL_403_EYERROOT            ;
+DEF-eye.R                   :           SKL_431_EYER                ; # minimum set
+DEF-upper_eyelid_mid.R      :           SKL_433_EIUR                ; # minimum set
+DEF-lower_eyelid.R          :           SKL_435_EYLR                ;
+
+DEF-throat                  :           SKL_420_THRT                ;
+DEF-nasolabial_fold.L       :           SKL_421_CHKL                ; # minimum set
+DEF-nasolabial_fold.R       :           SKL_422_CHKR                ; # minimum set
+DEF-jaw.L                   :           SKL_423_JAWL                ;
+DEF-jaw.R                   :           SKL_424_JAWR                ;
+DEF-nose                    :           SKL_425_NOSE                ;
+
+DEF-eyebrow_inner.L         :           SKL_426_EBOL                ; # minimum set
+DEF-eyebrow_inner.R         :           SKL_427_EBOR                ; # minimum set
+DEF-eyebrow_outer.L         :           SKL_428_EBEL                ;
+DEF-eyebrow_outer.R         :           SKL_429_EBER                ;
+
+DEF-infraorbital.L          :           SKL_436_MCKL                ;
+DEF-infraorbital.R          :           SKL_437_MCKR                ;
+
+########## Hair and Beard;
+
+DEF-hair_direction          :           SKL_399_HAIRDRC             ;
+
+DEF-hair_sim                :           SKL_610_HAIR_SIM            ;
+DEF-hair_sim.001            :           SKL_611_HAIR_SIM            ;
+DEF-hair_sim.002            :           SKL_612_HAIR_SIM            ;
+DEF-hair_sim.003            :           SKL_613_HAIR_SIM            ;
+DEF-hair_sim.004            :           SKL_614_HAIR_SIM            ;
+DEF-hair_sim.005            :           SKL_615_HAIR_SIM            ;
+DEF-hair_sim.006            :           SKL_616_HAIR_SIM            ;
+DEF-hair_sim.007            :           SKL_617_HAIR_SIM            ;
+DEF-hair_sim.008            :           SKL_618_HAIR_SIM            ;
+DEF-hair_sim.009            :           SKL_619_HAIR_SIM            ;
+
+DEF-beard_sim               :           SKL_630_BRARD_SIM           ;
+DEF-beard_sim.001           :           SKL_631_BRARD_SIM           ;
+DEF-beard_sim.002           :           SKL_632_BRARD_SIM           ;
+DEF-beard_sim.003           :           SKL_633_BRARD_SIM           ;
+
+
+# Misc ######################################################;
+
+########## Items;
+
+DEF-assaultrifle_root       :           SKL_300_ASRROOT             ;
+DEF-sniperrifle_root        :           SKL_306_SNRROOT             ;
+
+
+DEF-item_sim.620            :           SKL_620_ITEM_SIM            ; # item: hip belt, big bag, back, left | googles, neck
+DEF-item_sim.621            :           SKL_621_ITEM_SIM            ; # item: hip belt, drinking bottle, left | zipper
+
+DEF-item_sim.623            :           SKL_623_ITEM_SIM            ; # item: hip belt, small bag, front, left
+DEF-item_sim.624            :           SKL_624_ITEM_SIM            ; # item: hip belt, drinking bottle, left (parasite suit) (same position as 621)
+DEF-item_sim.625            :           SKL_625_ITEM_SIM            ; # item: hip belt, equipment, right
+DEF-item_sim.626            :           SKL_626_ITEM_SIM            ; # item: hip belt, cables of radio
+
+
+DEF-item_sim.652            :           SKL_652_ITEM_SIM            ; # cloth sim: scarf, back, right
+DEF-item_sim.653            :           SKL_653_ITEM_SIM            ; # cloth sim: scarf, back, centre, upper
+DEF-item_sim.654            :           SKL_654_ITEM_SIM            ; # cloth sim: scarf, back, centre, lower
+DEF-item_sim.655            :           SKL_655_ITEM_SIM            ; # cloth sim: scarf, back, left
+DEF-item_sim.656            :           SKL_656_ITEM_SIM            ;
+DEF-item_sim.657            :           SKL_657_ITEM_SIM            ; # cloth sim: left lower leg front
+DEF-item_sim.658            :           SKL_658_ITEM_SIM            ; # cloth sim: left lower leg back
+DEF-item_sim.659            :           SKL_659_ITEM_SIM            ; # cloth sim: right upper leg
+DEF-item_sim.660            :           SKL_660_ITEM_SIM            ; # cloth sim: right lower leg
+DEF-item_sim.661            :           SKL_661_ITEM_SIM            ;
+DEF-item_sim.662            :           SKL_662_ITEM_SIM            ;
+
+########## Belt;
+
+DEF-belt_a                  :           SKL_310_BELT_A              ;
+DEF-belt_b                  :           SKL_311_BELT_B              ;
+DEF-belt_c                  :           SKL_312_BELT_C              ;
+DEF-belt_d                  :           SKL_313_BELT_D              ;
+
+########## Assult Rifle Belt;
+
+DEF-assaultrifle_belt_a     :          SKL_301_ASRBELT_A            ;
+DEF-assaultrifle_belt_b     :          SKL_302_ASRBELT_B            ;
+DEF-assaultrifle_belt_c     :          SKL_303_ASRBELT_C            ;
+DEF-assaultrifle_belt_d     :          SKL_304_ASRBELT_D            ;
+DEF-assaultrifle_belt_e     :          SKL_305_ASRBELT_E            ;
