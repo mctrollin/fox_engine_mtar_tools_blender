@@ -7,8 +7,8 @@ from typing import Set, Optional, List, Dict, Any, Tuple
 import traceback
 
 import bpy
-from bpy.types import Operator, Context, Event
-from bpy.props import StringProperty
+from bpy.types import Operator, Context
+
 
 from .py_utilities.utilities_logging import Debug, update_progress
 from .py_utilities.utilities_rig_hash import unhash_rig_type
@@ -451,10 +451,10 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                     
                     # Bake custom rig if requested
                     if import_props.bake_after_import and custom_rig:
+                        Debug.log("\n========= STARTING BAKE OPERATION =========\n")
+                        update_progress(75, "Baking...")
+
                         try:
-                            Debug.log("\n========= STARTING BAKE OPERATION =========\n")
-                            update_progress(75, "Baking...")
-                            
                             # Check if custom rig has NLA tracks (common after import)
                             if custom_rig.animation_data and custom_rig.animation_data.nla_tracks:
                                 Debug.log("Baking NLA strips...")
@@ -486,11 +486,10 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                                 Debug.report_and_log(self, 'WARNING', "custom rig has no NLA tracks or active action to bake")
                             
                             Debug.log("\n========= Finished BAKE OPERATION =========\n")
-                            
-                        except Exception as e:  # noqa: E722
+                        
+                        except Exception as e:
                             Debug.report_and_log(self, 'ERROR', f"Failed to bake custom rig: {str(e)}")
                             traceback.print_exc()
-                            # Continue regardless of bake failure
                     
                     # Clear all transforms from custom rig after import/bake
                     if custom_rig:
@@ -514,6 +513,8 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
             wm.progress_end()
             execution_props.operation_type = 'NONE'
             update_progress(0, "")
+
+
 
 
 class MTAR_OT_ValidateHashGeneratorExe(Operator):

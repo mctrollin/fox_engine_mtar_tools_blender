@@ -145,8 +145,7 @@ _performance_timers: Dict[str, float] = {}
 # Progress UI state (throttling & lifecycle)
 _progress_active: bool = False
 _last_redraw_time: float = 0.0
-_redraw_min_interval: float = 0.5  # seconds (throttled to reduce UI load)
-_redraw_count: int = 0  # instrument how many redraws we issued (for debugging)
+_redraw_min_interval: float = 0.1  # seconds
 
 
 def start_timer(block_name: str) -> None:
@@ -238,11 +237,6 @@ def update_progress(value: float, text: str = "") -> None:
             if now - _last_redraw_time >= _redraw_min_interval:
                 try:
                     bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
-                    # Instrumentation: count redraws
-                    try:
-                        _redraw_count += 1
-                    except Exception:
-                        pass
                     # Tiny yield so the UI thread can process events
                     try:
                         time.sleep(0.001)
@@ -294,16 +288,6 @@ def update_progress_status(text: str) -> None:
             if now - _last_redraw_time >= _redraw_min_interval:
                 try:
                     bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
-                    # Instrumentation: count redraws
-                    try:
-                        _redraw_count += 1
-                        try:
-                            if _redraw_count % 50 == 0 and _should_log_timers():
-                                Debug.log(f"[REDRAW] Count={_redraw_count}, last_interval={(now - _last_redraw_time):.3f}s")
-                        except Exception:
-                            pass
-                    except Exception:
-                        pass
                     # Tiny yield so the UI thread can process events
                     try:
                         time.sleep(0.001)
