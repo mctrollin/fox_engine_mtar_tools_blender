@@ -17,6 +17,7 @@ from typing import Dict
 from enum import IntEnum
 
 import bpy
+from bpy.types import Operator
 
 
 class _LogLevel(IntEnum):
@@ -141,6 +142,12 @@ def is_logging_enabled() -> bool:
 # Global timer storage for performance measurements
 _performance_timers: Dict[str, float] = {}
 
+# Progress UI state (throttling & lifecycle)
+_progress_active: bool = False
+_last_redraw_time: float = 0.0
+_redraw_min_interval: float = 0.5  # seconds (throttled to reduce UI load)
+_redraw_count: int = 0  # instrument how many redraws we issued (for debugging)
+
 
 def start_timer(block_name: str) -> None:
     """Start a performance timer for a named code block.
@@ -176,32 +183,89 @@ def stop_timer(block_name: str) -> float:
 
 def update_progress(value: float, text: str = "") -> None:
     """Update the Blender progress bar and the UI progress property.
-    
+
+    This function begins and ends the Blender progress lifecycle automatically
+    and throttles UI redraws to avoid starving Blender's event loop during
+    long-running operations.
+
     Args:
         value: Progress value from 0 to 100
         text: Optional status text to display
     """
+    global _progress_active, _last_redraw_time
     try:
-        # Update status bar progress
         wm = bpy.context.window_manager
-        wm.progress_update(value)
-        
+
+        # Begin progress if not already active (best-effort)
+        try:
+            if not _progress_active:
+                if hasattr(wm, 'progress_begin'):
+                    try:
+                        wm.progress_begin(0.0, 100.0)
+                    except Exception:
+                        try:
+                            # Some builds accept no args
+                            wm.progress_begin()
+                        except Exception:
+                            pass
+                _progress_active = True
+        except Exception:
+            # Ignore issues probing window manager
+            pass
+
+        # Update the window manager progress value
+        try:
+            if hasattr(wm, 'progress_update'):
+                wm.progress_update(value)
+        except Exception:
+            pass
+
         # Update UI panel progress property if available
-        if hasattr(bpy.context, 'scene') and hasattr(bpy.context.scene, 'mtar_properties'):
-            props = bpy.context.scene.mtar_properties
-            exec_props = props.execution_props
-            if hasattr(exec_props, 'progress'):
-                exec_props.progress = value / 100.0
-            
-            if hasattr(exec_props, 'status'):
-                exec_props.status = text
-                
-            # Force UI redraw so the progress bar in the panel updates
-            # This is necessary because long-running operators block the UI thread
-            try:
-                bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
-            except Exception:  # noqa: E722
-                pass
+        try:
+            if hasattr(bpy.context, 'scene') and hasattr(bpy.context.scene, 'mtar_properties'):
+                props = bpy.context.scene.mtar_properties
+                exec_props = props.execution_props
+                if hasattr(exec_props, 'progress'):
+                    exec_props.progress = value / 100.0
+                if hasattr(exec_props, 'status'):
+                    exec_props.status = text
+        except Exception:
+            pass
+
+        # Throttled redraw so we don't flood the UI thread
+        try:
+            now = time.time()
+            if now - _last_redraw_time >= _redraw_min_interval:
+                try:
+                    bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+                    # Instrumentation: count redraws
+                    try:
+                        _redraw_count += 1
+                    except Exception:
+                        pass
+                    # Tiny yield so the UI thread can process events
+                    try:
+                        time.sleep(0.001)
+                    except Exception:
+                        pass
+                except Exception:  # noqa: E722
+                    pass
+                _last_redraw_time = now
+        except Exception:
+            pass
+
+        # End progress if value indicates completion
+        try:
+            if _progress_active and value >= 100.0:
+                if hasattr(wm, 'progress_end'):
+                    try:
+                        wm.progress_end()
+                    except Exception:
+                        pass
+                _progress_active = False
+        except Exception:
+            pass
+
     except (ImportError, AttributeError, RuntimeError):
         # If we can't access Blender context, do nothing
         pass
@@ -213,19 +277,43 @@ def update_progress_status(text: str) -> None:
     Args:
         text: Status text to display
     """
+    global _last_redraw_time
     try:
-        if hasattr(bpy.context, 'scene') and hasattr(bpy.context.scene, 'mtar_properties'):
-            props = bpy.context.scene.mtar_properties
-            exec_props = props.execution_props
-            
-            if hasattr(exec_props, 'status'):
-                exec_props.status = text
-                
-            # Force UI redraw
-            try:
-                bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
-            except Exception:  # noqa: E722
-                pass
+        try:
+            if hasattr(bpy.context, 'scene') and hasattr(bpy.context.scene, 'mtar_properties'):
+                props = bpy.context.scene.mtar_properties
+                exec_props = props.execution_props
+                if hasattr(exec_props, 'status'):
+                    exec_props.status = text
+        except Exception:
+            pass
+
+        # Throttled redraw
+        now = time.time()
+        try:
+            if now - _last_redraw_time >= _redraw_min_interval:
+                try:
+                    bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+                    # Instrumentation: count redraws
+                    try:
+                        _redraw_count += 1
+                        try:
+                            if _redraw_count % 50 == 0 and _should_log_timers():
+                                Debug.log(f"[REDRAW] Count={_redraw_count}, last_interval={(now - _last_redraw_time):.3f}s")
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+                    # Tiny yield so the UI thread can process events
+                    try:
+                        time.sleep(0.001)
+                    except Exception:
+                        pass
+                except Exception:  # noqa: E722
+                    pass
+                _last_redraw_time = now
+        except Exception:
+            pass
     except (ImportError, AttributeError, RuntimeError):
         pass
 
@@ -344,3 +432,27 @@ class Debug:
     def busy_cursor():
         """Return a context manager that sets a busy cursor for the duration of the context."""
         return busy_cursor()
+
+    @staticmethod
+    def report_and_log(operator: Operator, level: str, message: str) -> None:
+        """Report a message to the Blender operator and also log it via Debug.
+
+        Args:
+            operator: Blender operator instance (must expose report())
+            level: One of 'INFO', 'WARNING', 'ERROR'
+            message: Message to report and log
+        """
+        # Report to the Blender operator UI (best-effort)
+        try:
+            operator.report({level}, message)
+        except Exception:
+            # Operator might not be available or report may fail in some contexts
+            pass
+
+        # Also log using the existing Debug logging methods so it's recorded
+        if level == 'ERROR':
+            Debug.log_error(message)
+        elif level == 'WARNING':
+            Debug.log_warning(message)
+        else:
+            Debug.log(message)

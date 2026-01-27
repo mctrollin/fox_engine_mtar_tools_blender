@@ -6,6 +6,7 @@ import bpy
 from mathutils import Quaternion, Vector
 
 from .py_utilities.utilities_logging import Debug, start_timer, stop_timer, update_progress
+import time
 from .py_utilities.utilities_rig_hash import unhash_rig_type
 from .py_utilities.utilities_transforms import (
     calculate_directional_location, 
@@ -542,7 +543,24 @@ def create_animation_actions(
     Debug.log(f"\nProcessing {len(all_gani_tracks)} GANI file(s)...")
     for gani_index, gani_tracks in enumerate(all_gani_tracks):
         Debug.log(f"\n--- GANI {gani_index + 1}/{len(all_gani_tracks)} ---")
-        
+
+        # -----------------------------------------------------
+        # Update UI progress for per-GANI processing (keeps overall 'Creating Actions...' stage)
+        try:
+            total_ganis = len(all_gani_tracks) if len(all_gani_tracks) > 0 else 1
+            # Map per-GANI progress into a small slice (30 -> 49)
+            progress = 30 + min(19, int(((gani_index + 1) / total_ganis) * 20))
+            # Prefer a human-readable display name from file header path hash if available
+            if gani_index < len(all_file_headers) and hasattr(all_file_headers[gani_index], 'path'):
+                display_name = f"0x{int(all_file_headers[gani_index].path):016X}"
+            else:
+                display_name = f"Gani_{gani_index+1:03d}"
+            update_progress(progress, f"GANI {gani_index + 1}/{total_ganis}: {display_name}")
+        except Exception:
+            # Best-effort progress update; do not interrupt import on failure
+            pass
+        # -----------------------------------------------------
+
         # Create one action per GANI file
         action_name: str = f"{mtar_file_name}_Gani_{gani_index:03d}"
         action: bpy.types.Action = bpy.data.actions.new(name=action_name)
@@ -590,6 +608,12 @@ def create_animation_actions(
         configure_action(action, frame_start=0, frame_end=gani_frame_count)
         Debug.log(f"  Configured action frame range: 0 - {gani_frame_count}")
         
+        # Yield briefly to let Blender process events (prevents UI lockups on long imports)
+        try:
+            time.sleep(0.001)
+        except Exception:
+            pass
+
         # Update offset for next strip (used for calculating total frame range)
         current_frame_offset += gani_frame_count
         max_frame_end = current_frame_offset
@@ -631,7 +655,17 @@ def create_motion_points_animation_actions(
             continue
             
         Debug.log(f"\n  --- Motion Points GANI {gani_index + 1}/{len(all_motion_point_gani_tracks)} ---")
-        
+        # -----------------------------------------------------
+        # Update UI progress for per-motion-point-GANI processing (keeps overall 'Creating Motion Points...' stage)
+        try:
+            total_mp = len(all_motion_point_gani_tracks) if len(all_motion_point_gani_tracks) > 0 else 1
+            progress = 60 + min(4, int(((gani_index + 1) / total_mp) * 5))
+            display_name = f"MotionPoints_Gani_{gani_index+1:03d}"
+            update_progress(progress, f"MotionPoints GANI {gani_index + 1}/{total_mp}: {display_name}")
+        except Exception:
+            pass
+        # -----------------------------------------------------
+
         # Create action for this GANI file's motion point animation
         action_name: str = f"{mtar_file_name}_MotionPoints_Gani_{gani_index:03d}"
         action: bpy.types.Action = bpy.data.actions.new(name=action_name)
@@ -668,6 +702,11 @@ def create_motion_points_animation_actions(
         # Configure action with frame range from MTAR file header
         configure_action(action, frame_start=0, frame_end=gani_frame_count)
         Debug.log(f"  Configured motion point action frame range: 0 - {gani_frame_count}")
+        # Yield briefly to let Blender process events (prevents UI lockups on long imports)
+        try:
+            time.sleep(0.001)
+        except Exception:
+            pass
     
     return motion_point_actions
 

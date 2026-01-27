@@ -12,6 +12,7 @@ import bpy
 from mathutils import Quaternion
 
 from .py_utilities.utilities_logging import Debug, start_timer, stop_timer, update_progress
+import time
 from .py_utilities.utilities_transforms import (
     reverse_directional_location, 
     apply_reverse_transforms, 
@@ -1471,9 +1472,15 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
     update_progress(30, "Animations...")
 
     for action_idx, action_data in enumerate(actions_to_export):
-        # Update progress bar for each action (30-90% range)
+        # -----------------------------------------------------
+        # Update UI progress for each action (30-90% range)
         progress = 30 + int((action_idx / len(actions_to_export)) * 60)
-        update_progress(progress, f"Action {action_idx+1}/{len(actions_to_export)}")
+        try:
+            display_name = action_data.action.name if hasattr(action_data, 'action') and action_data.action else f"Gani_{action_idx+1:03d}"
+        except Exception:
+            display_name = f"Gani_{action_idx+1:03d}"
+        update_progress(progress, f"GANI {action_idx+1}/{len(actions_to_export)}: {display_name}")
+        # -----------------------------------------------------
 
         # Get frame info from action data
         frame_start = action_data.frame_start
@@ -1503,6 +1510,11 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
         )
 
         stop_timer(f"4.{action_idx}.1 Main Animation Tracks")
+        # Yield briefly to allow the UI event loop to process
+        try:
+            time.sleep(0.001)
+        except Exception:
+            pass
         
         # =============================
         

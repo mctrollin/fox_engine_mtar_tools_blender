@@ -29,11 +29,11 @@ class MTAR_OT_InspectWorldSpaceTransform(Operator):
         
         # Validate inputs
         if not props.debug_armature:
-            self.report({'ERROR'}, "No armature selected")
+            Debug.report_and_log(self, 'ERROR', "No armature selected")
             return {'FINISHED'}
         
         if not props.debug_bone_name:
-            self.report({'ERROR'}, "No bone selected")
+            Debug.report_and_log(self, 'ERROR', "No bone selected")
             return {'FINISHED'}
         
         armature = props.debug_armature
@@ -42,7 +42,7 @@ class MTAR_OT_InspectWorldSpaceTransform(Operator):
         
         # Validate bone exists
         if bone_name not in armature.pose.bones:
-            self.report({'ERROR'}, f"Bone '{bone_name}' not found in armature")
+            Debug.report_and_log(self, 'ERROR', f"Bone '{bone_name}' not found in armature")
             return {'FINISHED'}
         
         try:
@@ -61,13 +61,10 @@ class MTAR_OT_InspectWorldSpaceTransform(Operator):
             
             props.debug_world_space_result = result_str
             
-            Debug.log(f"World Space Transform for '{bone_name}': {result_str}")
-            self.report({'INFO'}, f"World space transform retrieved: {result_str}")
+            Debug.report_and_log(self, 'INFO', f"World space transform retrieved: {result_str}")
             
         except Exception as e:
-            error_msg = f"Error getting world space transform: {str(e)}"
-            Debug.log_error(error_msg)
-            self.report({'ERROR'}, error_msg)
+            Debug.report_and_log(self, 'ERROR', f"Error getting world space transform: {str(e)}")
             return {'FINISHED'}
         
         return {'FINISHED'}
@@ -85,11 +82,11 @@ class MTAR_OT_InspectLocalSpaceTransform(Operator):
         
         # Validate inputs
         if not props.debug_armature:
-            self.report({'ERROR'}, "No armature selected")
+            Debug.report_and_log(self, 'ERROR', "No armature selected")
             return {'FINISHED'}
         
         if not props.debug_bone_name:
-            self.report({'ERROR'}, "No bone selected")
+            Debug.report_and_log(self, 'ERROR', "No bone selected")
             return {'FINISHED'}
         
         armature = props.debug_armature
@@ -98,7 +95,7 @@ class MTAR_OT_InspectLocalSpaceTransform(Operator):
         
         # Validate bone exists
         if bone_name not in armature.pose.bones:
-            self.report({'ERROR'}, f"Bone '{bone_name}' not found in armature")
+            Debug.report_and_log(self, 'ERROR', f"Bone '{bone_name}' not found in armature")
             return {'FINISHED'}
         
         try:
@@ -116,13 +113,10 @@ class MTAR_OT_InspectLocalSpaceTransform(Operator):
             
             props.debug_local_space_result = result_str
             
-            Debug.log(f"Local Space Transform for '{bone_name}': {result_str}")
-            self.report({'INFO'}, f"Local space transform retrieved: {result_str}")
+            Debug.report_and_log(self, 'INFO', f"Local space transform retrieved: {result_str}")
             
         except Exception as e:
-            error_msg = f"Error getting local space transform: {str(e)}"
-            Debug.log_error(error_msg)
-            self.report({'ERROR'}, error_msg)
+            Debug.report_and_log(self, 'ERROR', f"Error getting local space transform: {str(e)}")
             return {'FINISHED'}
         
         return {'FINISHED'}
@@ -140,11 +134,11 @@ class MTAR_OT_CreateTransformDummies(Operator):
         
         # Validate inputs
         if not props.debug_armature:
-            self.report({'ERROR'}, "No armature selected")
+            Debug.report_and_log(self, 'ERROR', "No armature selected")
             return {'FINISHED'}
         
         if not props.debug_bone_name:
-            self.report({'ERROR'}, "No bone selected")
+            Debug.report_and_log(self, 'ERROR', "No bone selected")
             return {'FINISHED'}
         
         armature = props.debug_armature
@@ -153,7 +147,7 @@ class MTAR_OT_CreateTransformDummies(Operator):
         
         # Check if bone exists
         if bone_name not in armature.pose.bones:
-            self.report({'ERROR'}, f"Bone '{bone_name}' not found in armature")
+            Debug.report_and_log(self, 'ERROR', f"Bone '{bone_name}' not found in armature")
             return {'FINISHED'}
         
         try:
@@ -190,7 +184,7 @@ class MTAR_OT_CreateTransformDummies(Operator):
             )
             
             if not world_result or not local_result:
-                self.report({'ERROR'}, "Could not get transform data")
+                Debug.report_and_log(self, 'ERROR', "Could not get transform data")
                 return {'FINISHED'}
             
             world_location, world_rotation = world_result
@@ -236,11 +230,10 @@ class MTAR_OT_CreateTransformDummies(Operator):
                 collection=debug_collection
             )
             
-            self.report({'INFO'}, f"Created dummies for '{bone_name}' at frame {frame}")
+            Debug.report_and_log(self, 'INFO', f"Created dummies for '{bone_name}' at frame {frame}")
             
         except RuntimeError as e:
-            Debug.log_error(f"Error creating dummies: {e}")
-            self.report({'ERROR'}, f"Error: {e}")
+            Debug.report_and_log(self, 'ERROR', f"Error creating dummies: {e}")
             return {'FINISHED'}
         
         return {'FINISHED'}
@@ -271,18 +264,17 @@ class MTAR_OT_CopySingleResult(Operator):
             result_text = props.debug_local_space_result
             label = "Local Space"
         else:
-            self.report({'ERROR'}, f"Unknown result type: {self.result_type}")
+            Debug.report_and_log(self, 'ERROR', f"Unknown result type: {self.result_type}")
             return {'FINISHED'}
         
         if not result_text:
-            self.report({'WARNING'}, f"No {label} result to copy yet")
+            Debug.report_and_log(self, 'WARNING', f"No {label} result to copy yet")
             return {'FINISHED'}
         
         # Copy to clipboard
         context.window_manager.clipboard = result_text
         
-        self.report({'INFO'}, f"{label} result copied to clipboard")
-        Debug.log(f"Copied {label} result to clipboard:\n{result_text}")
+        Debug.report_and_log(self, 'INFO', f"{label} result copied to clipboard")
         
         return {'FINISHED'}
 
@@ -307,7 +299,7 @@ class MTAR_OT_CopyTransformDebugResults(Operator):
             results_lines.append(f"Local Space: {props.debug_local_space_result}")
         
         if not results_lines:
-            self.report({'WARNING'}, "No results to copy yet")
+            Debug.report_and_log(self, 'WARNING', "No results to copy yet")
             return {'FINISHED'}
         
         # Combine results
@@ -315,9 +307,7 @@ class MTAR_OT_CopyTransformDebugResults(Operator):
         
         # Copy to clipboard
         context.window_manager.clipboard = clipboard_text
-        
-        self.report({'INFO'}, "Transform results copied to clipboard")
-        Debug.log(f"Copied to clipboard:\n{clipboard_text}")
+        Debug.report_and_log(self, 'INFO', "Transform results copied to clipboard")
         
         return {'FINISHED'}
 
@@ -337,7 +327,7 @@ class MTAR_OT_GenerateHashWithExternalExe(Operator):
         props = context.scene.mtar_debug_hash_properties
         # The executable path is read strictly from main scene settings
         if not hasattr(context.scene, 'mtar_properties') or not context.scene.mtar_properties.settings_props.hash_generator_exe_path:
-            self.report({'ERROR'}, "Hash Generator executable path not configured in MTAR Settings")
+            Debug.report_and_log(self, 'ERROR', "Hash Generator executable path not configured in MTAR Settings")
             props.hash_generator_error = "Hash Generator executable path not configured in MTAR Settings"
             self._clear_results(props)
             return {'CANCELLED'}
@@ -345,13 +335,13 @@ class MTAR_OT_GenerateHashWithExternalExe(Operator):
         
         # Validate inputs
         if not exe_path:
-            self.report({'ERROR'}, "No executable path specified")
+            Debug.report_and_log(self, 'ERROR', "No executable path specified")
             props.hash_generator_error = "No executable path specified"
             self._clear_results(props)
             return {'CANCELLED'}
         
         if not props.hash_generator_input:
-            self.report({'ERROR'}, "No input filename provided")
+            Debug.report_and_log(self, 'ERROR', "No input filename provided")
             props.hash_generator_error = "No input filename provided"
             self._clear_results(props)
             return {'CANCELLED'}
@@ -375,11 +365,11 @@ class MTAR_OT_GenerateHashWithExternalExe(Operator):
         
         if success:
             props.hash_generator_error = ""
-            self.report({'INFO'}, "Hash conversion successful")
+            Debug.report_and_log(self, 'INFO', "Hash conversion successful")
             return {'FINISHED'}
         else:
             props.hash_generator_error = error
-            self.report({'ERROR'}, f"Hash conversion failed: {error}")
+            Debug.report_and_log(self, 'ERROR', f"Hash conversion failed: {error}")
             return {'CANCELLED'}
     
     def _clear_results(self, props) -> None:
@@ -422,16 +412,16 @@ class MTAR_OT_CopyHashGeneratorOutput(Operator):
         output = result_map.get(self.result_key, '')
         
         if not output:
-            self.report({'WARNING'}, f"No result to copy for {self.result_key}")
+            Debug.report_and_log(self, 'WARNING', f"No result to copy for {self.result_key}")
             return {'CANCELLED'}
         
         # Skip if it's an error message
         if output.startswith('Error:'):
-            self.report({'WARNING'}, "Cannot copy error message")
+            Debug.report_and_log(self, 'WARNING', "Cannot copy error message")
             return {'CANCELLED'}
         
         context.window_manager.clipboard = output
-        self.report({'INFO'}, f"Copied {self.result_key} to clipboard")
+        Debug.report_and_log(self, 'INFO', f"Copied {self.result_key} to clipboard")
         return {'FINISHED'}
 
 
@@ -452,7 +442,7 @@ class MTAR_OT_ClearHashGeneratorResults(Operator):
         props.hash_generator_hash_legacy = ""
         props.hash_generator_error = ""
         
-        self.report({'INFO'}, "Hash Generator cleared")
+        Debug.report_and_log(self, 'INFO', "Hash Generator cleared")
         return {'FINISHED'}
 
 

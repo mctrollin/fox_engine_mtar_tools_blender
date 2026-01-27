@@ -83,16 +83,18 @@ class MTAR_PT_ImportPanel(Panel):
 
         # MTAR header preview (read-only display)
         info_box = mtar_box.box()
-        if import_props.mtar_filepath and os.path.exists(import_props.mtar_filepath):
-            try:
-                reader = MtarReader(import_props.mtar_filepath)
-                header_info = reader.get_header_info()
-                
-                row = info_box.row()
-                row.label(text=f"v: {header_info.version}")
-                row.label(text=f"Files: {header_info.file_count}")
-            except Exception as e:
-                info_box.label(text=f"Error reading MTAR: {e}", icon='ERROR')
+        if import_props.mtar_filepath:
+            mtar_filepath_abs = bpy.path.abspath(import_props.mtar_filepath)
+            if os.path.exists(mtar_filepath_abs):
+                try:
+                    reader = MtarReader(mtar_filepath_abs)
+                    header_info = reader.get_header_info()
+                    
+                    row = info_box.row()
+                    row.label(text=f"v: {header_info.version}")
+                    row.label(text=f"Files: {header_info.file_count}")
+                except Exception as e:
+                    info_box.label(text=f"Error reading MTAR: {e}", icon='ERROR')
 
         # FRIG file picker
         mapping_box = box_import.box()

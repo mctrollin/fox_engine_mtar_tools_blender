@@ -101,31 +101,27 @@ def handle_bake_result(bake_result: dict, custom_rig: bpy.types.Object,
     failed_strips: Optional[List[str]] = bake_result.get('failed_strips') if isinstance(bake_result, dict) else None
 
     if bake_result['success']:
-        Debug.log(bake_result['message'])
-        operator.report({'INFO'}, f"Bake completed: {bake_result['message']}")
+        Debug.report_and_log(operator, 'INFO', f"Bake completed: {bake_result['message']}")
         
         # Report failed strips if any (for NLA bakes)
         if failed_strips:
-            Debug.log_warning(f"  Failed strips: {', '.join(failed_strips)}")
-            operator.report({'WARNING'}, f"{len(failed_strips)} strip(s) failed to bake")
+            Debug.report_and_log(operator, 'WARNING', f"{len(failed_strips)} strip(s) failed to bake: {', '.join(failed_strips)}")
         
         # Clear transforms from custom rig after successful bake
         if clear_armature_transforms(custom_rig):
-            Debug.log("Transforms cleared from custom rig")
-            operator.report({'INFO'}, "Cleared transforms from custom rig")
+            Debug.report_and_log(operator, 'INFO', "Cleared transforms from custom rig")
         else:
-            operator.report({'WARNING'}, "Could not clear transforms from custom rig")
+            Debug.report_and_log(operator, 'WARNING', "Could not clear transforms from custom rig")
         
         # Delete imported armature if requested
         import_props = props.import_props
         if import_props.delete_import_armature:
             if delete_imported_armature(imported_armature, custom_rig):
-                operator.report({'INFO'}, "Deleted imported armature after bake")
+                Debug.report_and_log(operator, 'INFO', "Deleted imported armature after bake")
             else:
-                operator.report({'WARNING'}, "Could not delete imported armature")
+                Debug.report_and_log(operator, 'WARNING', "Could not delete imported armature")
     else:
-        Debug.log_warning(f"Bake failed: {bake_result['message']}")
-        operator.report({'WARNING'}, f"Bake failed: {bake_result['message']}")
+        Debug.report_and_log(operator, 'WARNING', f"Bake failed: {bake_result['message']}")
 
 class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
     """Generate a barebone track mapping file from FRIG skeleton structure and MTAR animation data."""
@@ -140,11 +136,11 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
         
         # Validate FRIG file path
         if not import_props.frig_filepath:
-            self.report({'ERROR'}, "No FRIG file selected")
+            Debug.report_and_log(self, 'ERROR', "No FRIG file selected")
             return {'CANCELLED'}
         
         if not os.path.exists(import_props.frig_filepath):
-            self.report({'ERROR'}, f"FRIG file not found: {import_props.frig_filepath}")
+            Debug.report_and_log(self, 'ERROR', f"FRIG file not found: {import_props.frig_filepath}")
             return {'CANCELLED'}
         
         # Validate MTAR file path (optional but recommended)
@@ -178,7 +174,7 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
                 frig: FrigFile = FrigFile.read(f)
             
             if not frig or not frig.rig_def:
-                self.report({'ERROR'}, "Failed to read FRIG rig data")
+                Debug.report_and_log(self, 'ERROR', "Failed to read FRIG rig data")
                 return {'CANCELLED'}
             
             # Generate output filepath
@@ -188,7 +184,7 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
             
             # Check if file already exists
             if os.path.exists(output_path):
-                self.report({'WARNING'}, f"Mapping file already exists: {output_path}")
+                Debug.report_and_log(self, 'WARNING', f"Mapping file already exists: {output_path}")
                 return {'CANCELLED'}
             
             # Generate mapping file content
@@ -323,8 +319,7 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write('\n'.join(lines))
             
-            self.report({'INFO'}, f"Mapping file created: {output_path}")
-            Debug.log(f"Generated mapping file: {output_path}")
+            Debug.report_and_log(self, 'INFO', f"Mapping file created: {output_path}")
             
             # Auto-fill the mapping file path
             import_props.mapping_filepath = output_path
@@ -332,8 +327,7 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
             return {'FINISHED'}
             
         except Exception as e:  # noqa: E722
-            self.report({'ERROR'}, f"Failed to generate mapping file: {str(e)}")
-            Debug.log_error(f"Error generating mapping file: {e}")
+            Debug.report_and_log(self, 'ERROR', f"Failed to generate mapping file: {str(e)}")
             traceback.print_exc()
             return {'CANCELLED'}
 
@@ -355,12 +349,12 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
         
         # Validate MTAR file path
         if not import_props.mtar_filepath:
-            self.report({'ERROR'}, "No MTAR file selected")
+            Debug.report_and_log(self, 'ERROR', "No MTAR file selected")
             return {'CANCELLED'}
         
         mtar_filepath_abs = bpy.path.abspath(import_props.mtar_filepath)
         if not os.path.exists(mtar_filepath_abs):
-            self.report({'ERROR'}, f"MTAR file not found: {mtar_filepath_abs}")
+            Debug.report_and_log(self, 'ERROR', f"MTAR file not found: {mtar_filepath_abs}")
             return {'CANCELLED'}
         
         # Load FRIG file if provided
@@ -368,7 +362,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
         if import_props.frig_filepath:
             frig_filepath_abs = bpy.path.abspath(import_props.frig_filepath)
             if not os.path.exists(frig_filepath_abs):
-                self.report({'WARNING'}, f"FRIG file not found: {frig_filepath_abs}")
+                Debug.report_and_log(self, 'WARNING', f"FRIG file not found: {frig_filepath_abs}")
             else:
                 try:
                     Debug.log(f"Loading FRIG file: {frig_filepath_abs}")
@@ -382,8 +376,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                     Debug.log(f"  - Segments: {frig_data.header.segment_count}")
                     
                 except (OSError, ValueError) as e:
-                    self.report({'ERROR'}, f"Failed to load FRIG file: {str(e)}")
-                    Debug.log_error(f"FRIG load error: {e}")
+                    Debug.report_and_log(self, 'ERROR', f"Failed to load FRIG file: {str(e)}")
                     traceback.print_exc()
                     return {'CANCELLED'}
         else:
@@ -396,7 +389,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
         if import_props.mapping_filepath:
             mapping_filepath_abs = bpy.path.abspath(import_props.mapping_filepath)
             if not os.path.exists(mapping_filepath_abs):
-                self.report({'WARNING'}, f"Track mapping file not found: {mapping_filepath_abs}")
+                Debug.report_and_log(self, 'WARNING', f"Track mapping file not found: {mapping_filepath_abs}")
             else:
                 try:
                     mapping_data: TrackMappingData = parse_track_mapping_file(mapping_filepath_abs)
@@ -406,8 +399,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                     if mapping_data.track_metadata:
                         Debug.log(f"Loaded {len(mapping_data.track_metadata)} track metadata definition(s)")
                 except Exception as e:  # noqa: E722
-                    self.report({'WARNING'}, f"Failed to load track mapping file: {str(e)}")
-                    Debug.log_error(f"Track mapping load error: {e}")
+                    Debug.report_and_log(self, 'WARNING', f"Failed to load track mapping file: {str(e)}")
         
         # Get custom rig if specified
         custom_rig: Optional[bpy.types.Object] = import_props.custom_rig if import_props.custom_rig else None
@@ -424,11 +416,10 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                 gani_indices = parse_index_selection(import_props.gani_indices_str, header_info.file_count)
                 Debug.log(f"Parsed GANI selection: {gani_indices}")
             except ValueError as e:
-                self.report({'ERROR'}, f"Invalid GANI selection: {e}")
+                Debug.report_and_log(self, 'ERROR', f"Invalid GANI selection: {e}")
                 return {'CANCELLED'}
             except Exception as e:
-                self.report({'ERROR'}, f"Error parsing GANI selection: {e}")
-                Debug.log_error(f"GANI selection parse error: {e}")
+                Debug.report_and_log(self, 'ERROR', f"Error parsing GANI selection: {e}")
                 traceback.print_exc()
                 return {'CANCELLED'}
         
@@ -436,6 +427,8 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
         wm: bpy.types.WindowManager = context.window_manager
         wm.progress_begin(0, 100)
         execution_props.operation_type = 'IMPORT'
+        # Initialize UI progress state
+        update_progress(0, "Starting import...")
         
         # Import MTAR animation
         try:
@@ -454,7 +447,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                 Debug.log("\n========= Finished IMPORT MTAR OPERATION =========\n")
 
                 if result == {'FINISHED'}:
-                    self.report({'INFO'}, "MTAR animation imported successfully")
+                    Debug.report_and_log(self, 'INFO', "MTAR animation imported successfully")
                     
                     # Bake custom rig if requested
                     if import_props.bake_after_import and custom_rig:
@@ -490,14 +483,12 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                                 
                                 handle_bake_result(bake_result, custom_rig, imported_armature, props, self)
                             else:
-                                self.report({'WARNING'}, "custom rig has no NLA tracks or active action to bake")
-                                Debug.log_warning("custom rig has no NLA tracks or active action to bake")
+                                Debug.report_and_log(self, 'WARNING', "custom rig has no NLA tracks or active action to bake")
                             
                             Debug.log("\n========= Finished BAKE OPERATION =========\n")
                             
                         except Exception as e:  # noqa: E722
-                            self.report({'ERROR'}, f"Failed to bake custom rig: {str(e)}")
-                            Debug.log_error(f"Bake error: {e}")
+                            Debug.report_and_log(self, 'ERROR', f"Failed to bake custom rig: {str(e)}")
                             traceback.print_exc()
                             # Continue regardless of bake failure
                     
@@ -505,20 +496,18 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                     if custom_rig:
                         update_progress(95, "Cleaning up...")
                         if clear_armature_transforms(custom_rig):
-                            Debug.log("Transforms cleared from custom rig")
-                            self.report({'INFO'}, "Cleared transforms from custom rig")
+                            Debug.report_and_log(self, 'INFO', "Cleared transforms from custom rig")
                         else:
-                            self.report({'WARNING'}, "Could not clear transforms from custom rig")
+                            Debug.report_and_log(self, 'WARNING', "Could not clear transforms from custom rig")
                     
                     update_progress(100, "Done")
                     return {'FINISHED'}
                 else:
-                    self.report({'WARNING'}, "MTAR import completed with warnings")
+                    Debug.report_and_log(self, 'WARNING', "MTAR import completed with warnings")
                     return {'FINISHED'}
         
         except (OSError, ValueError) as e:  # noqa: E722
-            self.report({'ERROR'}, f"Failed to import MTAR: {str(e)}")
-            Debug.log_error(f"MTAR import error: {e}")
+            Debug.report_and_log(self, 'ERROR', f"Failed to import MTAR: {str(e)}")
             traceback.print_exc()
             return {'CANCELLED'}
         finally:
@@ -540,7 +529,7 @@ class MTAR_OT_ValidateHashGeneratorExe(Operator):
         # Read exe path from main scene properties (no fallback)
         scene: bpy.types.Scene = context.scene
         if not hasattr(scene, 'mtar_properties') or not scene.mtar_properties.settings_props.hash_generator_exe_path:
-            self.report({'ERROR'}, "Executable path not configured in MTAR Settings")
+            Debug.report_and_log(self, 'ERROR', "Executable path not configured in MTAR Settings")
             return {'CANCELLED'}
         exe_path: str = scene.mtar_properties.settings_props.hash_generator_exe_path
         
@@ -549,8 +538,8 @@ class MTAR_OT_ValidateHashGeneratorExe(Operator):
         is_valid, error_msg = validate_executable_path(exe_path)
         
         if is_valid:
-            self.report({'INFO'}, "Executable path is valid")
+            Debug.report_and_log(self, 'INFO', "Executable path is valid")
             return {'FINISHED'}
         else:
-            self.report({'ERROR'}, f"Invalid executable: {error_msg}")
+            Debug.report_and_log(self, 'ERROR', f"Invalid executable: {error_msg}")
             return {'CANCELLED'}

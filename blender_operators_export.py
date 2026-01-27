@@ -111,12 +111,12 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
         
         # Validate export armature
         if not export_props.armature:
-            self.report({'ERROR'}, "No armature selected for export")
+            Debug.report_and_log(self, 'ERROR', "No armature selected for export")
             return {'CANCELLED'}
         
         # Validate export filepath
         if not export_props.filepath:
-            self.report({'ERROR'}, "No export file path specified")
+            Debug.report_and_log(self, 'ERROR', "No export file path specified")
             return {'CANCELLED'}
         
         # Load mapping file if provided
@@ -124,7 +124,7 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
         
         if export_props.mapping_filepath:
             if not os.path.exists(export_props.mapping_filepath):
-                self.report({'ERROR'}, f"Mapping file not found: {export_props.mapping_filepath}")
+                Debug.report_and_log(self, 'ERROR', f"Mapping file not found: {export_props.mapping_filepath}")
                 return {'CANCELLED'}
             
             try:
@@ -132,8 +132,7 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
                 layout_action = find_layout_track_action()
                 
                 if not layout_action:
-                    self.report({'ERROR'}, "No layout track action found. Cannot determine track indices for export.")
-                    Debug.log_error("  ERROR: Layout action is required for export to determine track order.")
+                    Debug.report_and_log(self, 'ERROR', "No layout track action found. Cannot determine track indices for export.")
                     return {'CANCELLED'}
                 
                 # Build track mapping using utility function
@@ -142,29 +141,30 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
                 )
                 
                 if missing_bones:
-                    self.report({'WARNING'}, f"Mapping references {len(missing_bones)} bone(s) not in armature: {', '.join(missing_bones[:5])}")
+                    Debug.report_and_log(self, 'WARNING', f"Mapping references {len(missing_bones)} bone(s) not in armature: {', '.join(missing_bones[:5])}")
                     Debug.log_warning(f"  Warning: {len(missing_bones)} bone(s) in mapping not found in armature:")
                     for bone_name in missing_bones:
                         Debug.log(f"  - {bone_name}")
                 
                 if track_segment_bone_mapping.get_total_track_count() == 0:
-                    self.report({'ERROR'}, "No valid track mappings found. Check that fox bone names in mapping file match layout action.")
+                    Debug.report_and_log(self, 'ERROR', "No valid track mappings found. Check that fox bone names in mapping file match layout action.")
                     return {'CANCELLED'}
                 
             except Exception as e:  # noqa: E722
-                self.report({'ERROR'}, f"Failed to load mapping file: {str(e)}")
-                Debug.log_error(f"Mapping file load error: {e}")
+                Debug.report_and_log(self, 'ERROR', f"Failed to load mapping file: {str(e)}")
                 traceback.print_exc()
                 return {'CANCELLED'}
         else:
             # No mapping file provided - require it for export
-            self.report({'ERROR'}, "Export mapping file is required. Please provide a track mapping file.")
+            Debug.report_and_log(self, 'ERROR', "Export mapping file is required. Please provide a track mapping file.")
             return {'CANCELLED'}
         
         # Initialize progress bar
         wm = context.window_manager
         wm.progress_begin(0, 100)
         execution_props.operation_type = 'EXPORT'
+        # Initialize UI progress state
+        update_progress(0, "Starting export...")
         
         try:
             with Debug.busy_cursor():
@@ -182,15 +182,15 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
 
                 # Result is a dict like {'FINISHED': 'message'} or {'CANCELLED': 'message'}
                 if 'FINISHED' in result:
-                    self.report({'INFO'}, result['FINISHED'])
+                    Debug.report_and_log(self, 'INFO', result['FINISHED'])
                     update_progress(100, "Done")
                     return {'FINISHED'}
                 else:
-                    self.report({'ERROR'}, result.get('CANCELLED', 'Export failed'))
+                    Debug.report_and_log(self, 'ERROR', result.get('CANCELLED', 'Export failed'))
                     return {'CANCELLED'}
         
         except (OSError, ValueError) as e:  # noqa: E722
-            self.report({'ERROR'}, f"Export failed: {str(e)}")
+            Debug.report_and_log(self, 'ERROR', f"Export failed: {str(e)}")
             traceback.print_exc()
             return {'CANCELLED'}
         finally:

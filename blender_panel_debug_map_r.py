@@ -119,11 +119,11 @@ class MTAR_OT_DebugAnalyzeMapR(bpy.types.Operator):
         
         # Validate inputs
         if not props.target_armature:
-            self.report({'ERROR'}, "Please select a target armature")
+            Debug.report_and_log(self, 'ERROR', "Please select a target armature")
             return {'FINISHED'}
         
         if not props.target_bone:
-            self.report({'ERROR'}, "Please select a target bone")
+            Debug.report_and_log(self, 'ERROR', "Please select a target bone")
             return {'FINISHED'}
         
         # Get test keyframe quaternion
@@ -144,7 +144,7 @@ class MTAR_OT_DebugAnalyzeMapR(bpy.types.Operator):
             Debug.log(f"\nTarget: Armature '{armature.name}', Bone '{bone_name}'")
             
             if bone_name not in armature.pose.bones:
-                self.report({'ERROR'}, f"Bone '{bone_name}' not found in armature")
+                Debug.report_and_log(self, 'ERROR', f"Bone '{bone_name}' not found in armature")
                 return {'FINISHED'}
             
             # Get the bone from edit bones (required for extract_rest_pose_rotation)
@@ -160,8 +160,7 @@ class MTAR_OT_DebugAnalyzeMapR(bpy.types.Operator):
             Debug.log(f"\nExtracted rest pose: {rest_pose_euler}")
             
             if rest_pose_euler is None:
-                Debug.log("Rest pose is identity (zero rotation)")
-                self.report({'WARNING'}, "Could not extract rest pose (zero rotation)")
+                Debug.report_and_log(self, 'WARNING', "Could not extract rest pose (zero rotation)")
                 props.output_rest_pose_euler_x = 0.0
                 props.output_rest_pose_euler_y = 0.0
                 props.output_rest_pose_euler_z = 0.0
@@ -266,12 +265,11 @@ class MTAR_OT_DebugAnalyzeMapR(bpy.types.Operator):
             # Update debug info
             props.debug_log = f"✓ Analyzed bone '{bone_name}' in armature '{armature.name}'"
             
-            self.report({'INFO'}, f"Map_R parameter: {map_r_param}")
+            Debug.report_and_log(self, 'INFO', f"Map_R parameter: {map_r_param}")
             
         except (RuntimeError, KeyError, AttributeError) as e:
-            self.report({'ERROR'}, f"Error: {str(e)}")
+            Debug.report_and_log(self, 'ERROR', f"Debug map_r analysis error: {str(e)}")
             props.debug_log = f"✗ Error: {str(e)}"
-            Debug.log_error(f"Debug map_r analysis error: {e}")
         
         return {'FINISHED'}
 
@@ -298,7 +296,7 @@ class MTAR_OT_DebugPickSelectedBone(bpy.types.Operator):
                 break
         
         if not armature:
-            self.report({'ERROR'}, "No armature selected. Please select an armature and a bone.")
+            Debug.report_and_log(self, 'ERROR', "No armature selected. Please select an armature and a bone.")
             return {'FINISHED'}
         
         # Get selected bone from active bone in the armature
@@ -306,14 +304,14 @@ class MTAR_OT_DebugPickSelectedBone(bpy.types.Operator):
             # Edit mode: get selected edit bone
             selected_bones = [b.name for b in armature.data.edit_bones if b.select]
             if not selected_bones:
-                self.report({'ERROR'}, "No bone selected in edit mode. Please select a bone.")
+                Debug.report_and_log(self, 'ERROR', "No bone selected in edit mode. Please select a bone.")
                 return {'FINISHED'}
             bone_name = selected_bones[0]
         elif armature.mode == 'POSE':
             # Pose mode: get selected pose bone
             selected_bones = [b.name for b in armature.pose.bones if b.bone.select]
             if not selected_bones:
-                self.report({'ERROR'}, "No bone selected in pose mode. Please select a bone.")
+                Debug.report_and_log(self, 'ERROR', "No bone selected in pose mode. Please select a bone.")
                 return {'FINISHED'}
             bone_name = selected_bones[0]
         else:
@@ -322,17 +320,17 @@ class MTAR_OT_DebugPickSelectedBone(bpy.types.Operator):
                 if active_object.data.bones.active:
                     bone_name = active_object.data.bones.active.name
                 else:
-                    self.report({'ERROR'}, "No active bone. Please select a bone in the armature.")
+                    Debug.report_and_log(self, 'ERROR', "No active bone. Please select a bone in the armature.")
                     return {'FINISHED'}
             else:
-                self.report({'ERROR'}, "Armature not in edit or pose mode. Please select in pose/edit mode.")
+                Debug.report_and_log(self, 'ERROR', "Armature not in edit or pose mode. Please select in pose/edit mode.")
                 return {'FINISHED'}
         
         # Set properties
         props.target_armature = armature
         props.target_bone = bone_name
         
-        self.report({'INFO'}, f"Selected armature '{armature.name}' and bone '{bone_name}'")
+        Debug.report_and_log(self, 'INFO', f"Selected armature '{armature.name}' and bone '{bone_name}'")
         
         return {'FINISHED'}
 
@@ -348,12 +346,12 @@ class MTAR_OT_CopyMapRToClipboard(bpy.types.Operator):
         map_r_value = scene.mtar_debug_map_r_properties.output_map_r
         
         if not map_r_value or map_r_value.startswith('#'):
-            self.report({'WARNING'}, "No valid map_r parameter to copy")
+            Debug.report_and_log(self, 'WARNING', "No valid map_r parameter to copy")
             return {'FINISHED'}
         
         # Copy to clipboard
         bpy.context.window_manager.clipboard = map_r_value
-        self.report({'INFO'}, f"Copied to clipboard: {map_r_value}")
+        Debug.report_and_log(self, 'INFO', f"Copied to clipboard: {map_r_value}")
         
         return {'FINISHED'}
 
@@ -368,7 +366,7 @@ class MTAR_OT_CopyRestPoseEuler(bpy.types.Operator):
         props = context.scene.mtar_debug_map_r_properties
         euler_str = f"{props.output_rest_pose_euler_x:.2f}, {props.output_rest_pose_euler_y:.2f}, {props.output_rest_pose_euler_z:.2f}"
         bpy.context.window_manager.clipboard = euler_str
-        self.report({'INFO'}, f"Copied Euler: {euler_str}")
+        Debug.report_and_log(self, 'INFO', f"Copied Euler: {euler_str}")
         return {'FINISHED'}
 
 
@@ -382,7 +380,7 @@ class MTAR_OT_CopyRestPoseQuat(bpy.types.Operator):
         props = context.scene.mtar_debug_map_r_properties
         quat_str = f"{props.output_rest_pose_quat_w:.4f}, {props.output_rest_pose_quat_x:.4f}, {props.output_rest_pose_quat_y:.4f}, {props.output_rest_pose_quat_z:.4f}"
         bpy.context.window_manager.clipboard = quat_str
-        self.report({'INFO'}, f"Copied quaternion: {quat_str}")
+        Debug.report_and_log(self, 'INFO', f"Copied quaternion: {quat_str}")
         return {'FINISHED'}
 
 
@@ -396,7 +394,7 @@ class MTAR_OT_CopyMappedQuat(bpy.types.Operator):
         props = context.scene.mtar_debug_map_r_properties
         quat_str = f"{props.output_mapped_quat_w:.4f}, {props.output_mapped_quat_x:.4f}, {props.output_mapped_quat_y:.4f}, {props.output_mapped_quat_z:.4f}"
         bpy.context.window_manager.clipboard = quat_str
-        self.report({'INFO'}, f"Copied quaternion: {quat_str}")
+        Debug.report_and_log(self, 'INFO', f"Copied quaternion: {quat_str}")
         return {'FINISHED'}
 
 
@@ -412,11 +410,11 @@ class MTAR_OT_DebugApplyInvertedRestPose(bpy.types.Operator):
         
         # Validate inputs
         if not props.target_armature:
-            self.report({'ERROR'}, "Please select a target armature")
+            Debug.report_and_log(self, 'ERROR', "Please select a target armature")
             return {'FINISHED'}
         
         if not props.target_bone:
-            self.report({'ERROR'}, "Please select a target bone")
+            Debug.report_and_log(self, 'ERROR', "Please select a target bone")
             return {'FINISHED'}
         
         try:
@@ -424,7 +422,7 @@ class MTAR_OT_DebugApplyInvertedRestPose(bpy.types.Operator):
             bone_name = props.target_bone
             
             if bone_name not in armature.pose.bones:
-                self.report({'ERROR'}, f"Bone '{bone_name}' not found in armature")
+                Debug.report_and_log(self, 'ERROR', f"Bone '{bone_name}' not found in armature")
                 return {'FINISHED'}
             
             # Get the pose bone
@@ -454,13 +452,12 @@ class MTAR_OT_DebugApplyInvertedRestPose(bpy.types.Operator):
             Debug.log("(The combined world space = rest pose × inverted rest pose = identity)")
             Debug.log("=" * 60)
             
-            self.report({'INFO'}, f"Applied inverted rest pose to '{bone_name}'")
+            Debug.report_and_log(self, 'INFO', f"Applied inverted rest pose to '{bone_name}'")
             props.debug_log = f"✓ Applied inverted rest pose to verify extraction"
             
         except (RuntimeError, KeyError, AttributeError) as e:
-            self.report({'ERROR'}, f"Error: {str(e)}")
+            Debug.report_and_log(self, 'ERROR', f"Error: {str(e)}")
             props.debug_log = f"✗ Error: {str(e)}"
-            Debug.log_error(f"Apply inverted rest pose error: {e}")
         
         return {'FINISHED'}
 
@@ -477,11 +474,11 @@ class MTAR_OT_DebugApplyMappedRotation(bpy.types.Operator):
         
         # Validate inputs
         if not props.target_armature:
-            self.report({'ERROR'}, "Please select a target armature")
+            Debug.report_and_log(self, 'ERROR', "Please select a target armature")
             return {'FINISHED'}
         
         if not props.target_bone:
-            self.report({'ERROR'}, "Please select a target bone")
+            Debug.report_and_log(self, 'ERROR', "Please select a target bone")
             return {'FINISHED'}
         
         try:
@@ -489,7 +486,7 @@ class MTAR_OT_DebugApplyMappedRotation(bpy.types.Operator):
             bone_name = props.target_bone
             
             if bone_name not in armature.pose.bones:
-                self.report({'ERROR'}, f"Bone '{bone_name}' not found in armature")
+                Debug.report_and_log(self, 'ERROR', f"Bone '{bone_name}' not found in armature")
                 return {'FINISHED'}
             
             # Get the pose bone
@@ -513,13 +510,12 @@ class MTAR_OT_DebugApplyMappedRotation(bpy.types.Operator):
             Debug.log(f"Bone now has rotation: {pose_bone.rotation_quaternion}")
             Debug.log("=" * 60)
             
-            self.report({'INFO'}, f"Applied mapped rotation to '{bone_name}'")
+            Debug.report_and_log(self, 'INFO', f"Applied mapped rotation to '{bone_name}'")
             props.debug_log = f"✓ Applied mapped rotation to bone"
             
         except (RuntimeError, KeyError, AttributeError) as e:
-            self.report({'ERROR'}, f"Error: {str(e)}")
+            Debug.report_and_log(self, 'ERROR', f"Apply mapped rotaton error: {str(e)}")
             props.debug_log = f"✗ Error: {str(e)}"
-            Debug.log_error(f"Apply mapped rotation error: {e}")
         
         return {'FINISHED'}
 
