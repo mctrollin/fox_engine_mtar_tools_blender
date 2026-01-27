@@ -149,9 +149,10 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
         
         # Validate MTAR file path (optional but recommended)
         mtar_data: Optional[Dict[str, Any]] = None
-        if import_props.mtar_filepath and os.path.exists(import_props.mtar_filepath):
+        mtar_filepath_abs = bpy.path.abspath(import_props.mtar_filepath) if import_props.mtar_filepath else ""
+        if mtar_filepath_abs and os.path.exists(mtar_filepath_abs):
             try:
-                Debug.log(f"Reading MTAR file: {import_props.mtar_filepath}")
+                Debug.log(f"Reading MTAR file: {mtar_filepath_abs}")
                 # Read MTAR to get CommonInfo with layout track
                 with open(import_props.mtar_filepath, 'rb') as f:
                     file_data: bytes = f.read()
@@ -168,7 +169,7 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
                 Debug.log_warning(f"  Warning: Could not read MTAR file: {e}")
                 # Continue without MTAR data
         elif import_props.mtar_filepath:
-            Debug.log_warning(f"  Warning: MTAR file not found: {import_props.mtar_filepath}")
+            Debug.log_warning(f"  Warning: MTAR file not found: {mtar_filepath_abs}")
         
         try:
             # Read FRIG file
@@ -185,10 +186,10 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
             frig_name: str = os.path.splitext(os.path.basename(import_props.frig_filepath))[0]
             output_path: str = os.path.join(frig_dir, f"{frig_name}_track_mapping.txt")
             
-            # Check if file already exists (TODO: for now we override it bc easier testing, later we should re-enalbe the check.)
-            # if os.path.exists(output_path):
-            #     self.report({'WARNING'}, f"Mapping file already exists: {output_path}")
-            #     return {'CANCELLED'}
+            # Check if file already exists
+            if os.path.exists(output_path):
+                self.report({'WARNING'}, f"Mapping file already exists: {output_path}")
+                return {'CANCELLED'}
             
             # Generate mapping file content
             lines: List[str] = []
@@ -357,19 +358,21 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
             self.report({'ERROR'}, "No MTAR file selected")
             return {'CANCELLED'}
         
-        if not os.path.exists(import_props.mtar_filepath):
-            self.report({'ERROR'}, f"MTAR file not found: {import_props.mtar_filepath}")
+        mtar_filepath_abs = bpy.path.abspath(import_props.mtar_filepath)
+        if not os.path.exists(mtar_filepath_abs):
+            self.report({'ERROR'}, f"MTAR file not found: {mtar_filepath_abs}")
             return {'CANCELLED'}
         
         # Load FRIG file if provided
         frig_data: Optional[FrigFile] = None
         if import_props.frig_filepath:
-            if not os.path.exists(import_props.frig_filepath):
-                self.report({'WARNING'}, f"FRIG file not found: {import_props.frig_filepath}")
+            frig_filepath_abs = bpy.path.abspath(import_props.frig_filepath)
+            if not os.path.exists(frig_filepath_abs):
+                self.report({'WARNING'}, f"FRIG file not found: {frig_filepath_abs}")
             else:
                 try:
-                    Debug.log(f"Loading FRIG file: {import_props.frig_filepath}")
-                    with open(import_props.frig_filepath, 'rb') as f:
+                    Debug.log(f"Loading FRIG file: {frig_filepath_abs}")
+                    with open(frig_filepath_abs, 'rb') as f:
                         frig_data = FrigFile.read(f)
                     
                         Debug.log("FRIG loaded successfully:")
@@ -391,11 +394,12 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
         # Load track mapping file if provided
         track_mapping: Optional[Dict[str, BoneParameters]] = None
         if import_props.mapping_filepath:
-            if not os.path.exists(import_props.mapping_filepath):
-                self.report({'WARNING'}, f"Track mapping file not found: {import_props.mapping_filepath}")
+            mapping_filepath_abs = bpy.path.abspath(import_props.mapping_filepath)
+            if not os.path.exists(mapping_filepath_abs):
+                self.report({'WARNING'}, f"Track mapping file not found: {mapping_filepath_abs}")
             else:
                 try:
-                    mapping_data: TrackMappingData = parse_track_mapping_file(import_props.mapping_filepath)
+                    mapping_data: TrackMappingData = parse_track_mapping_file(mapping_filepath_abs)
                     track_mapping = mapping_data.fox_to_blender
                     if track_mapping:
                         Debug.log(f"Loaded {len(track_mapping)} track mapping(s)")
@@ -413,7 +417,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
         if import_props.gani_indices_str.strip():
             try:
                 # Get total GANI count from MTAR header
-                reader = MtarReader(import_props.mtar_filepath)
+                reader = MtarReader(mtar_filepath_abs)
                 header_info = reader.get_header_info()
                 
                 # Parse selection with validation
@@ -436,7 +440,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
         # Import MTAR animation
         try:
             with Debug.busy_cursor():
-                import_result: Tuple[Set[str], Optional[bpy.types.Object]] = import_mtar(context, import_props.mtar_filepath, frig_data, track_mapping, gani_indices, custom_rig, import_props.strip_padding)
+                import_result: Tuple[Set[str], Optional[bpy.types.Object]] = import_mtar(context, mtar_filepath_abs, frig_data, track_mapping, gani_indices, custom_rig, import_props.strip_padding)
                 
                 # Extract result and imported armature
                 if isinstance(import_result, tuple):
@@ -521,60 +525,6 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
             wm.progress_end()
             execution_props.operation_type = 'NONE'
             update_progress(0, "")
-
-
-class MTAR_OT_SelectImportMtarFile(Operator):
-    """File browser for selecting MTAR file to import."""
-    bl_idname = "mtar.select_import_mtar_file"
-    bl_label = "Select Import MTAR File"
-    bl_options = {'INTERNAL'}
-    
-    filepath: StringProperty(subtype='FILE_PATH')  # type: ignore
-    filter_glob: StringProperty(default="*.mtar", options={'HIDDEN'})  # type: ignore
-    
-    def execute(self, context: Context) -> Set[str]:
-        context.scene.mtar_properties.import_props.mtar_filepath = self.filepath
-        return {'FINISHED'}
-    
-    def invoke(self, context: Context, _event: Event) -> Set[str]:
-        context.window_manager.fileselect_add(self)
-        return {'RUNNING_MODAL'}
-
-
-class MTAR_OT_SelectFrigFile(Operator):
-    """File browser for selecting FRIG file."""
-    bl_idname = "mtar.select_frig_file"
-    bl_label = "Select FRIG File"
-    bl_options = {'INTERNAL'}
-    
-    filepath: StringProperty(subtype='FILE_PATH')  # type: ignore
-    filter_glob: StringProperty(default="*.frig", options={'HIDDEN'})  # type: ignore
-    
-    def execute(self, context: Context) -> Set[str]:
-        context.scene.mtar_properties.import_props.frig_filepath = self.filepath
-        return {'FINISHED'}
-    
-    def invoke(self, context: Context, _event: Event) -> Set[str]:
-        context.window_manager.fileselect_add(self)
-        return {'RUNNING_MODAL'}
-
-
-class MTAR_OT_SelectMappingFile(Operator):
-    """File browser for selecting name mapping file."""
-    bl_idname = "mtar.select_mapping_file"
-    bl_label = "Select Name Mapping File"
-    bl_options = {'INTERNAL'}
-    
-    filepath: StringProperty(subtype='FILE_PATH')  # type: ignore
-    filter_glob: StringProperty(default="*.txt", options={'HIDDEN'})  # type: ignore
-    
-    def execute(self, context: Context) -> Set[str]:
-        context.scene.mtar_properties.import_props.mapping_filepath = self.filepath
-        return {'FINISHED'}
-    
-    def invoke(self, context: Context, _event: Event) -> Set[str]:
-        context.window_manager.fileselect_add(self)
-        return {'RUNNING_MODAL'}
 
 
 class MTAR_OT_ValidateHashGeneratorExe(Operator):

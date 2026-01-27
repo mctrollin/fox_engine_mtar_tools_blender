@@ -169,9 +169,10 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
         try:
             with Debug.busy_cursor():
                 # Export MTAR with layout track extracted from metadata
+                export_filepath_abs = bpy.path.abspath(export_props.filepath)
                 result = export_mtar(
                     context=context,
-                    filepath=export_props.filepath,
+                    filepath=export_filepath_abs,
                     armature=export_props.armature,
                     track_segment_bone_mapping=track_segment_bone_mapping,
                     use_nla=export_props.use_nla
@@ -196,39 +197,3 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
             wm.progress_end()
             execution_props.operation_type = 'NONE'
             update_progress(0, "")
-
-
-class MTAR_OT_SelectExportFile(Operator):
-    """File browser for selecting export MTAR file path."""
-    bl_idname = "mtar.select_export_file"
-    bl_label = "Select Export File"
-    bl_options = {'INTERNAL'}
-    
-    filepath: StringProperty(subtype='FILE_PATH')  # type: ignore
-    filter_glob: StringProperty(default="*.mtar", options={'HIDDEN'})  # type: ignore
-    
-    def execute(self, context: Context) -> Set[str]:
-        context.scene.mtar_properties.export_props.filepath = self.filepath
-        return {'FINISHED'}
-    
-    def invoke(self, context: Context, _event: Event) -> Set[str]:
-        context.window_manager.fileselect_add(self)
-        return {'RUNNING_MODAL'}
-
-
-class MTAR_OT_SelectExportMappingFile(Operator):
-    """File browser for selecting export mapping file."""
-    bl_idname = "mtar.select_export_mapping_file"
-    bl_label = "Select Export Mapping File"
-    bl_options = {'INTERNAL'}
-    
-    filepath: StringProperty(subtype='FILE_PATH')  # type: ignore
-    filter_glob: StringProperty(default="*.txt", options={'HIDDEN'})  # type: ignore
-    
-    def execute(self, context: Context) -> Set[str]:
-        context.scene.mtar_properties.export_props.mapping_filepath = self.filepath
-        return {'FINISHED'}
-    
-    def invoke(self, context: Context, _event: Event) -> Set[str]:
-        context.window_manager.fileselect_add(self)
-        return {'RUNNING_MODAL'}

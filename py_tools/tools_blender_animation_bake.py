@@ -184,7 +184,7 @@ def cleanup_baked_keyframes(action: bpy.types.Action,
     
     return keyframes_removed_count
 
-# TODO: this is not really necessary if we say: baking animations always removes the original import armature
+# TODO: this function is not really necessary if we say: baking animations always removes the original import armature
 def copy_action_animation_data(source_action: bpy.types.Action, 
                                target_action: bpy.types.Action) -> int:
     """Copy all animation data (fcurves and keyframes) from source to target action.

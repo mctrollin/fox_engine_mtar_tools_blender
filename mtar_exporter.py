@@ -1385,7 +1385,7 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
     else:
         # Create placeholder layout track without metadata
         
-        Debug.log("\nCreating placeholder layout track...")
+        Debug.log_warning("\nNo Layout track action found! creating placeholder layout track but this will probably cause issues.")
         # Count number of tracks
         track_count = track_segment_bone_mapping.get_total_track_count()
         placeholder_header = TrackHeader(

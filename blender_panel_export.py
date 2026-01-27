@@ -6,8 +6,6 @@ from bpy.types import Panel, Context
 
 from .blender_operators_export import (
     MTAR_OT_ExportAnimationToMTAR,
-    MTAR_OT_SelectExportFile,
-    MTAR_OT_SelectExportMappingFile
 )
 
 # Import shared utilities and properties from the import panel module
@@ -57,15 +55,11 @@ class MTAR_PT_ExportPanel(Panel):
 
         # Mapping file (optional)
         box = box_export
-        row = box.row(align=True)
-        row.prop(export_props, "mapping_filepath", text="", icon='TEXT')
-        row.operator("mtar.select_export_mapping_file", text="", icon='FILE_FOLDER')
+        box.prop(export_props, "mapping_filepath", text="", icon='TEXT')
 
         # Export file picker
         box = box_export
-        row = box.row(align=True)
-        row.prop(export_props, "filepath", text="", icon='CURRENT_FILE')
-        row.operator("mtar.select_export_file", text="", icon='FILE_FOLDER')
+        box.prop(export_props, "filepath", text="", icon='CURRENT_FILE')
 
         if settings_props.show_advanced_settings:
             # Custom path hash export option
@@ -109,8 +103,6 @@ class MTAR_PT_ExportPanel(Panel):
 
 classes = (
     MTAR_OT_ExportAnimationToMTAR,
-    MTAR_OT_SelectExportFile,
-    MTAR_OT_SelectExportMappingFile,
     MTAR_PT_ExportPanel,
 )
 

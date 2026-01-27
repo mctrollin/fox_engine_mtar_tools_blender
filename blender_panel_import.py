@@ -13,9 +13,6 @@ from .py_foxwrap.foxwrap_mtar_reader import MtarReader
 from .blender_operators_import import (
     MTAR_OT_GenerateTrackMappingTemplateFile,
     MTAR_OT_ImportAnimationFromMTAR,
-    MTAR_OT_SelectImportMtarFile,
-    MTAR_OT_SelectFrigFile,
-    MTAR_OT_SelectMappingFile,
     MTAR_OT_ValidateHashGeneratorExe
 )
 from .blender_properties import MTAR_PG_Properties
@@ -82,9 +79,7 @@ class MTAR_PT_ImportPanel(Panel):
 
         # MTAR file picker
         mtar_box = box_import
-        row = mtar_box.row(align=True)
-        row.prop(import_props, "mtar_filepath", text="", icon='ANIM')
-        row.operator("mtar.select_import_mtar_file", text="", icon='FILE_FOLDER')
+        mtar_box.prop(import_props, "mtar_filepath", text="", icon='ANIM')
 
         # MTAR header preview (read-only display)
         info_box = mtar_box.box()
@@ -103,9 +98,6 @@ class MTAR_PT_ImportPanel(Panel):
         mapping_box = box_import.box()
         row = mapping_box.row(align=True)
         row.prop(import_props, "frig_filepath", text="", icon='OUTLINER_OB_ARMATURE')
-        row.operator("mtar.select_frig_file", text="", icon='FILE_FOLDER')
-        
-        # Generate mapping file button
         if settings_props.show_advanced_settings:
             col = mapping_box.column()
             col.enabled = bool(import_props.frig_filepath)
@@ -115,9 +107,6 @@ class MTAR_PT_ImportPanel(Panel):
         # Track mapping file picker
         row = mapping_box.row(align=True)
         row.prop(import_props, "mapping_filepath", text="", icon='TEXT')
-        row.operator("mtar.select_mapping_file", text="", icon='FILE_FOLDER')
-
-        # GANI selection field
         box = box_import
         box.prop(import_props, "gani_indices_str", text="", icon='FILTER')
         
@@ -159,9 +148,6 @@ class MTAR_PT_ImportPanel(Panel):
 classes = (
     MTAR_OT_GenerateTrackMappingTemplateFile,
     MTAR_OT_ImportAnimationFromMTAR,
-    MTAR_OT_SelectImportMtarFile,
-    MTAR_OT_SelectFrigFile,
-    MTAR_OT_SelectMappingFile,
     MTAR_OT_ValidateHashGeneratorExe,
     MTAR_PT_ImportPanel,
 )

@@ -14,6 +14,7 @@ class MTAR_PG_ImportProperties(PropertyGroup):
         description="Path to the .mtar animation file",
         default="",
         maxlen=1024,
+        subtype='FILE_PATH'
     )
     
     frig_filepath: StringProperty(
@@ -21,6 +22,7 @@ class MTAR_PG_ImportProperties(PropertyGroup):
         description="Path to the .frig rig file",
         default="",
         maxlen=1024,
+        subtype='FILE_PATH'
     )
     
     mapping_filepath: StringProperty(
@@ -28,6 +30,7 @@ class MTAR_PG_ImportProperties(PropertyGroup):
         description="Path to the .txt file defining track transformations (renaming, rotation offsets, axis mapping, etc.)",
         default="",
         maxlen=1024,
+        subtype='FILE_PATH'
     )
     
     gani_indices_str: StringProperty(
@@ -93,6 +96,7 @@ class MTAR_PG_ExportProperties(PropertyGroup):
         description="Path for the exported .mtar animation file",
         default="",
         maxlen=1024,
+        subtype='FILE_PATH'
     )
     
     mapping_filepath: StringProperty(
@@ -100,6 +104,7 @@ class MTAR_PG_ExportProperties(PropertyGroup):
         description="Path to the bone mapping file for export transformations",
         default="",
         maxlen=1024,
+        subtype='FILE_PATH'
     )
     
     use_nla: BoolProperty(
@@ -194,7 +199,7 @@ class MTAR_PG_SettingsProperties(PropertyGroup):
     
     enable_rest_pose_correction: BoolProperty(
         name="Enable Rest Pose Correction",
-        description="Automatically extract and apply rest pose corrections from custom rig/armature (map_r for local space, offset_r for world space). Disable to use only mapping file transformations",
+        description="Automatically extract and apply rest pose corrections from custom rig/armature (map_r for local space, offset_r for world space). Disable to use only mapping file transformations. You want to keep this enabled for pretty much any normal situation.",
         default=True
     )
 

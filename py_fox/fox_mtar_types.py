@@ -7,8 +7,8 @@ from .fox_misc_types import PathCode64, StrCode32
 
 
 class MtarFlags(IntEnum):
-    New = 0x1000  # MTAR_FLAGS_NEW
-    HasSkelList = 0x4000  # MTAR_FLAGS_HAS_SKEL_LIST
+    UseMini = 0x1000 # MTAR_FLAGS_USE_MINI
+    HasSkelList = 0x4000 # MTAR_FLAGS_HAS_SKEL_LIST
 
 
 @dataclass

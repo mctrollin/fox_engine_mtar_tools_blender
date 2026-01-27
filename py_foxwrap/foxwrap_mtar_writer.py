@@ -216,7 +216,7 @@ class MtarWriter:
             Debug.log(f"    {gani_data.name}: {len(gani_bytes)} bytes")
         
         # Determine flags (TODO: find out how to retrieve the flag value)
-        flags = MtarFlags.New
+        flags = MtarFlags.UseMini
         
         # Reserve space for header and file table
         header_size = MtarHeader.SIZE
@@ -507,7 +507,8 @@ class MtarWriter:
             buffer: Buffer to write to
         """
         if not self.layout_track:
-            # Write empty TrackHeader if no layout track TODO: just use TrackHeader() and do this for all similar cases
+            Debug.log_warning("    Warning: Failed to find layout track. Will write default layout track but this will probably not create a valid file.")
+            # Write empty TrackHeader if no layout track.
             empty_header = TrackHeader(
                 unit_count=0,
                 segment_count=0,
