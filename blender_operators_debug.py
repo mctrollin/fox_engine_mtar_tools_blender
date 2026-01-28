@@ -9,10 +9,16 @@ from typing import TYPE_CHECKING
 
 import bpy
 from bpy.types import Operator, Context
-from bpy.props import StringProperty
+from bpy.props import StringProperty, BoolProperty
 
 from .py_utilities.utilities_transforms import get_world_space_transform, get_local_space_transform
+from .py_utilities.utilities_logging import Debug, update_progress
+from .py_utilities.utilities_debug import create_or_update_dummy_object
+from .py_tools.tools_blender_animation_bake import bake_armature_action, bake_armature_nla_strips, remove_bone_constraints, get_bones_with_keyframes
 from .py_utilities.utilities_logging import Debug
+from .py_utilities.utilities_blender_animation import assign_action_to_datablock, remove_action_from_datablock
+
+from .blender_operators_import import clear_armature_transforms
 
 
 # Transform Debug Operators ##################################################################
@@ -200,7 +206,6 @@ class MTAR_OT_CreateTransformDummies(Operator):
             
             # Create local space dummy (place at local space location as if it were world space)
             local_dummy_name = f"{bone_name}_local_space"
-            from .blender_panel_debug import create_or_update_dummy_object
             create_or_update_dummy_object(
                 object_name=local_dummy_name,
                 vertices=local_verts,
@@ -218,8 +223,8 @@ class MTAR_OT_CreateTransformDummies(Operator):
                 world_verts.append((0.5 * math.cos(angle), 0.5 * math.sin(angle), 0))
             
             world_edges = [(i, (i + 1) % 12) for i in range(12)]
-            
-            # Create world space dummy (no rotation, in world space)
+
+            # Create world space dummy
             world_dummy_name = f"{bone_name}_world_space"
             create_or_update_dummy_object(
                 object_name=world_dummy_name,
@@ -229,13 +234,12 @@ class MTAR_OT_CreateTransformDummies(Operator):
                 rotation=world_rotation,
                 collection=debug_collection
             )
-            
-            Debug.report_and_log(self, 'INFO', f"Created dummies for '{bone_name}' at frame {frame}")
-            
-        except RuntimeError as e:
-            Debug.report_and_log(self, 'ERROR', f"Error creating dummies: {e}")
+
+            Debug.report_and_log(self, 'INFO', "Created transform dummy objects")
+        except Exception as e:
+            Debug.report_and_log(self, 'ERROR', f"Failed to create dummy objects: {e}")
             return {'FINISHED'}
-        
+
         return {'FINISHED'}
 
 
@@ -310,6 +314,207 @@ class MTAR_OT_CopyTransformDebugResults(Operator):
         Debug.report_and_log(self, 'INFO', "Transform results copied to clipboard")
         
         return {'FINISHED'}
+
+
+class MTAR_OT_DebugRunBake(Operator):
+    """Run synchronous bake using selected debug armature and optional imported armature."""
+    bl_idname = "mtar.debug_run_bake"
+    bl_label = "Debug: Run Bake"
+    bl_description = "Run the existing synchronous bake operation for the selected armature"
+
+    def execute(self, context: Context) -> set:
+        props = context.scene.mtar_debug_transform_properties
+
+        if not props.debug_armature:
+            Debug.report_and_log(self, 'ERROR', "No target armature selected to bake into")
+            return {'CANCELLED'}
+
+        target_arm = props.debug_armature
+        source_arm = props.debug_source_armature
+        idx = props.debug_bake_gani_index
+        prepare_only = props.debug_prepare_only
+
+        try:
+            update_progress(75, "Baking (debug)...")
+
+            if target_arm.animation_data and target_arm.animation_data.nla_tracks:
+                # Gather strips
+                strips_by_index = {}
+                strips_list = []
+                for track in target_arm.animation_data.nla_tracks:
+                    for strip in track.strips:
+                        if not strip.action:
+                            continue
+                        import re
+                        m = re.search(r"_(\d{3})\b", strip.name)
+                        if m:
+                            stripped_idx = int(m.group(1))
+                            strips_by_index.setdefault(stripped_idx, []).append((track, strip, strip.action))
+                        strips_list.append((track, strip, strip.action))
+
+                # Determine target strips
+                target_strips = []
+                if idx == -1:
+                    # full bake or prepare all
+                    if prepare_only:
+                        # Prepare all: mute source NLA tracks and leave scene for inspection
+                        if source_arm and source_arm.animation_data and source_arm.animation_data.nla_tracks:
+                            for t in source_arm.animation_data.nla_tracks:
+                                t.mute = True
+                            Debug.report_and_log(self, 'INFO', "Prepared scene: muted all source NLA tracks for inspection (no bake performed)")
+                            return {'FINISHED'}
+                        else:
+                            Debug.report_and_log(self, 'WARNING', "No source armature NLA tracks to mute for prepare")
+                            return {'CANCELLED'}
+                    else:
+                        # Full bake using existing utility
+                        Debug.log("Debug: Baking NLA strips on target armature")
+                        bake_result = bake_armature_nla_strips(
+                            target_arm,
+                            remove_constraints=True,
+                            new_action_suffix="_baked",
+                            only_unmuted=True,
+                            create_new_action=True,
+                            source_armature=source_arm
+                        )
+                        if bake_result.get('success'):
+                            Debug.report_and_log(self, 'INFO', f"Debug bake completed: {bake_result.get('message')}")
+                        else:
+                            Debug.report_and_log(self, 'WARNING', f"Debug bake failed: {bake_result.get('message')}")
+                        # Clear transforms
+                        if clear_armature_transforms(target_arm):
+                            Debug.report_and_log(self, 'INFO', "Cleared transforms from target armature after bake")
+                        else:
+                            Debug.report_and_log(self, 'WARNING', "Could not clear transforms from target armature")
+                        update_progress(100, "Bake complete")
+                        return {'FINISHED'}
+                else:
+                    # Bake only specific index
+                    if idx not in strips_by_index:
+                        Debug.report_and_log(self, 'ERROR', f"No strip found for GANI index {idx}")
+                        return {'CANCELLED'}
+
+                    target_strips = [t for t in strips_by_index[idx] if not t[0].mute and not t[1].mute]
+                    if not target_strips:
+                        Debug.report_and_log(self, 'WARNING', "No eligible strips to bake for this index")
+                        return {'CANCELLED'}
+
+                # Process selected strips
+                success_count = 0
+                baked_actions = []
+                for (track, strip, action) in target_strips:
+                    if prepare_only:
+                        # Mute source NLA tracks and assign action for inspection
+                        if source_arm and source_arm != target_arm:
+                            if not source_arm.animation_data:
+                                source_arm.animation_data_create()
+                            if source_arm.animation_data.nla_tracks:
+                                for t in source_arm.animation_data.nla_tracks:
+                                    t.mute = True
+                            assign_action_to_datablock(source_arm, action)
+                            Debug.log(f"Prepared strip '{strip.name}': muted source NLA and assigned action '{action.name}'")
+                            # Mute the target track and assign action so active action previews
+                            track.mute = True
+                            assign_action_to_datablock(target_arm, action)
+                            Debug.report_and_log(self, 'INFO', f"Prepared scene for strip '{strip.name}' (no bake performed)")
+                        continue
+
+                    # Not prepare-only: perform legacy bake per strip (mute source tracks and assign)
+                    original_source_action = None
+                    original_source_nla_mute_states = None
+                    try:
+                        if source_arm and source_arm != target_arm:
+                            if not source_arm.animation_data:
+                                source_arm.animation_data_create()
+                            original_source_action = source_arm.animation_data.action
+                            if source_arm.animation_data.nla_tracks:
+                                original_source_nla_mute_states = {t.name: t.mute for t in source_arm.animation_data.nla_tracks}
+                                for t in source_arm.animation_data.nla_tracks:
+                                    t.mute = True
+                                Debug.log(f"  Muted {len(source_arm.animation_data.nla_tracks)} source NLA tracks for legacy bake")
+                            assign_action_to_datablock(source_arm, action)
+
+                        bake_result = bake_armature_action(
+                            target_arm,
+                            action,
+                            remove_constraints=False,
+                            create_new_action=True,
+                            new_action_suffix="_baked",
+                            nla_track=track,
+                            source_armature=source_arm
+                        )
+
+                        if bake_result.get('success'):
+                            strip.action = bake_result.get('action')
+                            baked_actions.append(bake_result.get('action'))
+                            success_count += 1
+                        else:
+                            Debug.log_warning(f"Failed to bake strip '{strip.name}': {bake_result.get('message')}")
+
+                    finally:
+                        # Restore source armature state
+                        try:
+                            if source_arm and source_arm != target_arm and source_arm.animation_data:
+                                if original_source_action:
+                                    assign_action_to_datablock(source_arm, original_source_action)
+                                else:
+                                    remove_action_from_datablock(source_arm)
+                                if original_source_nla_mute_states and source_arm.animation_data.nla_tracks:
+                                    for tn, was in original_source_nla_mute_states.items():
+                                        if tn in source_arm.animation_data.nla_tracks:
+                                            source_arm.animation_data.nla_tracks[tn].mute = was
+                                    Debug.log("  Restored source NLA mute states after legacy bake")
+                        except Exception as restore_err:
+                            Debug.log_warning(f"Error restoring source armature state after legacy bake: {restore_err}")
+
+                # Wrap up per-strip baking
+                if success_count > 0:
+                    baked_bones = set()
+                    for act in baked_actions:
+                        baked_bones.update(get_bones_with_keyframes(act))
+                    if baked_bones:
+                        removed = remove_bone_constraints(target_arm, baked_bones)
+                        Debug.log(f"Removed constraints from {len(baked_bones)} bones ({removed} constraints)")
+
+                    if clear_armature_transforms(target_arm):
+                        Debug.report_and_log(self, 'INFO', f"Baked {success_count} strip(s) and cleared transforms")
+                        return {'FINISHED'}
+                    else:
+                        Debug.report_and_log(self, 'WARNING', f"Baked {success_count} strip(s) but failed to clear transforms")
+                        return {'FINISHED'}
+                else:
+                    Debug.report_and_log(self, 'WARNING', "No strips were successfully baked")
+                    return {'CANCELLED'}
+
+            elif target_arm.animation_data and target_arm.animation_data.action:
+                Debug.log("Debug: Baking active action on target armature")
+                bake_result = bake_armature_action(
+                    target_arm,
+                    target_arm.animation_data.action,
+                    remove_constraints=True,
+                    create_new_action=True,
+                    new_action_suffix="_baked"
+                )
+                
+                if bake_result.get('success'):
+                    Debug.report_and_log(self, 'INFO', f"Debug bake completed: {bake_result.get('message')}")
+                else:
+                    Debug.report_and_log(self, 'WARNING', f"Debug bake failed: {bake_result.get('message')}")
+
+            else:
+                Debug.report_and_log(self, 'WARNING', "Target armature has no NLA tracks or active action to bake")
+                return {'CANCELLED'}
+
+        except Exception as e:
+            Debug.report_and_log(self, 'ERROR', f"Debug bake failed: {e}")
+            return {'CANCELLED'}
+
+        update_progress(100, "Bake complete")
+        return {'FINISHED'}
+
+
+
+
 
 
 # External Hash Generator Operators ############################################################

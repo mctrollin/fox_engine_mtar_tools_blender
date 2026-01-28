@@ -9,6 +9,7 @@ from typing import Set, Dict, Optional
 import bpy
 
 from ..py_utilities.utilities_logging import Debug, update_progress_status
+from ..py_utilities.utilities_blender_animation import assign_action_to_datablock, remove_action_from_datablock
 
 
 def get_bones_with_keyframes(action: bpy.types.Action) -> Set[str]:
@@ -338,7 +339,7 @@ def bake_armature_action(rig_armature: bpy.types.Object,
         if fcurves_copied > 0:
             Debug.log(f"  Copied {fcurves_copied} fcurves from original action")
         
-    rig_armature.animation_data.action = target_action
+    assign_action_to_datablock(rig_armature, target_action)
     
     # Get bones with keyframes
     bones_with_keyframes = get_bones_with_keyframes(action)
@@ -382,9 +383,10 @@ def bake_armature_action(rig_armature: bpy.types.Object,
         if not source_armature.animation_data:
             source_armature.animation_data_create()
         original_source_action = source_armature.animation_data.action
-        # Assign the same action to source armature for constraint evaluation
-        source_armature.animation_data.action = action
+        # Assign the same action to source armature for constraint evaluation (select Legacy Slot if available)
+        assign_action_to_datablock(source_armature, action)
         Debug.log(f"  Assigned action '{action.name}' to source armature '{source_armature.name}' for constraint binding")
+
     
     # Store original NLA track mute state if provided
     original_track_mute_state = None
@@ -420,6 +422,8 @@ def bake_armature_action(rig_armature: bpy.types.Object,
     
     try:
         Debug.log("  Starting bake operation...")
+
+
         # Bake the action
         # Note: bpy.ops.nla.bake requires specific parameters
         bpy.ops.nla.bake(
@@ -464,11 +468,14 @@ def bake_armature_action(rig_armature: bpy.types.Object,
         bpy.ops.object.mode_set(mode='OBJECT')
         current_scene.frame_set(current_frame)
 
-        rig_armature.animation_data.action = None
+        remove_action_from_datablock(rig_armature)
         
         # Restore source armature's action if it was changed
         if source_armature and source_armature != rig_armature:
-            source_armature.animation_data.action = original_source_action
+            if original_source_action:
+                assign_action_to_datablock(source_armature, original_source_action)
+            else:
+                remove_action_from_datablock(source_armature)
             Debug.log(f"  Restored source armature '{source_armature.name}' action state")
         
         # Restore NLA track mute state
@@ -493,10 +500,13 @@ def bake_armature_action(rig_armature: bpy.types.Object,
         try:
             bpy.ops.object.mode_set(mode='OBJECT')
             current_scene.frame_set(current_frame)
-            rig_armature.animation_data.action = None
+            remove_action_from_datablock(rig_armature)
             # Restore source armature's action if it was changed
             if source_armature and source_armature != rig_armature:
-                source_armature.animation_data.action = original_source_action
+                if original_source_action:
+                    assign_action_to_datablock(source_armature, original_source_action)
+                else:
+                    remove_action_from_datablock(source_armature)
             # Restore NLA track mute state
             if nla_track and original_track_mute_state is not None:
                 nla_track.mute = original_track_mute_state
@@ -609,7 +619,6 @@ def bake_armature_nla_strips(rig_armature: bpy.types.Object,
             else:
                 failed_strips.append(f"{track.name}/{strip.name}")
                 Debug.log_warning(f"    Failed to bake strip '{strip.name}'")
-                
         except Exception as e:
             failed_strips.append(f"{track.name}/{strip.name}: {str(e)}")
             Debug.log_error(f"    Exception while baking strip '{strip.name}': {str(e)}")
@@ -628,7 +637,9 @@ def bake_armature_nla_strips(rig_armature: bpy.types.Object,
     
     # Restore original action
     if original_action:
-        rig_armature.animation_data.action = original_action
+        assign_action_to_datablock(rig_armature, original_action)
+    else:
+        remove_action_from_datablock(rig_armature)
     
     success = len(actions_created) > 0
     message = f"Baked {len(actions_created)}/{len(strips_to_bake)} NLA strip(s)"
@@ -651,4 +662,7 @@ def bake_armature_nla_strips(rig_armature: bpy.types.Object,
         'constraints_removed': constraints_removed,
         'message': message
     }
+
+
+
 

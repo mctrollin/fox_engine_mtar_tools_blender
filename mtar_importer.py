@@ -15,7 +15,7 @@ from .py_utilities.utilities_transforms import (
     fox_to_blender_vector,
     apply_rest_pose_correction_local
 )
-from .py_utilities.utilities_blender_animation import add_dummy_keyframes_to_action, configure_action
+from .py_utilities.utilities_blender_animation import add_dummy_keyframes_to_action, configure_action, assign_action_to_datablock, remove_action_from_datablock
 
 from .py_foxwrap.foxwrap_metadata import store_track_header_properties_on_action, TrackMetaData, make_track_property_key
 from .py_foxwrap.foxwrap_misc import TrackUnitWrapper, TrackDataBlobWrapper, Tracks
@@ -868,7 +868,7 @@ def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object,
     try:
         if hasattr(custom_rig, 'animation_data') and custom_rig.animation_data and custom_rig.animation_data.action:
             Debug.log(f"Removing existing action '{custom_rig.animation_data.action.name}' from custom rig '{custom_rig.name}'")
-            custom_rig.animation_data.action = None
+            remove_action_from_datablock(custom_rig)
     except Exception:
         # Best-effort: do not fail the import if we cannot modify the rig's animation_data
         pass

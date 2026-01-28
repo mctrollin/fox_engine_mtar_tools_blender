@@ -196,6 +196,111 @@ def configure_action(action: 'bpy.types.Action',
         Debug.log_warning(f"Warning: Invalid frame range: '{frame_end - frame_start}'")
 
 
+# Action slot handling for Blender 4.4+ #########################################
+
+def assign_action_to_datablock(datablock: 'bpy.types.ID', action: 'bpy.types.Action') -> None:
+    """Assign an Action to a datablock and ensure the Legacy Slot is selected on Blender >= 4.4.
+
+    This helper is safe to call on older Blender versions where action slots do not
+    exist; in that case it simply assigns the action to datablock.animation_data.action.
+
+    Args:
+        datablock: Any ID datablock that supports animation_data (e.g. an Object/Armature)
+        action: The Action to assign
+    """
+    if action is None or datablock is None:
+        return
+
+    # Ensure animation data exists
+    anim_data = getattr(datablock, 'animation_data', None)
+    if anim_data is None:
+        try:
+            anim_data = datablock.animation_data_create()
+        except Exception:
+            Debug.log_warning(f"Could not create animation_data on '{getattr(datablock, 'name', '<unknown>')}'")
+            return
+
+    # Assign the action normally first
+    anim_data.action = action
+
+    # If the API supports action slots (Blender 4.4+), try to select/create the Legacy Slot
+    if not hasattr(anim_data, 'action_slot'):
+        return
+
+    try:
+        # Prefer an existing 'Legacy Slot' if present
+        legacy_slot = None
+        for s in getattr(action, 'slots', []):
+            if getattr(s, 'name_display', '') == 'Legacy Slot':
+                legacy_slot = s
+                break
+
+        # If no explicit Legacy Slot found, try to pick a slot suitable for armature/object
+        if legacy_slot is None:
+            preferred_types = ('ARMATURE', 'OBJECT', 'UNSPECIFIED')
+            for t in preferred_types:
+                for s in getattr(action, 'slots', []):
+                    if getattr(s, 'target_id_type', None) == t:
+                        legacy_slot = s
+                        break
+                if legacy_slot:
+                    break
+
+        # If still not found, create a new slot on the action
+        if legacy_slot is None:
+            try:
+                legacy_slot = action.slots.new(name="Legacy Slot")
+                Debug.log(f"  Created Legacy Slot on action '{action.name}'")
+            except Exception as e:
+                Debug.log_warning(f"Could not create Legacy Slot on action '{action.name}': {e}")
+                legacy_slot = None
+
+        # Assign the found/created slot to the datablock's anim_data
+        if legacy_slot is not None:
+            try:
+                anim_data.action_slot = legacy_slot
+                anim_data.last_slot_identifier = legacy_slot.identifier
+                # Also mark the slot active on the action for clarity
+                try:
+                    action.slots.active = legacy_slot
+                except Exception:
+                    pass
+                Debug.log(f"  Assigned action '{action.name}' to datablock '{getattr(datablock, 'name', '<unknown>')}' using slot '{legacy_slot.name_display}'")
+            except Exception as e:
+                Debug.log_warning(f"Failed to set action slot for '{getattr(datablock, 'name', '<unknown>')}': {e}")
+    except Exception as e:
+        Debug.log_warning(f"Unexpected error while ensuring action slot: {e}")
+
+
+def remove_action_from_datablock(datablock: 'bpy.types.ID') -> None:
+    """Remove the active action from a datablock and clear action slot information.
+
+    Args:
+        datablock: Any ID datablock that supports animation_data
+    """
+    if datablock is None:
+        return
+
+    anim_data = getattr(datablock, 'animation_data', None)
+    if not anim_data:
+        return
+
+    try:
+        anim_data.action = None
+        if hasattr(anim_data, 'action_slot'):
+            # Clear selected slot and identifier
+            try:
+                anim_data.action_slot = None
+            except Exception:
+                pass
+            try:
+                anim_data.last_slot_identifier = ''
+            except Exception:
+                pass
+        Debug.log(f"Removed action from datablock '{getattr(datablock, 'name', '<unknown>')}' and cleared slot info")
+    except Exception as e:
+        Debug.log_warning(f"Failed to remove action from datablock '{getattr(datablock, 'name', '<unknown>')}': {e}")
+
 def add_dummy_keyframes_to_action(action: 'bpy.types.Action') -> None:
     """Add dummy location keyframes at frames -100 and -50 to the layout track action.
     

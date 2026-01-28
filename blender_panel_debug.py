@@ -7,7 +7,7 @@ for bones at specific frames, useful for verifying export/import transform corre
 
 
 import bpy
-from bpy.types import Panel, PropertyGroup, Context, Object
+from bpy.types import Panel, PropertyGroup, Context
 from bpy.props import PointerProperty, StringProperty
 
 from . import blender_panel_debug_map_r
@@ -18,6 +18,7 @@ from .blender_operators_debug import (
     MTAR_OT_CreateTransformDummies,
     MTAR_OT_CopySingleResult,
     MTAR_OT_CopyTransformDebugResults,
+    MTAR_OT_DebugRunBake,
     MTAR_OT_GenerateHashWithExternalExe,
     MTAR_OT_CopyHashGeneratorOutput,
     MTAR_OT_ClearHashGeneratorResults,
@@ -26,50 +27,7 @@ from .blender_operators_debug import (
 
 # pyright: reportInvalidTypeForm=false
 
-# Utility functions ############################################################################
 
-def create_or_update_dummy_object(
-    object_name: str,
-    vertices: list,
-    edges: list,
-    location: tuple,
-    rotation: tuple,
-    collection: 'bpy.types.Collection'
-) -> 'bpy.types.Object':
-    """Create or update a dummy object with the given mesh and transform.
-    
-    Args:
-        object_name: Name of the object to create/update
-        vertices: List of vertex coordinates (tuples)
-        edges: List of edge definitions (tuples of vertex indices)
-        location: 3D location vector
-        rotation: Rotation quaternion (w, x, y, z)
-        collection: Collection to add the object to
-        
-    Returns:
-        The created/updated object
-    """
-    # Create or get object
-    if object_name in bpy.data.objects:
-        dummy_obj = bpy.data.objects[object_name]
-    else:
-        mesh = bpy.data.meshes.new(f"{object_name}_mesh")
-        dummy_obj = bpy.data.objects.new(object_name, mesh)
-    
-    # Update mesh geometry
-    mesh = dummy_obj.data
-    mesh.clear_geometry()
-    mesh.from_pydata(vertices, edges, [])
-    
-    # Set transform
-    dummy_obj.location = location
-    dummy_obj.rotation_quaternion = rotation
-    
-    # Add to collection
-    if dummy_obj.name not in collection.objects:
-        collection.objects.link(dummy_obj)
-    
-    return dummy_obj
 
 
 class MTAR_PG_DebugTransformProperties(PropertyGroup):
@@ -80,6 +38,26 @@ class MTAR_PG_DebugTransformProperties(PropertyGroup):
         description="Armature to inspect",
         type=bpy.types.Object,
         poll=lambda self, obj: obj.type == 'ARMATURE'
+    )
+
+    debug_source_armature: PointerProperty(
+        name="Source Armature",
+        description="Source armature to sync (imported rig)",
+        type=bpy.types.Object,
+        poll=lambda self, obj: obj.type == 'ARMATURE'
+    )
+    
+    debug_bake_gani_index: bpy.props.IntProperty(
+        name="GANI Index",
+        description="GANI index to bake (-1 = all)",
+        default=-1,
+        min=-1
+    )
+
+    debug_prepare_only: bpy.props.BoolProperty(
+        name="Prepare Only",
+        description="Only prepare the scene (mute source NLA, assign actions) without baking",
+        default=False
     )
     
     debug_bone_name: StringProperty(
@@ -171,6 +149,20 @@ class MTAR_PT_DebugTransformPanel(Panel):
         row = col.row(align=True)
         row.enabled = buttons_enabled
         row.operator("mtar.create_transform_dummies", text="Create Dummies", icon='MESH_CIRCLE')
+
+        # Bake debug controls
+        bake_box = layout.box()
+        bake_box.label(text="Bake (Debug)", icon='RENDER_ANIMATION')
+        bake_col = bake_box.column(align=True)
+        
+        bake_col.prop(props, "debug_source_armature")
+        row = bake_col.row(align=True)
+        row.prop(props, "debug_bake_gani_index")
+        row.prop(props, "debug_prepare_only")
+        
+        row = bake_col.row(align=True)
+        row.enabled = bool(props.debug_armature)
+        row.operator("mtar.debug_run_bake", text="Run Bake", icon='FILE_REFRESH')
         
         # Results display
         results_box = layout.box()
@@ -415,6 +407,7 @@ classes = (
     MTAR_OT_CreateTransformDummies,
     MTAR_OT_CopySingleResult,
     MTAR_OT_CopyTransformDebugResults,
+    MTAR_OT_DebugRunBake,
     MTAR_PT_DebugTransformPanel,
     MTAR_PG_DebugHashProperties,
     MTAR_OT_GenerateHashWithExternalExe,
@@ -426,23 +419,40 @@ classes = (
 def register() -> None:
     """Register debug classes."""
     for cls in classes:
-        bpy.utils.register_class(cls)
+        try:
+            bpy.utils.register_class(cls)
+        except Exception:
+            # Ignore errors (likely already registered from a previous reload)
+            pass
 
-    # Add debug properties to scene
-    bpy.types.Scene.mtar_debug_transform_properties = PointerProperty(type=MTAR_PG_DebugTransformProperties)
-    bpy.types.Scene.mtar_debug_hash_properties = PointerProperty(type=MTAR_PG_DebugHashProperties)
+    # Add debug properties to scene (only if not already present)
+    if not hasattr(bpy.types.Scene, 'mtar_debug_transform_properties'):
+        bpy.types.Scene.mtar_debug_transform_properties = PointerProperty(type=MTAR_PG_DebugTransformProperties)
+    if not hasattr(bpy.types.Scene, 'mtar_debug_hash_properties'):
+        bpy.types.Scene.mtar_debug_hash_properties = PointerProperty(type=MTAR_PG_DebugHashProperties)
     
     # Register map_r debug module
-    blender_panel_debug_map_r.register()
+    try:
+        blender_panel_debug_map_r.register()
+    except Exception:
+        # ignore if already registered or missing
+        pass
 
 
 def unregister() -> None:
     """Unregister debug classes."""
     # Unregister map_r debug module first
-    blender_panel_debug_map_r.unregister()
+    try:
+        blender_panel_debug_map_r.unregister()
+    except Exception:
+        pass
     
     for cls in reversed(classes):
-        bpy.utils.unregister_class(cls)
+        try:
+            bpy.utils.unregister_class(cls)
+        except Exception:
+            # Ignore errors during unregister
+            pass
 
     # Remove debug properties from scene
     if hasattr(bpy.types.Scene, 'mtar_debug_transform_properties'):
