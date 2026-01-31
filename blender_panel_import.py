@@ -124,8 +124,12 @@ class MTAR_PT_ImportPanel(Panel):
         if settings_props.show_advanced_settings:
             box_custom_rig.prop(import_props, "ik_up_distance", text="IK Up Distance", icon='DRIVER_DISTANCE')
         
+            # Interpolation mode (advanced setting) — per-import property
+            box_custom_rig.prop(import_props, 'interpolation_mode', text='', icon="IPO_BEZIER")
+
         # Bake after import checkbox (only shown if advanced settings enabled and custom rig is specified)
         if settings_props.show_advanced_settings and import_props.custom_rig:
+
             draw_bool_prop_checkbox_icon(box_custom_rig, import_props, "bake_after_import")
 
             # Delete imported armature option is an advanced, dependent setting

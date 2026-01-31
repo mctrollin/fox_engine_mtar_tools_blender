@@ -298,6 +298,15 @@ def import_keyframes_track(context: bpy.types.Context, action: bpy.types.Action,
     max_frame: int = 0
     
     Debug.log(f"  - Import Track '{keyframes_track.name}' ({keyframes_track.data_blob.type.name}): {len(keyframes_track.data_blob.keyframes)} keyframe(s)")
+
+    # Determine preferred interpolation from import properties (fall back to BEZIER)
+    interpolation_mode: str = 'BEZIER'
+    try:
+        props = getattr(context.scene, 'mtar_properties', None)
+        if props is not None and getattr(props, 'import_props', None) is not None:
+            interpolation_mode = getattr(props.import_props, 'interpolation_mode', interpolation_mode)
+    except Exception:
+        pass
     
     # Get or create FCurve group for this handle (Blender <5.0)
     # Ensure group_name is always a string (keyframes_track.name can be an integer hash)
@@ -384,7 +393,7 @@ def import_keyframes_track(context: bpy.types.Context, action: bpy.types.Action,
                 # Add keyframes from pre-converted locations
                 for frame_count, target_location in converted_locations:
                     kf_point: bpy.types.Keyframe = fcurve.keyframe_points.insert(frame_count, target_location[i])
-                    kf_point.interpolation = 'LINEAR'
+                    kf_point.interpolation = interpolation_mode
             
             Debug.log(f"    Added directional location keyframes (frames 0-{max_frame})")
         
@@ -440,7 +449,7 @@ def import_keyframes_track(context: bpy.types.Context, action: bpy.types.Action,
                 for frame_count, quat in converted_quaternions:
                     quat_component: float = quat[i]  # Quaternion indexing: 0=w, 1=x, 2=y, 3=z
                     kf_point: bpy.types.Keyframe = fcurve.keyframe_points.insert(frame_count, quat_component)
-                    kf_point.interpolation = 'LINEAR'
+                    kf_point.interpolation = interpolation_mode
             
             Debug.log(f"    Added quaternion rotation keyframes (frames 0-{max_frame})")
 
@@ -465,7 +474,7 @@ def import_keyframes_track(context: bpy.types.Context, action: bpy.types.Action,
 
                 # Add keyframe
                 kf_point: bpy.types.Keyframe = fcurve.keyframe_points.insert(keyframe.frame_count, blender_vec[i])
-                kf_point.interpolation = 'LINEAR'
+                kf_point.interpolation = interpolation_mode
                 
                 max_frame = max(max_frame, keyframe.frame_count)
         

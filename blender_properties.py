@@ -82,6 +82,17 @@ class MTAR_PG_ImportProperties(PropertyGroup):
         min=0,
     )
 
+    interpolation_mode: EnumProperty(
+        name="Interpolation Mode",
+        description="Default interpolation mode to use when importing keyframes",
+        items=[
+            ('BEZIER', "Bezier", "Smooth bezier interpolation"),
+            ('LINEAR', "Linear", "Linear interpolation"),
+            ('CONSTANT', "Constant", "Constant (step) interpolation"),
+        ],
+        default='BEZIER'
+    )
+
 class MTAR_PG_ExportProperties(PropertyGroup):
     """Property group for MTAR export settings."""
     armature: PointerProperty(

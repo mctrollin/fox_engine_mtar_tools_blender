@@ -187,7 +187,8 @@ def cleanup_baked_keyframes(action: bpy.types.Action,
 
 # TODO: this function is not really necessary if we say: baking animations always removes the original import armature
 def copy_action_animation_data(source_action: bpy.types.Action, 
-                               target_action: bpy.types.Action) -> int:
+                               target_action: bpy.types.Action,
+                               datablock: Optional[bpy.types.ID] = None) -> int:
     """Copy all animation data (fcurves and keyframes) from source to target action.
     
     Copies all fcurves with their keyframe points, interpolation modes, and handle types.
@@ -197,6 +198,7 @@ def copy_action_animation_data(source_action: bpy.types.Action,
     Args:
         source_action: Action to copy from
         target_action: Action to copy to
+        datablock: Optional datablock (armature/object) that owns the action (required for Blender 5)
         
     Returns:
         Number of fcurves copied
@@ -210,10 +212,17 @@ def copy_action_animation_data(source_action: bpy.types.Action,
                 target_action,
                 data_path=fcurve.data_path,
                 index=fcurve.array_index,
-                action_group_name=(fcurve.group.name if fcurve.group else None)
+                datablock=datablock,
+                action_group_name=(fcurve.group.name if fcurve.group else None),
+                slot_name='mtar_import_armature'
             )
         except Exception as e:
             Debug.log_warning(f"Could not create target fcurve '{fcurve.data_path}[{fcurve.array_index}]' on action '{getattr(target_action, 'name', '<unknown>')}': {e}")
+            continue
+
+        # Check if fcurve was successfully created (can be None in Blender 5)
+        if new_fcurve is None:
+            Debug.log_warning(f"ensure_action_fcurve returned None for '{fcurve.data_path}[{fcurve.array_index}]' on action '{getattr(target_action, 'name', '<unknown>')}'")
             continue
 
         # Copy keyframe points
@@ -340,7 +349,7 @@ def bake_armature_action(rig_armature: bpy.types.Object,
         Debug.log(f"  Created new action '{new_action_name}'")
         
         # Copy animation data from original action to new action
-        fcurves_copied = copy_action_animation_data(action, target_action)
+        fcurves_copied = copy_action_animation_data(action, target_action, datablock=rig_armature)
         if fcurves_copied > 0:
             Debug.log(f"  Copied {fcurves_copied} fcurves from original action")
         
