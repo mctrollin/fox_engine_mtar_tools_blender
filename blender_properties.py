@@ -7,31 +7,40 @@ from bpy.props import StringProperty, PointerProperty, IntProperty, BoolProperty
 
 # pyright: reportInvalidTypeForm=false
 
+# Helper to add relative path support based on Blender version
+def _file_path_kwargs(**kwargs):
+    """Add FILE_PATH subtype and relative path support if available.
+    
+    PATH_SUPPORTS_BLEND_RELATIVE option is available in Blender 4.5+
+    """
+    kwargs['subtype'] = 'FILE_PATH'
+    # Add relative path support for Blender 4.0+
+    if bpy.app.version >= (4, 5, 0):
+        kwargs['options'] = {'PATH_SUPPORTS_BLEND_RELATIVE'}
+    return kwargs
+
 class MTAR_PG_ImportProperties(PropertyGroup):
     """Property group for MTAR import settings."""
-    mtar_filepath: StringProperty(
+    mtar_filepath: StringProperty(**_file_path_kwargs(
         name="MTAR File",
         description="Path to the .mtar animation file",
         default="",
-        maxlen=1024,
-        subtype='FILE_PATH'
-    )
+        maxlen=1024
+    ))
     
-    frig_filepath: StringProperty(
+    frig_filepath: StringProperty(**_file_path_kwargs(
         name="FRIG File",
         description="Path to the .frig rig file",
         default="",
-        maxlen=1024,
-        subtype='FILE_PATH'
-    )
+        maxlen=1024
+    ))
     
-    mapping_filepath: StringProperty(
+    mapping_filepath: StringProperty(**_file_path_kwargs(
         name="Track Mapping File",
         description="Path to the .txt file defining track transformations (renaming, rotation offsets, axis mapping, etc.)",
         default="",
-        maxlen=1024,
-        subtype='FILE_PATH'
-    )
+        maxlen=1024
+    ))
     
     gani_indices_str: StringProperty(
         name="GANI Selection",
@@ -102,21 +111,19 @@ class MTAR_PG_ExportProperties(PropertyGroup):
         poll=lambda self, obj: obj.type == 'ARMATURE'
     )
     
-    filepath: StringProperty(
+    filepath: StringProperty(**_file_path_kwargs(
         name="Export File",
         description="Path for the exported .mtar animation file",
         default="",
-        maxlen=1024,
-        subtype='FILE_PATH'
-    )
+        maxlen=1024
+    ))
     
-    mapping_filepath: StringProperty(
+    mapping_filepath: StringProperty(**_file_path_kwargs(
         name="Export Mapping File",
         description="Path to the bone mapping file for export transformations",
         default="",
-        maxlen=1024,
-        subtype='FILE_PATH'
-    )
+        maxlen=1024
+    ))
     
     use_nla: BoolProperty(
         name="Export NLA Strips",
@@ -214,13 +221,12 @@ class MTAR_PG_SettingsProperties(PropertyGroup):
         default=True
     )
 
-    hash_generator_exe_path: StringProperty(
+    hash_generator_exe_path: StringProperty(**_file_path_kwargs(
         name="Hash Generator Executable",
         description="Path to the external hash generator executable (GzsTool fork with debug output)",
         default="",
-        maxlen=1024,
-        subtype='FILE_PATH'
-    )
+        maxlen=1024
+    ))
 
 class MTAR_PG_Properties(PropertyGroup):
     """Main property group containing all MTAR sub-properties."""

@@ -123,8 +123,9 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
         track_segment_bone_mapping = None
         
         if export_props.mapping_filepath:
-            if not os.path.exists(export_props.mapping_filepath):
-                Debug.report_and_log(self, 'ERROR', f"Mapping file not found: {export_props.mapping_filepath}")
+            mapping_filepath_abs = bpy.path.abspath(export_props.mapping_filepath)
+            if not os.path.exists(mapping_filepath_abs):
+                Debug.report_and_log(self, 'ERROR', f"Mapping file not found: {mapping_filepath_abs}")
                 return {'CANCELLED'}
             
             try:
@@ -137,7 +138,7 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
                 
                 # Build track mapping using utility function
                 track_segment_bone_mapping, missing_bones = build_track_segment_bone_mapping_from_file(
-                    export_props.mapping_filepath, layout_action, export_props.armature
+                    mapping_filepath_abs, layout_action, export_props.armature
                 )
                 
                 if missing_bones:

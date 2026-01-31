@@ -139,8 +139,9 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
             Debug.report_and_log(self, 'ERROR', "No FRIG file selected")
             return {'CANCELLED'}
         
-        if not os.path.exists(import_props.frig_filepath):
-            Debug.report_and_log(self, 'ERROR', f"FRIG file not found: {import_props.frig_filepath}")
+        frig_filepath_abs = bpy.path.abspath(import_props.frig_filepath)
+        if not os.path.exists(frig_filepath_abs):
+            Debug.report_and_log(self, 'ERROR', f"FRIG file not found: {frig_filepath_abs}")
             return {'CANCELLED'}
         
         # Validate MTAR file path (optional but recommended)
@@ -150,7 +151,7 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
             try:
                 Debug.log(f"Reading MTAR file: {mtar_filepath_abs}")
                 # Read MTAR to get CommonInfo with layout track
-                with open(import_props.mtar_filepath, 'rb') as f:
+                with open(mtar_filepath_abs, 'rb') as f:
                     file_data: bytes = f.read()
                     br: io.BytesIO = io.BytesIO(file_data)
                     header: MtarHeader = MtarHeader.read(br)
@@ -169,8 +170,8 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
         
         try:
             # Read FRIG file
-            Debug.log(f"Reading FRIG file: {import_props.frig_filepath}")
-            with open(import_props.frig_filepath, 'rb') as f:
+            Debug.log(f"Reading FRIG file: {frig_filepath_abs}")
+            with open(frig_filepath_abs, 'rb') as f:
                 frig: FrigFile = FrigFile.read(f)
             
             if not frig or not frig.rig_def:
@@ -178,8 +179,8 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
                 return {'CANCELLED'}
             
             # Generate output filepath
-            frig_dir: str = os.path.dirname(import_props.frig_filepath)
-            frig_name: str = os.path.splitext(os.path.basename(import_props.frig_filepath))[0]
+            frig_dir: str = os.path.dirname(frig_filepath_abs)
+            frig_name: str = os.path.splitext(os.path.basename(frig_filepath_abs))[0]
             output_path: str = os.path.join(frig_dir, f"{frig_name}_track_mapping.txt")
             
             # Check if file already exists
