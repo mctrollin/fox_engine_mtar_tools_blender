@@ -309,7 +309,8 @@ class MTAR_OT_DebugPickSelectedBone(bpy.types.Operator):
             bone_name = selected_bones[0]
         elif armature.mode == 'POSE':
             # Pose mode: get selected pose bone
-            selected_bones = [b.name for b in armature.pose.bones if b.bone.select]
+            # Blender 5.0+ checks selection via pose bone, older versions via data bone
+            selected_bones = [b.name for b in armature.pose.bones if (getattr(b, "select", False) or getattr(b.bone, "select", False))]
             if not selected_bones:
                 Debug.report_and_log(self, 'ERROR', "No bone selected in pose mode. Please select a bone.")
                 return {'FINISHED'}

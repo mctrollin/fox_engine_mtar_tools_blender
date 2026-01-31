@@ -9,7 +9,7 @@ from typing import Set, Dict, Optional
 import bpy
 
 from ..py_utilities.utilities_logging import Debug, update_progress_status
-from ..py_utilities.utilities_blender_animation import assign_action_to_datablock, remove_action_from_datablock
+from ..py_utilities.utilities_blender_animation import assign_action_to_datablock, remove_action_from_datablock, action_has_fcurves, iter_action_fcurves, ensure_action_fcurve, remove_action_fcurve
 
 
 def get_bones_with_keyframes(action: bpy.types.Action) -> Set[str]:
@@ -23,10 +23,10 @@ def get_bones_with_keyframes(action: bpy.types.Action) -> Set[str]:
     """
     bones_with_keyframes = set()
     
-    if not action or not action.fcurves:
+    if not action or not action_has_fcurves(action):
         return bones_with_keyframes
     
-    for fcurve in action.fcurves:
+    for fcurve in iter_action_fcurves(action):
         data_path = fcurve.data_path
         
         # Check if this is a pose bone property
@@ -55,10 +55,10 @@ def get_keyframe_frames(action: bpy.types.Action,
     """
     keyframe_frames = set()
     
-    if not action or not action.fcurves:
+    if not action or not action_has_fcurves(action):
         return keyframe_frames
     
-    for fcurve in action.fcurves:
+    for fcurve in iter_action_fcurves(action):
         data_path = fcurve.data_path
         
         # Check if this fcurve belongs to one of our bones
@@ -89,10 +89,10 @@ def get_keyframe_frames_per_fcurve(action: bpy.types.Action,
     """
     fcurve_keyframes: Dict[str, Set[int]] = {}
     
-    if not action or not action.fcurves:
+    if not action or not action_has_fcurves(action):
         return fcurve_keyframes
     
-    for fcurve in action.fcurves:
+    for fcurve in iter_action_fcurves(action):
         data_path = fcurve.data_path
         
         # Check if this fcurve belongs to one of our bones
@@ -131,13 +131,13 @@ def cleanup_baked_keyframes(action: bpy.types.Action,
     Returns:
         Number of keyframes removed
     """
-    if not action or not action.fcurves:
+    if not action or not action_has_fcurves(action):
         return 0
     
     fcurves_to_remove = []
     keyframes_removed_count = 0
     
-    for fcurve in action.fcurves:
+    for fcurve in iter_action_fcurves(action):
         # Check if this fcurve belongs to a baked bone
         data_path = fcurve.data_path
         if data_path.startswith('pose.bones["') or data_path.startswith("pose.bones['"):
@@ -178,8 +178,8 @@ def cleanup_baked_keyframes(action: bpy.types.Action,
         Debug.log(f"  Removing {len(fcurves_to_remove)} empty fcurves")
     for fcurve in fcurves_to_remove:
         try:
-            action.fcurves.remove(fcurve)
-        except (RuntimeError, ValueError):
+            remove_action_fcurve(action, fcurve)
+        except Exception:
             # FCurve might have been already removed, skip
             pass
     
@@ -204,13 +204,18 @@ def copy_action_animation_data(source_action: bpy.types.Action,
     fcurves_copied = 0
     
     # Copy all fcurves from source action to target action
-    for fcurve in source_action.fcurves:
-        new_fcurve = target_action.fcurves.new(
-            data_path=fcurve.data_path,
-            index=fcurve.array_index,
-            action_group=fcurve.group.name if fcurve.group else None
-        )
-        
+    for fcurve in iter_action_fcurves(source_action):
+        try:
+            new_fcurve = ensure_action_fcurve(
+                target_action,
+                data_path=fcurve.data_path,
+                index=fcurve.array_index,
+                action_group_name=(fcurve.group.name if fcurve.group else None)
+            )
+        except Exception as e:
+            Debug.log_warning(f"Could not create target fcurve '{fcurve.data_path}[{fcurve.array_index}]' on action '{getattr(target_action, 'name', '<unknown>')}': {e}")
+            continue
+
         # Copy keyframe points
         for keyframe in fcurve.keyframe_points:
             new_keyframe = new_fcurve.keyframe_points.insert(
@@ -417,8 +422,16 @@ def bake_armature_action(rig_armature: bpy.types.Object,
     
     for bone_name in bones_with_keyframes:
         if bone_name in rig_armature.pose.bones:
-            rig_armature.pose.bones[bone_name].bone.select = True
-            Debug.log(f"  Selecting bone for baking: {bone_name} : {rig_armature.pose.bones[bone_name].bone.select}")
+            pose_bone = rig_armature.pose.bones[bone_name]
+            # Blender 5.0+ selects via pose bone, older versions via data bone
+            if hasattr(pose_bone, "select"):
+                pose_bone.select = True
+            else:
+                pose_bone.bone.select = True
+            
+            # Log status using whichever property is available
+            select_status = getattr(pose_bone, "select", getattr(pose_bone.bone, "select", False))
+            Debug.log(f"  Selecting bone for baking: {bone_name} : {select_status}")
     
     try:
         Debug.log("  Starting bake operation...")

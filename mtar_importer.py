@@ -15,7 +15,7 @@ from .py_utilities.utilities_transforms import (
     fox_to_blender_vector,
     apply_rest_pose_correction_local
 )
-from .py_utilities.utilities_blender_animation import add_dummy_keyframes_to_action, configure_action, assign_action_to_datablock, remove_action_from_datablock
+from .py_utilities.utilities_blender_animation import add_dummy_keyframes_to_action, configure_action, remove_action_from_datablock, ensure_action_fcurve, iter_action_fcurves
 
 from .py_foxwrap.foxwrap_metadata import store_track_header_properties_on_action, TrackMetaData, make_track_property_key
 from .py_foxwrap.foxwrap_misc import TrackUnitWrapper, TrackDataBlobWrapper, Tracks
@@ -299,12 +299,11 @@ def import_keyframes_track(context: bpy.types.Context, action: bpy.types.Action,
     
     Debug.log(f"  - Import Track '{keyframes_track.name}' ({keyframes_track.data_blob.type.name}): {len(keyframes_track.data_blob.keyframes)} keyframe(s)")
     
-    # Get or create FCurve group for this handle
+    # Get or create FCurve group for this handle (Blender <5.0)
     # Ensure group_name is always a string (keyframes_track.name can be an integer hash)
     group_name: str = str(keyframes_track.name)
-    if group_name not in action.groups:
-        action.groups.new(name=group_name)
-    group: bpy.types.ActionGroup = action.groups[group_name]
+    # NOTE: Group creation via ensure_action_group removed. We rely on creation-time grouping
+    # when creating FCurves by passing `action_group_name=group_name` to `ensure_action_fcurve`.
     
     # Prepare rotation transformations (only applies to rotation tracks)
     rotation_offset_quats: List[Quaternion] = []
@@ -369,11 +368,18 @@ def import_keyframes_track(context: bpy.types.Context, action: bpy.types.Action,
             
             # Create location curves
             for i in range(3):  # XYZ location
-                fcurve: bpy.types.FCurve = action.fcurves.new(
-                    data_path=f'pose.bones["{keyframes_track.name}"].location',
-                    index=i
-                )
-                fcurve.group = group
+                try:
+                    fcurve: bpy.types.FCurve = ensure_action_fcurve(
+                        action,
+                        data_path=f'pose.bones["{keyframes_track.name}"].location',
+                        index=i,
+                        action_group_name=group_name,
+                        slot_name='mtar_import_armature'
+                    )
+                except Exception as e:
+                    data_path_str = f'pose.bones["{keyframes_track.name}"].location'
+                    Debug.log_warning(f"Could not create fcurve '{data_path_str}[{i}]' on action '{getattr(action, 'name', '<unknown>')}': {e}")
+                    continue
 
                 # Add keyframes from pre-converted locations
                 for frame_count, target_location in converted_locations:
@@ -417,11 +423,18 @@ def import_keyframes_track(context: bpy.types.Context, action: bpy.types.Action,
             
             # Create quaternion rotation curves (WXYZ)
             for i in range(4):  # WXYZ quaternion components
-                fcurve: bpy.types.FCurve = action.fcurves.new(
-                    data_path=f'pose.bones["{keyframes_track.name}"].rotation_quaternion',
-                    index=i
-                )
-                fcurve.group = group
+                try:
+                    fcurve: bpy.types.FCurve = ensure_action_fcurve(
+                        action,
+                        data_path=f'pose.bones["{keyframes_track.name}"].rotation_quaternion',
+                        index=i,
+                        action_group_name=group_name,
+                        slot_name='mtar_import_armature'
+                    )
+                except Exception as e:
+                    data_path_str = f'pose.bones["{keyframes_track.name}"].rotation_quaternion'
+                    Debug.log_warning(f"Could not create fcurve '{data_path_str}[{i}]' on action '{getattr(action, 'name', '<unknown>')}': {e}")
+                    continue
 
                 # Add keyframes from pre-converted quaternions
                 for frame_count, quat in converted_quaternions:
@@ -434,16 +447,22 @@ def import_keyframes_track(context: bpy.types.Context, action: bpy.types.Action,
     elif keyframes_track.data_blob.type in [SegmentType.VECTOR3, SegmentType.VECTOR_DIFF]:
         # Create location curves
         for i in range(3):  # XYZ location
-            fcurve: bpy.types.FCurve = action.fcurves.new(
-                data_path=f'pose.bones["{keyframes_track.name}"].location',
-                index=i
-            )
-            fcurve.group = group
+            try:
+                fcurve: bpy.types.FCurve = ensure_action_fcurve(
+                    action,
+                    data_path=f'pose.bones["{keyframes_track.name}"].location',
+                    index=i,
+                    action_group_name=group_name
+                )
+            except Exception as e:
+                data_path_str = f'pose.bones["{keyframes_track.name}"].location'
+                Debug.log_warning(f"Could not create fcurve '{data_path_str}[{i}]' on action '{getattr(action, 'name', '<unknown>')}': {e}")
+                continue
 
             for keyframe in keyframes_track.data_blob.keyframes:
                 # Convert from Fox Engine coordinate system to Blender
                 blender_vec: List[float] = fox_to_blender_vector(keyframe.data.value)
-                
+
                 # Add keyframe
                 kf_point: bpy.types.Keyframe = fcurve.keyframe_points.insert(keyframe.frame_count, blender_vec[i])
                 kf_point.interpolation = 'LINEAR'
@@ -730,7 +749,7 @@ def get_action_length(action: bpy.types.Action) -> int:
     
     # Fallback: calculate from keyframes
     action_frame_end: int = 0
-    for fcurve in action.fcurves:
+    for fcurve in iter_action_fcurves(action):
         for keyframe in fcurve.keyframe_points:
             action_frame_end = max(action_frame_end, int(keyframe.co.x))
     
@@ -897,7 +916,7 @@ def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object,
         # Check for rotation FCurves
         has_rotation = False
         if imported_armature.animation_data and imported_armature.animation_data.action:
-            for fcurve in imported_armature.animation_data.action.fcurves:
+            for fcurve in iter_action_fcurves(imported_armature.animation_data.action):
                 # Check if this fcurve belongs to this bone and is a rotation curve
                 if fcurve.data_path == f'pose.bones["{source_name}"].rotation_quaternion':
                     has_rotation = True

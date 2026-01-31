@@ -23,7 +23,7 @@ from .py_utilities.utilities_transforms import (
     reverse_rest_pose_correction_local,
     reverse_rest_pose_correction_world
 )
-from .py_utilities.utilities_blender_animation import FCurveCache
+from .py_utilities.utilities_blender_animation import FCurveCache, action_has_fcurves, iter_action_fcurves
 
 from .py_foxwrap.foxwrap_motionevent import read_motion_events_from_action
 from .py_foxwrap.foxwrap_metadata import parse_action_track_metadata, read_track_header_properties_from_action
@@ -460,7 +460,7 @@ def get_bone_keyframe_numbers_from_action(action: bpy.types.Action, bone_name: s
     else:
         # Fall back to scanning action.fcurves (slow path - for backward compatibility)
         data_paths = [f'pose.bones["{bone_name}"].{prop}' for prop in property_names]
-        for fcurve in action.fcurves:
+        for fcurve in iter_action_fcurves(action):
             if fcurve.data_path in data_paths:
                 for keyframe_point in fcurve.keyframe_points:
                     # keyframe_point.co[0] is always relative to action's internal frame range
@@ -1061,7 +1061,7 @@ def build_motion_points_list_from_armature(motion_points_armature: bpy.types.Obj
         for nla_track in motion_points_armature.animation_data.nla_tracks:
             for strip in nla_track.strips:
                 if strip.action:
-                    for fcurve in strip.action.fcurves:
+                    for fcurve in iter_action_fcurves(strip.action):
                         # Extract bone name from data_path (e.g., 'pose.bones["BoneName"].location')
                         if 'pose.bones[' in fcurve.data_path:
                             start = fcurve.data_path.find('["') + 2
@@ -1152,8 +1152,8 @@ def build_motion_point_metadata_dict(motion_points_armature: bpy.types.Object,
         has_rotation = False
         has_location = False
         
-        if action.fcurves:
-            for fc in action.fcurves:
+        if action_has_fcurves(action):
+            for fc in iter_action_fcurves(action):
                 if f'pose.bones["{bone_name}"].rotation_quaternion' in fc.data_path or \
                    f'pose.bones["{bone_name}"].rotation_euler' in fc.data_path:
                     has_rotation = True
@@ -1269,9 +1269,9 @@ def collect_motion_point_actions(motion_points_armature: bpy.types.Object, use_n
         action = motion_points_armature.animation_data.action
         
         # Determine frame range from action
-        if action.fcurves:
-            frame_start = int(min(kp.co.x for fc in action.fcurves for kp in fc.keyframe_points))
-            frame_end = int(max(kp.co.x for fc in action.fcurves for kp in fc.keyframe_points))
+        if action_has_fcurves(action):
+            frame_start = int(min(kp.co.x for fc in iter_action_fcurves(action) for kp in fc.keyframe_points))
+            frame_end = int(max(kp.co.x for fc in iter_action_fcurves(action) for kp in fc.keyframe_points))
         else:
             frame_start = 0
             frame_end = 0

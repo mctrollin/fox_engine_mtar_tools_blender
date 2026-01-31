@@ -3,7 +3,7 @@
 This module contains helper functions for manipulating Blender actions,
 FCurves, keyframes, and other animation-related structures.
 """
-from typing import TYPE_CHECKING, Optional, Dict, List
+from typing import Optional, Dict, List, Iterator
 
 import bpy
 
@@ -92,10 +92,10 @@ class FCurveCache:
         """
         cache_dict: Dict[str, Dict[str, List['bpy.types.FCurve']]] = {}
         
-        if not action or not action.fcurves:
+        if not action or not action_has_fcurves(action):
             return cls(cache_dict)
         
-        for fcurve in action.fcurves:
+        for fcurve in iter_action_fcurves(action):
             bone_name = extract_bone_name_from_fcurve_path(fcurve.data_path)
             if not bone_name:
                 continue
@@ -198,15 +198,17 @@ def configure_action(action: 'bpy.types.Action',
 
 # Action slot handling for Blender 4.4+ #########################################
 
-def assign_action_to_datablock(datablock: 'bpy.types.ID', action: 'bpy.types.Action') -> None:
-    """Assign an Action to a datablock and ensure the Legacy Slot is selected on Blender >= 4.4.
+def assign_action_to_datablock(datablock: 'bpy.types.ID', action: 'bpy.types.Action', slot_name: Optional[str] = None) -> None:
+    """Assign an Action to a datablock and ensure a slot is selected on Blender >= 4.4.
 
-    This helper is safe to call on older Blender versions where action slots do not
-    exist; in that case it simply assigns the action to datablock.animation_data.action.
+    If `slot_name` is not provided, a default mapping is used:
+      - ARMATURE -> "mtar_import_armature"
+      - otherwise -> "mtar_import_object"
 
     Args:
         datablock: Any ID datablock that supports animation_data (e.g. an Object/Armature)
         action: The Action to assign
+        slot_name: Optional explicit slot name to prefer/create
     """
     if action is None or datablock is None:
         return
@@ -216,8 +218,8 @@ def assign_action_to_datablock(datablock: 'bpy.types.ID', action: 'bpy.types.Act
     if anim_data is None:
         try:
             anim_data = datablock.animation_data_create()
-        except Exception:
-            Debug.log_warning(f"Could not create animation_data on '{getattr(datablock, 'name', '<unknown>')}'")
+        except Exception as e:
+            Debug.log_warning(f"Could not create animation_data on '{getattr(datablock, 'name', '<unknown>')}': {e}")
             return
 
     # Assign the action normally first
@@ -227,49 +229,33 @@ def assign_action_to_datablock(datablock: 'bpy.types.ID', action: 'bpy.types.Act
     if not hasattr(anim_data, 'action_slot'):
         return
 
+    # Decide slot name if none provided
+    if slot_name is None:
+        dtype = getattr(datablock, 'type', None)
+        slot_name = 'mtar_import_armature' if dtype == 'ARMATURE' else 'mtar_import_object'
+
     try:
-        # Prefer an existing 'Legacy Slot' if present
-        legacy_slot = None
-        for s in getattr(action, 'slots', []):
-            if getattr(s, 'name_display', '') == 'Legacy Slot':
-                legacy_slot = s
-                break
+        slot = get_action_slot(action, slot_name)
+    except RuntimeError as e:
+        Debug.log_warning(f"Failed to get or create slot '{slot_name}' for action '{getattr(action, 'name', '<unknown>')}': {e}")
+        raise
 
-        # If no explicit Legacy Slot found, try to pick a slot suitable for armature/object
-        if legacy_slot is None:
-            preferred_types = ('ARMATURE', 'OBJECT', 'UNSPECIFIED')
-            for t in preferred_types:
-                for s in getattr(action, 'slots', []):
-                    if getattr(s, 'target_id_type', None) == t:
-                        legacy_slot = s
-                        break
-                if legacy_slot:
-                    break
-
-        # If still not found, create a new slot on the action
-        if legacy_slot is None:
-            try:
-                legacy_slot = action.slots.new(name="Legacy Slot")
-                Debug.log(f"  Created Legacy Slot on action '{action.name}'")
-            except Exception as e:
-                Debug.log_warning(f"Could not create Legacy Slot on action '{action.name}': {e}")
-                legacy_slot = None
-
-        # Assign the found/created slot to the datablock's anim_data
-        if legacy_slot is not None:
-            try:
-                anim_data.action_slot = legacy_slot
-                anim_data.last_slot_identifier = legacy_slot.identifier
-                # Also mark the slot active on the action for clarity
-                try:
-                    action.slots.active = legacy_slot
-                except Exception:
-                    pass
-                Debug.log(f"  Assigned action '{action.name}' to datablock '{getattr(datablock, 'name', '<unknown>')}' using slot '{legacy_slot.name_display}'")
-            except Exception as e:
-                Debug.log_warning(f"Failed to set action slot for '{getattr(datablock, 'name', '<unknown>')}': {e}")
+    # Assign the found/created slot to the datablock's anim_data
+    try:
+        anim_data.action_slot = slot
+        try:
+            anim_data.last_slot_identifier = slot.identifier
+        except Exception:
+            pass
+        # Also mark the slot active on the action for clarity
+        try:
+            action.slots.active = slot
+        except Exception as e:
+            Debug.log_warning(f"Could not set active slot on action '{getattr(action, 'name', '<unknown>')}': {e}")
+        Debug.log(f"  Assigned action '{action.name}' to datablock '{getattr(datablock, 'name', '<unknown>')}' using slot '{getattr(slot, 'name', '<unknown>')}'")
     except Exception as e:
-        Debug.log_warning(f"Unexpected error while ensuring action slot: {e}")
+        Debug.log_warning(f"Failed to set action slot for '{getattr(datablock, 'name', '<unknown>')}': {e}")
+        raise
 
 
 def remove_action_from_datablock(datablock: 'bpy.types.ID') -> None:
@@ -286,20 +272,497 @@ def remove_action_from_datablock(datablock: 'bpy.types.ID') -> None:
         return
 
     try:
-        anim_data.action = None
-        if hasattr(anim_data, 'action_slot'):
-            # Clear selected slot and identifier
+        # Clear slot and identifier BEFORE clearing the action
+        # NOTE: Setting action_slot to None requires an action to be assigned to the datablock.
+        # If no action is assigned, setting action_slot will raise an error.
+        if hasattr(anim_data, 'action_slot') and anim_data.action:
             try:
                 anim_data.action_slot = None
-            except Exception:
+            except Exception as e:
+                # Silently catch if it still fails; the priority is clearing the action
                 pass
+            
+        if hasattr(anim_data, 'last_slot_identifier'):
             try:
                 anim_data.last_slot_identifier = ''
             except Exception:
                 pass
+        
+        # Now clear the action itself
+        anim_data.action = None
         Debug.log(f"Removed action from datablock '{getattr(datablock, 'name', '<unknown>')}' and cleared slot info")
     except Exception as e:
         Debug.log_warning(f"Failed to remove action from datablock '{getattr(datablock, 'name', '<unknown>')}': {e}")
+
+
+# NOTE: `ensure_action_group` was removed — grouping is now handled at FCurve creation time via
+# the `ensure_action_fcurve(..., action_group_name=...)` parameter when supported by the API.
+# We intentionally avoid reassigning groups on existing FCurves to preserve user data and avoid
+# destructive changes across Blender versions.
+
+
+def get_action_slot(action: 'bpy.types.Action', slot_name: Optional[str] = None) -> 'bpy.types.ActionSlot':
+    """Return or create an Action slot.
+
+    If `slot_name` is provided, this will look for a slot whose `name` or
+    `name_display` matches `slot_name` and return it. If not found, it will
+    create a new slot with `name=slot_name` and return it. If `slot_name` is
+    None, the function follows the legacy behavior: prefer 'Legacy Slot', then
+    a slot matching preferred types, then create a 'Legacy Slot'.
+
+    Raises:
+        RuntimeError: If the slot cannot be found or created.
+    """
+    if action is None:
+        raise RuntimeError("Action is None when requesting slot")
+
+    # Check if the action has a 'slots' attribute AND if it's a bpy_prop_collection 
+    if not hasattr(action, "slots"):
+        raise RuntimeError("Action does not expose 'slots' collection")
+
+    slots = getattr(action, 'slots', None)
+
+    # If a specific slot name is requested, prefer that
+    if slot_name is not None:
+        for s in slots:
+            try:
+                if getattr(s, 'name', '') == slot_name or getattr(s, 'name_display', '') == slot_name:
+                    return s
+            except Exception:
+                continue
+        # Not found → try to create
+        try:
+            new_slot = action.slots.new(id_type='OBJECT', name=slot_name)
+            Debug.log(f"  Created slot '{slot_name}' on action '{action.name}'")
+            return new_slot
+        except Exception as e:
+            raise RuntimeError(f"Could not create slot '{slot_name}' on action '{getattr(action, 'name', '<unknown>')}': {e}")
+
+    # No explicit slot name: legacy behavior
+    # Prefer an explicit 'Legacy Slot' if present
+    for s in slots:
+        try:
+            if getattr(s, 'name_display', '') == 'Legacy Slot':
+                return s
+        except Exception:
+            continue
+
+    # Try to pick a slot suitable for armature/object as a best-effort fallback
+    preferred_types = ('ARMATURE', 'OBJECT', 'UNSPECIFIED')
+    for t in preferred_types:
+        for s in slots:
+            try:
+                if getattr(s, 'target_id_type', None) == t:
+                    return s
+            except Exception:
+                continue
+
+def get_all_fcurves_from_action(action):
+    """
+    Return all F-Curves from an Action.
+    Supports Blender < 4.4 and Blender >= 4.4.
+    """
+    if action is None:
+        return []
+
+    # --- Blender < 4.4 ---
+    # Classic F-Curves directly on the action
+    if hasattr(action, "fcurves"):
+        try:
+            return list(action.fcurves)
+        except:
+            pass
+
+    # --- Blender >= 4.4 ---
+    fcurves = []
+
+    if hasattr(action, "layers"):
+        for layer in action.layers:
+            for strip in layer.strips:
+                # Blender 5+: strips expose channelbags (collection), a single channelbag property,
+                # or legacy slots. Use `iter_channelbags` helper to handle all of these cases.
+                try:
+                    for ch in iter_channelbags(strip):
+                        try:
+                            if ch and hasattr(ch, "fcurves"):
+                                fcurves.extend(ch.fcurves)
+                        except Exception as e:
+                            Debug.log_warning(f"Error iterating channelbag on strip '{getattr(strip, 'name', '<unknown>')}': {e}")
+                except Exception as e:
+                    Debug.log_warning(f"Error retrieving channelbags from strip '{getattr(strip, 'name', '<unknown>')}': {e}")
+
+    return fcurves
+
+
+
+def action_has_fcurves(action: 'bpy.types.Action') -> bool:
+    """Return True if the Action has or can manage fcurves in this Blender API.
+
+    This handles both the older API where `action.fcurves` exists and the
+    newer Blender 5.0+ API where fcurves may be managed via channelbags or
+    `fcurve_ensure_for_datablock`.
+    """
+    if action is None:
+        return False
+    # Old API: direct fcurves collection
+    if hasattr(action, 'fcurves'):
+        try:
+            return len(action.fcurves) > 0
+        except Exception as e:
+            Debug.log_warning(f"Error counting action.fcurves for action '{getattr(action, 'name', '<unknown>')}': {e}")
+            return False
+
+    # Check for channelbag-style API (Blender 5.0+)
+    try:
+        for _ in iter_channelbags(action):
+            # Presence of any channelbag indicates the action can manage fcurves
+            return True
+    except Exception as e:
+        Debug.log_warning(f"Error checking channelbags on action '{getattr(action, 'name', '<unknown>')}': {e}")
+
+    # For Blender 5.0+ also accept fcurve_ensure_for_datablock availability
+    if hasattr(action, 'fcurve_ensure_for_datablock'):
+        return True
+
+    # Best-effort fallback 
+    return False
+
+def iter_channelbags(owner) -> Iterator:
+    """Yield channelbag objects using the canonical slot-based API.
+
+    Supports both Action and Strip objects:
+    - For Actions: iterates action.layers -> strips, gets slots from action,
+      calls strip.channelbag(slot) for each
+    - For Strips: gets slots from strip's parent action, calls strip.channelbag(slot)
+
+    Example usage:
+        strip = action.layers[0].strips[0]
+        channelbag = strip.channelbag(slot)
+    """
+    if owner is None:
+        return
+
+    # Determine if we have an action or a strip
+    if hasattr(owner, 'layers'):
+        # This is an Action - iterate through layers and strips
+        action = owner
+        if not hasattr(action, 'slots'):
+            return
+        
+        for layer in action.layers:
+            for strip in layer.strips:
+                for slot in action.slots:
+                    ch = strip.channelbag(slot)
+                    if ch:
+                        yield ch
+    else:
+        # This is a Strip - get slots from parent action
+        strip = owner
+        action = strip.id_data
+        if action is None or not hasattr(action, 'slots'):
+            return
+
+        for slot in action.slots:
+            ch = strip.channelbag(slot)
+            if ch:
+                yield ch
+
+
+def iter_action_fcurves(action: 'bpy.types.Action') -> Iterator['bpy.types.FCurve']:
+    """ Return an iterator over all F-Curves in an Action. 
+    Uses Python's built-in iter() on the list returned by get_all_fcurves_from_action(). """ 
+    return iter(get_all_fcurves_from_action(action))
+
+# def iter_action_fcurves(action: 'bpy.types.Action') -> Iterator['bpy.types.FCurve']:
+#     """Iterate over fcurves for an action in a version-safe manner.
+
+#     Yields existing FCurves, or an empty iterator when none are accessible.
+#     """
+#     if action is None:
+#         return iter(())
+#     if hasattr(action, 'fcurves'):
+#         try:
+#             return iter(action.fcurves)
+#         except Exception as e:
+#             Debug.log_warning(f"Error iterating action.fcurves for action '{getattr(action, 'name', '<unknown>')}': {e}")
+#             return iter(())
+
+#     # Blender 5.0+: attempt to gather fcurves from channelbags/channels if present
+#     for possible_collection_name in ('channelbags', 'channelbag', 'channels'):
+#         col = getattr(action, possible_collection_name, None)
+#         if col:
+#             try:
+#                 fcurves_list = []
+#                 for ch in col:
+#                     if hasattr(ch, 'fcurves'):
+#                         for fc in ch.fcurves:
+#                             fcurves_list.append(fc)
+#                 return iter(fcurves_list)
+#             except Exception as e:
+#                 Debug.log_warning(f"Error collecting fcurves from channelbags on action '{getattr(action, 'name', '<unknown>')}': {e}")
+#                 continue
+
+#     return iter(())
+
+
+def find_action_fcurve(action: 'bpy.types.Action', data_path: str, index: int, slot_name: Optional[str] = None):
+    """Find an existing fcurve on `action` matching `data_path` and `index`.
+
+    Returns the FCurve if found, otherwise None.
+    """
+    if action is None:
+        return None
+
+    # Try anim_utils helper first (Blender 5+), which can return the proper
+    # channelbag for the currently selected slot (works with layered/slot actions)
+    try:
+        from bpy_extras import anim_utils # Blender provided helper module
+        if hasattr(anim_utils, 'action_get_channelbag_for_slot'):
+            slot = get_action_slot(action, slot_name)
+            chbag = None
+            if slot is not None:
+                chbag = anim_utils.action_get_channelbag_for_slot(action, slot)
+
+            if chbag and hasattr(chbag, 'fcurves'):
+                try:
+                    fc = chbag.fcurves.find(data_path, index=index)
+                    if fc:
+                        return fc
+                except Exception as e:
+                    Debug.log_warning(f"chbag.fcurves.find failed for action '{getattr(action, 'name', '<unknown>')}', path '{data_path}', index {index}: {e}")
+                try:
+                    for fc in chbag.fcurves:
+                        if fc.data_path == data_path and getattr(fc, 'array_index', None) == index:
+                            return fc
+                except Exception as e:
+                    Debug.log_warning(f"Iterating chbag.fcurves failed for action '{getattr(action, 'name', '<unknown>')}', path '{data_path}', index {index}: {e}")
+    except Exception as e:
+        Debug.log_warning(f"anim_utils import unavailable: {e}")
+        # anim_utils not available (older Blender) — continue
+
+    # Old API: scan direct fcurves
+    if hasattr(action, 'fcurves'):
+        try:
+            for fc in action.fcurves:
+                if fc.data_path == data_path and getattr(fc, 'array_index', None) == index:
+                    return fc
+        except Exception as e:
+            Debug.log_warning(f"Error scanning action.fcurves for action '{getattr(action, 'name', '<unknown>')}': {e}")
+            return None
+
+    # Blender 5+: search channelbags / channels collections as a fallback
+    try:
+        for ch in iter_channelbags(action):
+            if not hasattr(ch, 'fcurves'):
+                continue
+            # Preferred fast-path if the API supports find
+            try:
+                fc = ch.fcurves.find(data_path, index=index)
+                if fc:
+                    return fc
+            except Exception as e:
+                Debug.log_warning(f"ch.fcurves.find failed on channel '{getattr(ch, 'name', '<unknown>')}' for action '{getattr(action, 'name', '<unknown>')}', path '{data_path}', index {index}: {e}")
+
+            # Fallback: linear scan
+            try:
+                for fc in ch.fcurves:
+                    if fc.data_path == data_path and getattr(fc, 'array_index', None) == index:
+                        return fc
+            except Exception as e:
+                Debug.log_warning(f"Iterating ch.fcurves failed on channel '{getattr(ch, 'name', '<unknown>')}' for action '{getattr(action, 'name', '<unknown>')}', path '{data_path}', index {index}: {e}")
+                continue
+    except Exception as e:
+        Debug.log_warning(f"Error iterating channelbags in find_action_fcurve for action '{getattr(action, 'name', '<unknown>')}': {e}")
+
+    return None
+
+
+def ensure_action_fcurve(action: 'bpy.types.Action', data_path: str, index: int, datablock=None, action_group_name: Optional[str] = None, slot_name: Optional[str] = None):
+    """Return an existing FCurve or create one in a version-safe way.
+
+    If creation is not supported on the current API, returns None.
+    """
+    if action is None:
+        return None
+
+    # Return existing if present
+    existing = find_action_fcurve(action, data_path, index, slot_name=slot_name)
+    if existing:
+        return existing
+
+    # Blender 5+: prefer anim_utils channelbag ensure helper when available
+    try:
+        from bpy_extras import anim_utils # Blender provided helper module
+        if hasattr(anim_utils, 'action_ensure_channelbag_for_slot'):
+            try:
+                try:
+                    slot = get_action_slot(action, slot_name)
+                except RuntimeError as e:
+                    Debug.log_warning(f"Could not obtain slot '{slot_name}' for action '{getattr(action, 'name', '<unknown>')}': {e}")
+                    slot = None
+
+                # Prefer signature with (action, slot, datablock) when datablock is provided
+                chbag = None
+                if slot is not None and datablock is not None:
+                    try:
+                        chbag = anim_utils.action_ensure_channelbag_for_slot(action, slot, datablock)
+                    except Exception:
+                        try:
+                            chbag = anim_utils.action_ensure_channelbag_for_slot(action, slot)
+                        except Exception as e:
+                            Debug.log_warning(f"action_ensure_channelbag_for_slot failed for action '{getattr(action, 'name', '<unknown>')}' with slot and datablock fallbacks: {e}")
+                elif slot is not None:
+                    try:
+                        chbag = anim_utils.action_ensure_channelbag_for_slot(action, slot)
+                    except Exception as e:
+                        Debug.log_warning(f"action_ensure_channelbag_for_slot failed for action '{getattr(action, 'name', '<unknown>')}' when called with slot: {e}")
+                        chbag = None
+                else:
+                    chbag = None
+            except Exception as e:
+                Debug.log_warning(f"anim_utils.action_ensure_channelbag_for_slot failed for action '{getattr(action, 'name', '<unknown>')}' when called with legacy slot: {e}")
+                chbag = None
+
+            # If caller provided a datablock preference, ensure the returned chbag matches; otherwise continue 
+            if chbag and hasattr(chbag, 'fcurves'):
+                try:
+                    if datablock is not None and getattr(chbag, 'id_data', None) != datablock:
+                        Debug.log(f"anim_utils returned a chbag that does not match the requested datablock for action '{getattr(action, 'name', '<unknown>')}'; falling back to other channelbag search")
+                    else:
+                        if action_group_name is not None:
+                            fc = chbag.fcurves.ensure(data_path, index=index, group_name=action_group_name)
+                        else:
+                            fc = chbag.fcurves.ensure(data_path, index=index)
+                        if fc:
+                            return fc
+                except Exception as e:
+                    Debug.log_warning(f"chbag.fcurves.ensure failed for action '{getattr(action, 'name', '<unknown>')}', path '{data_path}', index {index}: {e}")
+                    # fallback to new() on the channelbag's fcurves collection
+                    try:
+                        if hasattr(chbag.fcurves, 'new'):
+                            if action_group_name is not None:
+                                return chbag.fcurves.new(data_path=data_path, index=index, group_name=action_group_name)
+                            return chbag.fcurves.new(data_path=data_path, index=index)
+                    except Exception as e:
+                        Debug.log_warning(f"chbag.fcurves.new also failed for action '{getattr(action, 'name', '<unknown>')}', path '{data_path}', index {index}: {e}")
+    except Exception as e:
+        Debug.log_warning(f"anim_utils import/availability error: {e}")
+        # anim_utils not available; continue
+
+    # Old API path (direct fcurves)
+    if hasattr(action, 'fcurves'):
+        try:
+            if action_group_name is not None:
+                return action.fcurves.new(data_path=data_path, index=index, action_group=action_group_name)
+            return action.fcurves.new(data_path=data_path, index=index)
+        except Exception as e:
+            Debug.log_warning(f"Failed to create fcurve via action.fcurves.new for action '{getattr(action, 'name', '<unknown>')}', path '{data_path}', index {index}: {e}")
+            return None
+
+    # Blender 5+: prefer channelbag-style ensure() when available
+    try:
+        # Prefer channelbag matching provided datablock (if any)
+        preferred = []
+        for ch in iter_channelbags(action):
+            try:
+                if datablock is not None and getattr(ch, 'id_data', None) == datablock:
+                    preferred.insert(0, ch)
+                else:
+                    preferred.append(ch)
+            except Exception as e:
+                Debug.log_warning(f"Error checking channelbag id_data for action '{getattr(action, 'name', '<unknown>')}': {e}")
+                preferred.append(ch)
+
+        for ch in preferred:
+            if not hasattr(ch, 'fcurves'):
+                continue
+            try:
+                # Use the channelbag's ensure API if present (preferred)
+                if action_group_name is not None:
+                    fc = ch.fcurves.ensure(data_path, index=index, group_name=action_group_name)
+                else:
+                    fc = ch.fcurves.ensure(data_path, index=index)
+                if fc:
+                    return fc
+            except Exception as e:
+                Debug.log_warning(f"ch.fcurves.ensure failed on channel '{getattr(ch, 'name', '<unknown>')}' for action '{getattr(action, 'name', '<unknown>')}', path '{data_path}', index {index}: {e}")
+                # Try a more traditional new() fallback on the fcurves collection
+                try:
+                    if hasattr(ch.fcurves, 'new'):
+                        if action_group_name is not None:
+                            return ch.fcurves.new(data_path=data_path, index=index, group_name=action_group_name)
+                        return ch.fcurves.new(data_path=data_path, index=index)
+                except Exception as e:
+                    Debug.log_warning(f"ch.fcurves.new failed on channel '{getattr(ch, 'name', '<unknown>')}' for action '{getattr(action, 'name', '<unknown>')}', path '{data_path}', index {index}: {e}")
+                    continue
+    except Exception as e:
+        Debug.log_warning(f"Error iterating channelbag collections on action '{getattr(action, 'name', '<unknown>')}': {e}")
+
+    # Last resort: Action-level fcurve_ensure_for_datablock (signature varies by Blender build)
+    if hasattr(action, 'fcurve_ensure_for_datablock'):
+        # Only call this helper if a datablock was explicitly provided; calling with a string (data_path) as first arg
+        # can lead to confusing errors where the function expects a datablock ID. 
+        if datablock is not None:
+            try:
+                try:
+                    return action.fcurve_ensure_for_datablock(datablock, data_path, index)
+                except Exception as e:
+                    Debug.log_warning(f"action.fcurve_ensure_for_datablock initial call failed for action '{getattr(action, 'name', '<unknown>')}', path '{data_path}', index {index}: {e}")
+                    try:
+                        # Sometimes signatures differ; attempt other ordering
+                        return action.fcurve_ensure_for_datablock(data_path, index, datablock)
+                    except Exception as e2:
+                        Debug.log_warning(f"action.fcurve_ensure_for_datablock failed with alternate signature for action '{getattr(action, 'name', '<unknown>')}', path '{data_path}', index {index}: {e2}")
+                        return None
+            except Exception as e:
+                Debug.log_warning(f"action.fcurve_ensure_for_datablock calls failed for action '{getattr(action, 'name', '<unknown>')}', path '{data_path}', index {index}: {e}")
+        else:
+            Debug.log(f"Skipping action.fcurve_ensure_for_datablock for action '{getattr(action, 'name', '<unknown>')}' because no datablock was provided")
+
+    return None
+
+
+def remove_action_fcurve(action: 'bpy.types.Action', fcurve) -> None:
+    """Remove an FCurve from an action in a version-safe manner."""
+    if action is None or fcurve is None:
+        return
+
+    # Old API
+    if hasattr(action, 'fcurves'):
+        try:
+            action.fcurves.remove(fcurve)
+            return
+        except Exception as e:
+            Debug.log_warning(f"Failed to remove fcurve from action.fcurves for action '{getattr(action, 'name', '<unknown>')}': {e}")
+
+    # Blender 5+: try to remove from channelbags where it lives
+    try:
+        for ch in iter_channelbags(action):
+            if not hasattr(ch, 'fcurves'):
+                continue
+            try:
+                ch.fcurves.remove(fcurve)
+                return
+            except Exception as e:
+                Debug.log_warning(f"ch.fcurves.remove failed on channel '{getattr(ch, 'name', '<unknown>')}' for action '{getattr(action, 'name', '<unknown>')}': {e}")
+                # Try identity-based search and remove
+                try:
+                    to_remove = None
+                    for fc in ch.fcurves:
+                        if fc == fcurve or (getattr(fc, 'data_path', None) == getattr(fcurve, 'data_path', None) and getattr(fc, 'array_index', None) == getattr(fcurve, 'array_index', None)):
+                            to_remove = fc
+                            break
+                    if to_remove is not None:
+                        ch.fcurves.remove(to_remove)
+                        return
+                except Exception as e:
+                    Debug.log_warning(f"Identity-based ch.fcurves remove search failed on channel '{getattr(ch, 'name', '<unknown>')}' for action '{getattr(action, 'name', '<unknown>')}': {e}")
+                    continue
+    except Exception as e:
+        Debug.log_warning(f"Error iterating channelbag collections while removing fcurve on action '{getattr(action, 'name', '<unknown>')}': {e}")
+
+    # Best-effort else: nothing to do
+
 
 def add_dummy_keyframes_to_action(action: 'bpy.types.Action') -> None:
     """Add dummy location keyframes at frames -100 and -50 to the layout track action.
@@ -318,16 +781,12 @@ def add_dummy_keyframes_to_action(action: 'bpy.types.Action') -> None:
     data_path = 'pose.bones["dummy"].location'
     values = [0.0, 0.0, 0.0]
 
-    # Ensure a group exists for the dummy bone so curves are organized
+    # Group name for the dummy bone (creation-time grouping is attempted when supported)
     group_name = "dummy"
-    if group_name not in action.groups:
-        action.groups.new(name=group_name)
-    group = action.groups[group_name]
-    
+
     # Create FCurve(s) for each component (X, Y, Z)
     for component_idx, value in enumerate(values):
-        fcurve = action.fcurves.new(data_path=data_path, index=component_idx)
-        fcurve.group = group
+        fcurve = ensure_action_fcurve(action, data_path=data_path, index=component_idx, action_group_name=group_name, slot_name='mtar_import_armature')
         # Add keyframes at frames -100 and -50
         keyframe_start = fcurve.keyframe_points.insert(frame=-100.0, value=value)
         keyframe_start.interpolation = 'LINEAR'

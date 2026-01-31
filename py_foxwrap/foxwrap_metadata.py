@@ -16,6 +16,7 @@ from ..py_fox.fox_frig_types import RigUnitType
 from ..py_fox.fox_misc_types import StrCode32
 from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper
 from ..py_utilities.utilities_logging import Debug
+from ..py_utilities.utilities_blender_animation import action_has_fcurves, iter_action_fcurves
 
 
 # Custom Property Key Utilities #############################################################
@@ -700,18 +701,18 @@ class TrackMetaData:
         Returns:
             TrackMetaData with segment_types inferred from fcurves, or None if no fcurves found
         """
-        if not action or not action.fcurves:
+        if not action or not action_has_fcurves(action):
             return None
         
         # Check which fcurve types exist for this bone
         has_rotation = any(
             fc.data_path in [f'pose.bones["{bone_name}"].rotation_quaternion', 
                             f'pose.bones["{bone_name}"].rotation_euler']
-            for fc in action.fcurves
+            for fc in iter_action_fcurves(action)
         )
         has_location = any(
             fc.data_path == f'pose.bones["{bone_name}"].location'
-            for fc in action.fcurves
+            for fc in iter_action_fcurves(action)
         )
         
         # Build segment types list
