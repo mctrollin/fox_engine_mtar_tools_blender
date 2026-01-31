@@ -292,7 +292,8 @@ def bake_armature_action(rig_armature: bpy.types.Object,
                         create_new_action: bool = False,
                         new_action_suffix: str = "_baked",
                         nla_track: Optional[bpy.types.NlaTrack] = None,
-                        source_armature: Optional[bpy.types.Object] = None) -> Dict[str, any]:
+                        source_armature: Optional[bpy.types.Object] = None,
+                        interpolation_mode: str = 'BEZIER') -> Dict[str, any]:
     """Bake animated bones in an armature action with visual transforms.
     
     This function bakes only bones that have keyframes, only on frames where
@@ -308,6 +309,7 @@ def bake_armature_action(rig_armature: bpy.types.Object,
         new_action_suffix: Suffix to add to new action name
         nla_track: NLA track to disable during baking (if provided)
         source_armature: Armature with animation data to bind constraints to (if different from armature being baked)
+        interpolation_mode: Interpolation mode to apply to all baked keyframes (BEZIER, LINEAR, CONSTANT)
         
     Returns:
         Dictionary with results:
@@ -507,6 +509,28 @@ def bake_armature_action(rig_armature: bpy.types.Object,
         
         Debug.log(f"Successfully baked action '{action.name}' -> '{target_action.name}'")
         
+        # Set interpolation mode on all baked keyframes (after context restoration)
+        Debug.log(f"  Setting interpolation mode to {interpolation_mode}...")
+        interpolation_count = 0
+        for fcurve in iter_action_fcurves(target_action):
+            data_path = fcurve.data_path
+            fcurve_modified = False
+            # Only process pose bone fcurves
+            if data_path.startswith('pose.bones["') or data_path.startswith("pose.bones['"):
+                for keyframe in fcurve.keyframe_points:
+                    if keyframe.interpolation != interpolation_mode:
+                        keyframe.interpolation = interpolation_mode
+                        # Set handle types to AUTO for bezier interpolation
+                        if interpolation_mode == 'BEZIER':
+                            keyframe.handle_left_type = 'AUTO'
+                            keyframe.handle_right_type = 'AUTO'
+                        fcurve_modified = True
+                        interpolation_count += 1
+            if fcurve_modified:
+                fcurve.update()
+        if interpolation_count > 0:
+            Debug.log(f"  Set interpolation on {interpolation_count} keyframes")
+        
         return {
             'success': True,
             'bones_baked': bones_with_keyframes,
@@ -547,7 +571,8 @@ def bake_armature_nla_strips(rig_armature: bpy.types.Object,
                              new_action_suffix: str = "_baked",
                              only_unmuted: bool = True,
                              source_armature: Optional[bpy.types.Object] = None,
-                             create_new_action: bool = False) -> Dict[str, any]:
+                             create_new_action: bool = False,
+                             interpolation_mode: str = 'BEZIER') -> Dict[str, any]:
     """Bake all NLA strips in an armature, creating new actions for each.
     
     This function iterates through all NLA strips and bakes each one into
@@ -560,6 +585,7 @@ def bake_armature_nla_strips(rig_armature: bpy.types.Object,
         only_unmuted: If True, only bake unmuted strips
         source_armature: Armature with animation data to bind constraints to (if different from armature being baked)
         create_new_action: If True, creates new actions instead of overriding existing ones
+        interpolation_mode: Interpolation mode to apply to all baked keyframes (BEZIER, LINEAR, CONSTANT)
         
     Returns:
         Dictionary with results:
@@ -631,7 +657,8 @@ def bake_armature_nla_strips(rig_armature: bpy.types.Object,
                 create_new_action=create_new_action,
                 new_action_suffix=new_action_suffix,
                 nla_track=track,
-                source_armature=source_armature
+                source_armature=source_armature,
+                interpolation_mode=interpolation_mode
             )
             
             if bake_result['success']:

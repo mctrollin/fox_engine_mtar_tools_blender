@@ -34,7 +34,9 @@ class MTAR_PT_ExportPanel(Panel):
         box_rig.prop(export_props, "motion_points_armature", text="", icon='ARMATURE_DATA')
 
         if settings_props.show_advanced_settings:
-            draw_bool_prop_checkbox_icon(box_rig, export_props, "use_nla")
+            adv_box = box_rig.box()
+            adv_box.alert = True
+            draw_bool_prop_checkbox_icon(adv_box, export_props, "use_nla")
 
             # Show info about NLA status
             if export_props.armature and export_props.armature.animation_data:
@@ -45,13 +47,13 @@ class MTAR_PT_ExportPanel(Panel):
                                         for strip in track.strips 
                                         if not strip.mute and strip.action)
                     if unmuted_strips > 0:
-                        box_rig.label(text=f"Found {unmuted_strips} NLA strip(s)", icon='CHECKMARK')
+                        adv_box.label(text=f"Found {unmuted_strips} NLA strip(s)", icon='CHECKMARK')
                     else:
-                        box_rig.label(text="No unmuted NLA strips", icon='INFO')
+                        adv_box.label(text="No unmuted NLA strips", icon='INFO')
                 elif anim_data.action:
-                    box_rig.label(text="Using active action", icon='ACTION')
+                    adv_box.label(text="Using active action", icon='ACTION')
                 else:
-                    box_rig.label(text="No animation data", icon='ERROR')
+                    adv_box.label(text="No animation data", icon='ERROR')
 
         # Mapping file (optional)
         box = box_export
@@ -62,8 +64,11 @@ class MTAR_PT_ExportPanel(Panel):
         box.prop(export_props, "filepath", text="", icon='CURRENT_FILE')
 
         if settings_props.show_advanced_settings:
+            adv_box = box_export.box()
+            adv_box.alert = True
+            
             # Custom path hash export option
-            row_path_hash = box_export.box()
+            row_path_hash = adv_box.box()
             draw_bool_prop_checkbox_icon(row_path_hash, export_props, "custom_path_hashes")
             if export_props.custom_path_hashes:
                 # Show base path text field with required label
@@ -75,11 +80,11 @@ class MTAR_PT_ExportPanel(Panel):
                     warn_box.label(text="Configure 'Hash Generator Executable' in MTAR Settings → Show Advanced Settings")
 
             # Export info file option
-            row = box.row()
+            row = adv_box.row()
             draw_bool_prop_checkbox_icon(row, export_props, "info_file")
 
             # Force highest bit encoding option
-            row2 = box.row()
+            row2 = adv_box.row()
             draw_bool_prop_checkbox_icon(row2, export_props, "force_highest_bit_encoding")
         
         # Export button

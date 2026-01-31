@@ -465,7 +465,8 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                                     new_action_suffix="_baked",
                                     only_unmuted=True,
                                     source_armature=imported_armature,
-                                    create_new_action=not import_props.delete_import_armature
+                                    create_new_action=not import_props.delete_import_armature,
+                                    interpolation_mode=import_props.interpolation_mode
                                 )
                                 
                                 handle_bake_result(bake_result, custom_rig, imported_armature, props, self)
@@ -479,7 +480,8 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                                     remove_constraints=True,
                                     create_new_action=True,
                                     new_action_suffix="_baked",
-                                    source_armature=imported_armature
+                                    source_armature=imported_armature,
+                                    interpolation_mode=import_props.interpolation_mode
                                 )
                                 
                                 handle_bake_result(bake_result, custom_rig, imported_armature, props, self)
