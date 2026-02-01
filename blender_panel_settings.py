@@ -20,6 +20,8 @@ class MTAR_PT_SettingsPanel(Panel):
         props = context.scene.mtar_properties
         settings_props = props.settings_props
         
+        
+
         # Show advanced settings toggle
         box_advanced = layout.box()
 
@@ -30,6 +32,10 @@ class MTAR_PT_SettingsPanel(Panel):
         if settings_props.show_advanced_settings:
             adv_box = box_advanced.box()
             adv_box.alert = True
+
+            # Motion Event (Pose markers) visibility
+            draw_bool_prop_checkbox_icon(adv_box, settings_props, "show_pose_markers", text="Show Event Markers", toggle=True)
+
             # Rest Pose Correction toggle
             draw_bool_prop_checkbox_icon(adv_box, settings_props, "enable_rest_pose_correction", toggle=True)
             if not settings_props.enable_rest_pose_correction:
@@ -47,12 +53,13 @@ class MTAR_PT_SettingsPanel(Panel):
         box = layout.box()
         box.label(text="Logging", icon='PREFERENCES')
         box.prop(settings_props, "log_verbosity", text="", icon='INFO')
-        draw_bool_prop_checkbox_icon(box, settings_props, "enable_timer_logs", toggle=True)
-
-        # Pose markers visibility (Action/Dope Sheet editors)
-        box_markers = layout.box()
-        box_markers.label(text="Motion Events", icon='MARKER')
-        draw_bool_prop_checkbox_icon(box_markers, settings_props, "show_pose_markers", text="Show Event Markers", toggle=True)
+        if settings_props.show_advanced_settings:
+            adv_box = box.box()
+            adv_box.alert = True
+            draw_bool_prop_checkbox_icon(adv_box, settings_props, "enable_timer_logs", toggle=True)
+            draw_bool_prop_checkbox_icon(adv_box, settings_props, "use_redraw_timer", text="Use Redraw Timer", toggle=True)
+        
+        
 
 
 classes = (

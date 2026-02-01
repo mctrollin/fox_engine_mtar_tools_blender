@@ -8,7 +8,7 @@ from typing import Set, Dict, Optional
 
 import bpy
 
-from ..py_utilities.utilities_logging import Debug, update_progress_status
+from ..py_utilities.utilities_logging import Debug, start_timer, stop_timer, update_progress_status
 from ..py_utilities.utilities_blender_animation import assign_action_to_datablock, remove_action_from_datablock, action_has_fcurves, iter_action_fcurves, ensure_action_fcurve, remove_action_fcurve
 
 
@@ -447,7 +447,7 @@ def bake_armature_action(rig_armature: bpy.types.Object,
     try:
         Debug.log("  Starting bake operation...")
 
-
+        start_timer("bpy.ops.nla.bake()")
         # Bake the action
         # Note: bpy.ops.nla.bake requires specific parameters
         bpy.ops.nla.bake(
@@ -463,6 +463,7 @@ def bake_armature_action(rig_armature: bpy.types.Object,
             bake_types={'POSE'},  # Only bake pose (not object transforms)
             channel_types={'LOCATION', 'ROTATION'}
         )
+        stop_timer("bpy.ops.nla.bake()")
         
         Debug.log("  Bake operation completed")
         

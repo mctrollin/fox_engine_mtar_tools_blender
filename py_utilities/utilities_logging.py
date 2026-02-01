@@ -195,10 +195,19 @@ def _throttled_console_print(message: str, force: bool = False) -> None:
 def _throttled_redraw() -> None:
     """Perform a throttled redraw and tiny yield so the UI thread can process events.
 
+    The use of bpy.ops.wm.redraw_timer can be toggled by the add-on setting
+    `scene.mtar_properties.settings_props.use_redraw_timer`. If the setting is
+    available and set to False, this function will not call redraw_timer.
+
     Swallows exceptions for robustness in headless contexts.
     """
     global _last_redraw_time
     try:
+        # Respect user setting if available: allow disabling redraw_timer for compatibility
+        settings = _get_settings_props()
+        if settings is not None and hasattr(settings, 'use_redraw_timer') and not settings.use_redraw_timer:
+            return
+
         now = time.time()
         if now - _last_redraw_time >= _redraw_min_interval:
             try:

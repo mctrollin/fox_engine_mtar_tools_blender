@@ -320,6 +320,13 @@ class MTAR_PG_SettingsProperties(PropertyGroup):
         description="Log performance timing information for import/export operations",
         default=False
     )
+
+    # Toggle whether the add-on uses bpy.ops.wm.redraw_timer for UI redraws
+    use_redraw_timer: BoolProperty(
+        name="Use Redraw Timer",
+        description="Enable use of bpy.ops.wm.redraw_timer in progress updates (disable if this causes instability)",
+        default=True
+    )
     
     enable_rest_pose_correction: BoolProperty(
         name="Enable Rest Pose Correction",
