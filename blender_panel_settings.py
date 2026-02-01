@@ -52,7 +52,7 @@ class MTAR_PT_SettingsPanel(Panel):
         # Pose markers visibility (Action/Dope Sheet editors)
         box_markers = layout.box()
         box_markers.label(text="Motion Events", icon='MARKER')
-        draw_bool_prop_checkbox_icon(box_markers, settings_props, "show_pose_markers", text="Show Pose Markers", toggle=True)
+        draw_bool_prop_checkbox_icon(box_markers, settings_props, "show_pose_markers", text="Show Event Markers", toggle=True)
 
 
 classes = (

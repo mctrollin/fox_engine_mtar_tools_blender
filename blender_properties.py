@@ -57,8 +57,73 @@ def _apply_show_pose_markers_value(value: bool) -> None:
                     continue
 
 
+def _compute_action_show_pose_markers() -> bool:
+    """Return True iff all visible Dope Sheet / Action Editor areas have pose markers enabled.
+
+    If no Dope Sheet areas are present, return True (neutral behavior).
+    """
+    try:
+        wm = bpy.context.window_manager
+    except Exception:
+        return True
+
+    seen = False
+    for window in wm.windows:
+        screen = window.screen
+        for area in screen.areas:
+            if area.type == 'DOPESHEET_EDITOR':
+                seen = True
+                try:
+                    sp = area.spaces.active
+                    if hasattr(sp, 'show_pose_markers') and not sp.show_pose_markers:
+                        return False
+                except Exception:
+                    continue
+    return True
+
+
+def _compute_nla_show_local_markers() -> bool:
+    """Return True iff all visible NLA Editor areas have local markers enabled.
+
+    If no NLA areas are present, return True (neutral behavior).
+    """
+    try:
+        wm = bpy.context.window_manager
+    except Exception:
+        return True
+
+    for window in wm.windows:
+        screen = window.screen
+        for area in screen.areas:
+            if area.type == 'NLA_EDITOR':
+                try:
+                    sp = area.spaces.active
+                    if hasattr(sp, 'show_local_markers') and not sp.show_local_markers:
+                        return False
+                except Exception:
+                    continue
+    return True
+
+
+def _get_show_pose_markers(self) -> bool:
+    """Property getter: True iff both action editor pose markers and NLA local markers are enabled."""
+    return bool(_compute_action_show_pose_markers() and _compute_nla_show_local_markers())
+
+
+def _set_show_pose_markers(self, value: bool) -> None:
+    """Property setter: set stored preference and apply value to both editor types."""
+    try:
+        # Persist user intention
+        self.show_pose_markers_pref = bool(value)
+    except Exception:
+        pass
+    # Apply to editors immediately
+    _apply_show_pose_markers_value(bool(value))
+
+
 def _update_show_pose_markers(self, context) -> None:
-    _apply_show_pose_markers_value(bool(self.show_pose_markers))
+    # Backwards-compatible update for the stored preference
+    _apply_show_pose_markers_value(bool(self.show_pose_markers_pref))
 
 class MTAR_PG_ImportProperties(PropertyGroup):
     """Property group for MTAR import settings."""
@@ -262,12 +327,20 @@ class MTAR_PG_SettingsProperties(PropertyGroup):
         default=True
     )
 
-    # Toggle Blender Action Editor pose marker visibility (affects UI only)
-    show_pose_markers: BoolProperty(
-        name="Show Pose Markers",
-        description="Toggle display of pose markers. To edit the markers go to the Dope Sheet editor and set it's mode to Action Editor (be aware that there is also a Dope Sheet mode in the Dope Sheet editor!) ",
+    # Stored preference for marker visibility (persisted)
+    show_pose_markers_pref: BoolProperty(
+        name="Show Pose Markers (pref)",
+        description="Stored preference controlling pose marker visibility for editors",
         default=True,
         update=_update_show_pose_markers
+    )
+
+    # Public property shown in UI — computed: True iff both editor types have markers shown
+    show_pose_markers: BoolProperty(
+        name="Show Pose Markers",
+        description="Toggle display of pose markers in the Action/Dope Sheet and NLA editors (true only if both are enabled)",
+        get=_get_show_pose_markers,
+        set=_set_show_pose_markers
     )
 
     hash_generator_exe_path: StringProperty(**_file_path_kwargs(
@@ -295,7 +368,7 @@ def register():
 
     # Ensure UI is synced with current setting on register
     try:
-        _apply_show_pose_markers_value(bpy.context.scene.mtar_properties.settings_props.show_pose_markers)
+        _apply_show_pose_markers_value(bpy.context.scene.mtar_properties.settings_props.show_pose_markers_pref)
     except Exception:
         pass
 
