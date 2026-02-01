@@ -47,6 +47,7 @@ class BoneParameters:
         rotation_axis_map: Optional axis mapping parameters
         space_r: Optional rotation space specification ('world' or 'custom,<bone>')
         space_l: Optional location space specification ('world' or 'custom,<bone>')
+        space_ik: Optional IK space specification for as_ik_up Transformation constraint ('world' or 'custom,<bone>')
         as_ik_up: Optional IK up vector parameters
         track_name: Optional track name from mapping file
         map_r: Optional rest pose correction parameters for LOCAL space tracks (similarity transformation)
@@ -56,6 +57,7 @@ class BoneParameters:
     rotation_axis_map: Optional[List[Dict[str, Union[str, bool]]]] = None
     space_r: Optional[str] = None
     space_l: Optional[str] = None
+    space_ik: Optional[str] = None
     as_ik_up: Optional[IkUpParameters] = None
     track_name: Optional[str] = None
     map_r: Optional[dict] = None
@@ -95,6 +97,7 @@ class BoneParameters:
             rotation_axis_map=mapping_dict.get('rotation_axis_map'),
             space_r=mapping_dict.get('space_r'),
             space_l=mapping_dict.get('space_l'),
+            space_ik=mapping_dict.get('space_ik'),
             as_ik_up=as_ik_up_obj,
             track_name=mapping_dict.get('name'),  # Blender bone name from parser
             map_r=mapping_dict.get('map_r')
@@ -242,6 +245,15 @@ def parse_mapping_line(line: str, line_num: int) -> Optional[Tuple[str, dict]]:
                     else:
                         Debug.log(f"  Mapping '{from_name}' -> '{to_name}' with world-space location constraint")
             
+            elif param_name == 'space_ik':
+                result = parse_space_parameter(param_value)
+                if result:
+                    mapping_data['space_ik'] = result
+                    if result.get('space') == 'CUSTOM':
+                        Debug.log(f"  Mapping '{from_name}' -> '{to_name}' with IK constraint space (owner custom bone: '{result.get('custom_bone')}')")
+                    else:
+                        Debug.log(f"  Mapping '{from_name}' -> '{to_name}' with IK constraint space (world)")
+            
             elif param_name == 'as_ik_up':
                 result = parse_as_ik_up_parameter(param_value)
                 if result:
@@ -258,6 +270,8 @@ def parse_mapping_line(line: str, line_num: int) -> Optional[Tuple[str, dict]]:
 def validate_track_mappings(track_mapping: Dict[str, BoneParameters]) -> None:
     """Validate that only one rotation track and one location track map to each target bone.
     
+    Also validates that space_ik is only used with as_ik_up.
+    
     This allows separate rotation and location tracks to map to the same bone,
     but prevents conflicts like multiple rotation tracks targeting the same bone.
     
@@ -272,6 +286,10 @@ def validate_track_mappings(track_mapping: Dict[str, BoneParameters]) -> None:
         target_name = bone_params.track_name
         if not target_name:
             continue
+        
+        # Validate space_ik is only used with as_ik_up
+        if bone_params.space_ik and not bone_params.as_ik_up:
+            Debug.log_warning(f"  Warning: '{source_name}' has space_ik but no as_ik_up parameter. space_ik will be ignored.")
         
         # Determine if this is a rotation or location track based on parameters
         # as_ik_up is still a rotation track (converted to location during import)

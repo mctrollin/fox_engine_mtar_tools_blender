@@ -77,6 +77,13 @@
 #            Target: imported armature bone (world space)
 #            Owner: custom rig bone (world space)
 #
+#   space_ik: IK transformation constraint space for as_ik_up (format: world or custom,<custom_bone>)
+#             Example: space_ik=world
+#             Example: space_ik=custom,torso_root
+#             Sets the owner space for the Transformation constraint created by as_ik_up.
+#             Only valid when as_ik_up is present, otherwise ignored with warning.
+#             If omitted when as_ik_up is present, defaults to world space.
+#
 #   as_ik_up: Convert rotation track to directional location IK
 #             Format: base_bone,axis,distance
 #             Example: as_ik_up=head,Z,2.0
@@ -84,7 +91,7 @@
 #             Creates two constraints on custom rig bone:
 #               1. Copy Location (world space) from base_bone
 #               2. Transformation constraint (Add mix) from imported armature directional offset
-#             If space_r with custom bone is also specified, applies custom space to transformation.
+#             If space_ik is specified, applies custom space to the transformation constraint.
 #             Rotation transformations (offset_r, map_r) are applied BEFORE conversion to location.
 #
 # ===== VALIDATION RULES =====
@@ -104,7 +111,7 @@
 # @track LArm : type=ARM ; bits=14
 # LArm_0 : shoulder.L ; space_r=custom,torso_root ; offset_r=0,0,-90,zyx
 # LArm_1 : hand_ik.L ; space_l=world
-# LArm_2 : upper_arm_ik_target.L ; space_r=custom,torso_root ; as_ik_up=upper_arm_ik.L,x,1
+# LArm_2 : upper_arm_ik_target.L ; space_ik=custom,torso_root ; as_ik_up=upper_arm_ik.L,x,1
 #
 # Basic renaming:
 # SKL_000_DEF1_JNT : Root
@@ -133,7 +140,7 @@
 # LookTarget_Rot : look_target ; as_ik_up=head,Z,2.0
 #
 # Directional IK with custom space and rotation offset:
-# LookTarget_Rot : look_target ; as_ik_up=head,Z,2.0 ; space_r=custom,torso ; offset_r=90,0,0,XYZ
+# LookTarget_Rot : look_target ; as_ik_up=head,Z,2.0 ; space_ik=custom,torso ; offset_r=90,0,0,XYZ
 #
 # After rig unit type naming is applied (e.g., _0, _1 suffixes for ARM/TWO_BONE/LIST types):
 # SKL_005_ARM_JNT_0 : LeftShoulder ; offset_r=0,90,0,XYZ

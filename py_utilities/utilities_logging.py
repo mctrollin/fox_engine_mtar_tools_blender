@@ -16,6 +16,8 @@ import time
 from typing import Dict
 from enum import IntEnum
 
+from contextlib import contextmanager
+
 import bpy
 from bpy.types import Operator
 
@@ -46,49 +48,48 @@ def get_log_level() -> _LogLevel:
     return _min_log_level
 
 
+def _get_settings_props():
+    """Return the MTAR settings_props object or None if unavailable.
+
+    Centralizes Blender context access to reduce redundant try/except checks.
+    """
+    try:
+        if hasattr(bpy.context, 'scene') and hasattr(bpy.context.scene, 'mtar_properties'):
+            return bpy.context.scene.mtar_properties.settings_props
+    except (ImportError, AttributeError, RuntimeError):
+        pass
+    return None
+
+
 def _should_log(level: _LogLevel) -> bool:
     """Decide whether a message at `level` should be printed.
 
     This checks both the configured minimum log level and the scene-level
     `mtar_properties.settings_props.log_verbosity` setting (if available).
     """
-
-    try:
-        if hasattr(bpy.context, 'scene') and hasattr(bpy.context.scene, 'mtar_properties'):
-            props = bpy.context.scene.mtar_properties
-            settings_props = props.settings_props
-            # Check panel log_verbosity setting (replaces old enable_logging)
-            if hasattr(settings_props, 'log_verbosity'):
-                verbosity_str = settings_props.log_verbosity
-                # Convert string to _LogLevel enum
-                level_map = {'ERROR': _LogLevel.ERROR, 'WARNING': _LogLevel.WARNING, 'INFO': _LogLevel.INFO, 'DEBUG': _LogLevel.DEBUG}
-                panel_level = level_map.get(verbosity_str, _LogLevel.WARNING)
-                if level > panel_level:
-                    return False
-           
-    except (ImportError, AttributeError, RuntimeError):
-        # If we can't access Blender context, default to printing
-        if level > _min_log_level:
+    settings = _get_settings_props()
+    if settings is not None and hasattr(settings, 'log_verbosity'):
+        verbosity_str = settings.log_verbosity
+        level_map = {'ERROR': _LogLevel.ERROR, 'WARNING': _LogLevel.WARNING, 'INFO': _LogLevel.INFO, 'DEBUG': _LogLevel.DEBUG}
+        panel_level = level_map.get(verbosity_str, _LogLevel.WARNING)
+        if level > panel_level:
             return False
+
+    # If there are issues accessing Blender context, fall back to module-level min
+    if level > _min_log_level:
+        return False
 
     return True
 
 
 def _should_log_timers() -> bool:
     """Decide whether to print timer output.
-    
+
     Checks the scene-level `mtar_properties.settings_props.enable_timer_logs` setting if available.
     """
-    try:
-        if hasattr(bpy.context, 'scene') and hasattr(bpy.context.scene, 'mtar_properties'):
-            props = bpy.context.scene.mtar_properties
-            settings_props = props.settings_props
-            if hasattr(settings_props, 'enable_timer_logs'):
-                return settings_props.enable_timer_logs
-    except (ImportError, AttributeError, RuntimeError):
-        # If we can't access Blender context, default to not logging
-        pass
-    
+    settings = _get_settings_props()
+    if settings is not None and hasattr(settings, 'enable_timer_logs'):
+        return settings.enable_timer_logs
     return False
 
 
@@ -99,42 +100,33 @@ def _notify_player(message: str, level: _LogLevel) -> None:
     popup menu. It's intentionally minimal and best-effort: any failures
     are silently ignored so logging remains safe in background contexts.
     """
+    # Draw function for popup_menu expects (self, context)
+    def _draw(self, _context):
+        # Preserve message lines; empty lines need a placeholder label
+        for line in str(message).splitlines():
+            self.layout.label(text=line if line else " ")
+
+    title = "MTAR: Error" if level == _LogLevel.ERROR else "MTAR: Warning"
+    icon = 'ERROR' if level == _LogLevel.ERROR else 'ERROR'
+
+    # Attempt to show the popup; this requires a UI context - best-effort only
     try:
-        # Draw function for popup_menu expects (self, context)
-        def _draw(self, _context):
-            # Preserve message lines; empty lines need a placeholder label
-            for line in str(message).splitlines():
-                self.layout.label(text=line if line else " ")
-
-        title = "MTAR: Error" if level == _LogLevel.ERROR else "MTAR: Warning"
-        icon = 'ERROR' if level == _LogLevel.ERROR else 'ERROR'
-
-        # Attempt to show the popup; this requires a UI context
-        try:
-            bpy.context.window_manager.popup_menu(_draw, title=title, icon=icon)
-        except Exception:
-            # UI may not be available (background mode); ignore gracefully
-            pass
+        bpy.context.window_manager.popup_menu(_draw, title=title, icon=icon)
     except Exception:
-        # Never raise from the logger - keep it robust in all contexts
+        # UI may not be available (background mode); ignore gracefully
         pass
 
 
 
 def is_logging_enabled() -> bool:
     """Check if logging is currently enabled in plugin settings.
-    
+
     Returns:
         True if logging is enabled or settings cannot be accessed, False otherwise
     """
-    try:
-        if hasattr(bpy.context, 'scene') and hasattr(bpy.context.scene, 'mtar_properties'):
-            props = bpy.context.scene.mtar_properties
-            if hasattr(props, 'enable_logging'):
-                return props.enable_logging
-    except (ImportError, AttributeError, RuntimeError):
-        pass
-    
+    settings = _get_settings_props()
+    if settings is not None and hasattr(settings, 'enable_logging'):
+        return settings.enable_logging
     # Default to True if we can't access settings
     return True
 
@@ -146,6 +138,7 @@ _performance_timers: Dict[str, float] = {}
 _progress_active: bool = False
 _last_redraw_time: float = 0.0
 _redraw_min_interval: float = 0.1  # seconds
+_last_console_log_time: float = 0.0  # seconds, throttle console progress prints
 
 
 def start_timer(block_name: str) -> None:
@@ -180,6 +173,47 @@ def stop_timer(block_name: str) -> float:
     return elapsed
 
 
+def _throttled_console_print(message: str, force: bool = False) -> None:
+    """Print to console at most once every _redraw_min_interval seconds.
+
+    If force=True, print regardless of throttle (used for completion messages).
+    Exceptions are swallowed to keep this best-effort in headless contexts.
+    """
+    global _last_console_log_time
+    try:
+        now = time.time()
+        if force or (now - _last_console_log_time >= _redraw_min_interval):
+            try:
+                print(message)
+            except Exception:
+                pass
+            _last_console_log_time = now
+    except Exception:
+        pass
+
+
+def _throttled_redraw() -> None:
+    """Perform a throttled redraw and tiny yield so the UI thread can process events.
+
+    Swallows exceptions for robustness in headless contexts.
+    """
+    global _last_redraw_time
+    try:
+        now = time.time()
+        if now - _last_redraw_time >= _redraw_min_interval:
+            try:
+                bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+                try:
+                    time.sleep(0.001)
+                except Exception:
+                    pass
+            except Exception:  # noqa: E722
+                pass
+            _last_redraw_time = now
+    except Exception:
+        pass
+
+
 def update_progress(value: float, text: str = "") -> None:
     """Update the Blender progress bar and the UI progress property.
 
@@ -191,7 +225,7 @@ def update_progress(value: float, text: str = "") -> None:
         value: Progress value from 0 to 100
         text: Optional status text to display
     """
-    global _progress_active, _last_redraw_time
+    global _progress_active
     try:
         wm = bpy.context.window_manager
 
@@ -221,9 +255,9 @@ def update_progress(value: float, text: str = "") -> None:
 
         # Update UI panel progress property if available
         try:
-            if hasattr(bpy.context, 'scene') and hasattr(bpy.context.scene, 'mtar_properties'):
-                props = bpy.context.scene.mtar_properties
-                exec_props = props.execution_props
+            settings = _get_settings_props()
+            if settings is not None:
+                exec_props = bpy.context.scene.mtar_properties.execution_props
                 if hasattr(exec_props, 'progress'):
                     exec_props.progress = value / 100.0
                 if hasattr(exec_props, 'status'):
@@ -231,22 +265,17 @@ def update_progress(value: float, text: str = "") -> None:
         except Exception:
             pass
 
-        # Throttled redraw so we don't flood the UI thread
+        # Always log progress to the console (not affected by log level). Throttle to avoid flooding.
         try:
-            now = time.time()
-            if now - _last_redraw_time >= _redraw_min_interval:
-                try:
-                    bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
-                    # Tiny yield so the UI thread can process events
-                    try:
-                        time.sleep(0.001)
-                    except Exception:
-                        pass
-                except Exception:  # noqa: E722
-                    pass
-                _last_redraw_time = now
+            if text:
+                _throttled_console_print(f"[PROGRESS] {value:.0f}% - {text}", force=(value >= 100.0))
+            else:
+                _throttled_console_print(f"[PROGRESS] {value:.0f}%", force=(value >= 100.0))
         except Exception:
             pass
+
+        # Throttled redraw so we don't flood the UI thread
+        _throttled_redraw()
 
         # End progress if value indicates completion
         try:
@@ -264,45 +293,26 @@ def update_progress(value: float, text: str = "") -> None:
         # If we can't access Blender context, do nothing
         pass
 
-
 def update_progress_status(text: str) -> None:
     """Update only the status text of the progress bar without changing the progress value.
-    
+
     Args:
         text: Status text to display
     """
-    global _last_redraw_time
     try:
-        try:
-            if hasattr(bpy.context, 'scene') and hasattr(bpy.context.scene, 'mtar_properties'):
-                props = bpy.context.scene.mtar_properties
-                exec_props = props.execution_props
-                if hasattr(exec_props, 'status'):
-                    exec_props.status = text
-        except Exception:
-            pass
-
-        # Throttled redraw
-        now = time.time()
-        try:
-            if now - _last_redraw_time >= _redraw_min_interval:
-                try:
-                    bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
-                    # Tiny yield so the UI thread can process events
-                    try:
-                        time.sleep(0.001)
-                    except Exception:
-                        pass
-                except Exception:  # noqa: E722
-                    pass
-                _last_redraw_time = now
-        except Exception:
-            pass
-    except (ImportError, AttributeError, RuntimeError):
+        settings = _get_settings_props()
+        if settings is not None:
+            exec_props = bpy.context.scene.mtar_properties.execution_props
+            if hasattr(exec_props, 'status'):
+                exec_props.status = text
+    except Exception:
         pass
 
+    # Always log progress status to the console (not affected by log level). Throttle to avoid flooding.
+    _throttled_console_print(f"[PROGRESS] {text}")
 
-from contextlib import contextmanager
+    # Throttled redraw
+    _throttled_redraw()
 
 
 def set_busy_cursor(enabled: bool) -> None:
@@ -387,10 +397,7 @@ class Debug:
     def log_warning(message: str) -> None:
         """Log a warning message (WARNING). Also notify Blender user via popup."""
         # Notify the user with a popup regardless of panel verbosity (per request)
-        try:
-            _notify_player(message, _LogLevel.WARNING)
-        except Exception:
-            pass
+        _notify_player(message, _LogLevel.WARNING)
         if not _should_log(_LogLevel.WARNING):
             return
         print(f"[WARNING] {message}")
@@ -399,10 +406,7 @@ class Debug:
     def log_error(message: str) -> None:
         """Log an error message (ERROR). Also notify Blender user via popup."""
         # Notify the user with a popup regardless of panel verbosity (per request)
-        try:
-            _notify_player(message, _LogLevel.ERROR)
-        except Exception:
-            pass
+        _notify_player(message, _LogLevel.ERROR)
         if not _should_log(_LogLevel.ERROR):
             return
         print(f"[ERROR] {message}")

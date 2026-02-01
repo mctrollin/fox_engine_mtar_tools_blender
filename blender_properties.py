@@ -19,6 +19,47 @@ def _file_path_kwargs(**kwargs):
         kwargs['options'] = {'PATH_SUPPORTS_BLEND_RELATIVE'}
     return kwargs
 
+
+# Helper: apply/show pose markers in all Dope Sheet / Action Editor areas
+def _apply_show_pose_markers_value(value: bool) -> None:
+    """Set the Action Editor's `show_pose_markers` flag across all windows/screens.
+
+    This toggles the visual display of action pose markers in Dope Sheet / Action Editor
+    areas so the user can control marker visibility from the add-on settings.
+    """
+    try:
+        import bpy
+        wm = bpy.context.window_manager
+    except Exception:
+        return
+
+    for window in wm.windows:
+        screen = window.screen
+        for area in screen.areas:
+            # Target the Dope Sheet / Action Editor area
+            if area.type == 'DOPESHEET_EDITOR':
+                try:
+                    sp = area.spaces.active
+                    if hasattr(sp, 'show_pose_markers'):
+                        sp.show_pose_markers = bool(value)
+                except Exception:
+                    # Ignore areas that do not support action editor settings
+                    continue
+
+            # Also target the NLA Editor to toggle SpaceNLA.show_local_markers
+            if area.type == 'NLA_EDITOR':
+                try:
+                    sp = area.spaces.active
+                    if hasattr(sp, 'show_local_markers'):
+                        sp.show_local_markers = bool(value)
+                except Exception:
+                    # Ignore areas that do not support NLA settings
+                    continue
+
+
+def _update_show_pose_markers(self, context) -> None:
+    _apply_show_pose_markers_value(bool(self.show_pose_markers))
+
 class MTAR_PG_ImportProperties(PropertyGroup):
     """Property group for MTAR import settings."""
     mtar_filepath: StringProperty(**_file_path_kwargs(
@@ -221,6 +262,14 @@ class MTAR_PG_SettingsProperties(PropertyGroup):
         default=True
     )
 
+    # Toggle Blender Action Editor pose marker visibility (affects UI only)
+    show_pose_markers: BoolProperty(
+        name="Show Pose Markers",
+        description="Toggle display of pose markers. To edit the markers go to the Dope Sheet editor and set it's mode to Action Editor (be aware that there is also a Dope Sheet mode in the Dope Sheet editor!) ",
+        default=True,
+        update=_update_show_pose_markers
+    )
+
     hash_generator_exe_path: StringProperty(**_file_path_kwargs(
         name="Hash Generator Executable",
         description="Path to the external hash generator executable (GzsTool fork with debug output)",
@@ -243,6 +292,12 @@ def register():
     bpy.utils.register_class(MTAR_PG_Properties)
     
     bpy.types.Scene.mtar_properties = PointerProperty(type=MTAR_PG_Properties)
+
+    # Ensure UI is synced with current setting on register
+    try:
+        _apply_show_pose_markers_value(bpy.context.scene.mtar_properties.settings_props.show_pose_markers)
+    except Exception:
+        pass
 
 def unregister():
     del bpy.types.Scene.mtar_properties

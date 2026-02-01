@@ -1084,10 +1084,11 @@ def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object,
             # Source space - always world
             constraint2.target_space = 'WORLD'
             
-            # Owner space - use custom owner only when space_r indicates CUSTOM
+            # Owner space - use custom owner only when space_ik indicates CUSTOM
+            space_ik = mapping_data.space_ik
             custom_bone = None
-            if has_space_r and space_r and space_r.get('space') == 'CUSTOM':
-                custom_bone = space_r.get('custom_bone')
+            if space_ik and isinstance(space_ik, dict) and space_ik.get('space') == 'CUSTOM':
+                custom_bone = space_ik.get('custom_bone')
 
             if custom_bone:
                 if custom_bone not in custom_rig.pose.bones:
@@ -1097,7 +1098,7 @@ def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object,
                     constraint2.owner_space = 'CUSTOM'
                     constraint2.space_object = custom_rig
                     constraint2.space_subtarget = custom_bone
-                    Debug.log(f"    Using custom space '{custom_bone}' for transformation constraint")
+                    Debug.log(f"    Using custom space '{custom_bone}' for IK transformation constraint")
             else:
                 constraint2.owner_space = 'WORLD'
             
@@ -1611,7 +1612,7 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
     )
     
     Debug.log("\n=== MTAR Import Completed Successfully ===")
-    update_progress(70, "Import Finished")
+    update_progress(70, "Import MTAR Data Finished")
 
     stop_timer("MTAR Import")
     return {'FINISHED'}, armature

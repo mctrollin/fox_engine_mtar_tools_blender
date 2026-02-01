@@ -48,8 +48,11 @@ class MTAR_PT_SettingsPanel(Panel):
         box.label(text="Logging", icon='PREFERENCES')
         box.prop(settings_props, "log_verbosity", text="", icon='INFO')
         draw_bool_prop_checkbox_icon(box, settings_props, "enable_timer_logs", toggle=True)
-        
-       
+
+        # Pose markers visibility (Action/Dope Sheet editors)
+        box_markers = layout.box()
+        box_markers.label(text="Motion Events", icon='MARKER')
+        draw_bool_prop_checkbox_icon(box_markers, settings_props, "show_pose_markers", text="Show Pose Markers", toggle=True)
 
 
 classes = (

@@ -9,7 +9,7 @@ import bpy
 from bpy.types import Operator, Context, Event
 from bpy.props import StringProperty
 
-from .py_utilities.utilities_logging import Debug, update_progress
+from .py_utilities.utilities_logging import Debug, update_progress, start_timer, stop_timer
 from .py_foxwrap.foxwrap_misc_export import TrackSegmentBoneMapping
 from .py_foxwrap.foxwrap_mapping import parse_track_mapping_file
 from .py_foxwrap.foxwrap_metadata import iter_track_properties
@@ -105,6 +105,9 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
 
         Debug.log("\n========= STARTING EXPORT MTAR OPERATION =========\n")
 
+        # Start operator-level timer
+        start_timer("Export Operator")
+
         props = context.scene.mtar_properties
         export_props = props.export_props
         execution_props = props.execution_props
@@ -112,11 +115,13 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
         # Validate export armature
         if not export_props.armature:
             Debug.report_and_log(self, 'ERROR', "No armature selected for export")
+            stop_timer("Export Operator")
             return {'CANCELLED'}
         
         # Validate export filepath
         if not export_props.filepath:
             Debug.report_and_log(self, 'ERROR', "No export file path specified")
+            stop_timer("Export Operator")
             return {'CANCELLED'}
         
         # Load mapping file if provided
@@ -126,6 +131,7 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
             mapping_filepath_abs = bpy.path.abspath(export_props.mapping_filepath)
             if not os.path.exists(mapping_filepath_abs):
                 Debug.report_and_log(self, 'ERROR', f"Mapping file not found: {mapping_filepath_abs}")
+                stop_timer("Export Operator")
                 return {'CANCELLED'}
             
             try:
@@ -134,6 +140,7 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
                 
                 if not layout_action:
                     Debug.report_and_log(self, 'ERROR', "No layout track action found. Cannot determine track indices for export.")
+                    stop_timer("Export Operator")
                     return {'CANCELLED'}
                 
                 # Build track mapping using utility function
@@ -149,15 +156,18 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
                 
                 if track_segment_bone_mapping.get_total_track_count() == 0:
                     Debug.report_and_log(self, 'ERROR', "No valid track mappings found. Check that fox bone names in mapping file match layout action.")
+                    stop_timer("Export Operator")
                     return {'CANCELLED'}
                 
             except Exception as e:  # noqa: E722
                 Debug.report_and_log(self, 'ERROR', f"Failed to load mapping file: {str(e)}")
                 traceback.print_exc()
+                stop_timer("Export Operator")
                 return {'CANCELLED'}
         else:
             # No mapping file provided - require it for export
             Debug.report_and_log(self, 'ERROR', "Export mapping file is required. Please provide a track mapping file.")
+            stop_timer("Export Operator")
             return {'CANCELLED'}
         
         # Initialize progress bar
@@ -185,16 +195,20 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
                 if 'FINISHED' in result:
                     Debug.report_and_log(self, 'INFO', result['FINISHED'])
                     update_progress(100, "Done")
+                    stop_timer("Export Operator")
                     return {'FINISHED'}
                 else:
                     Debug.report_and_log(self, 'ERROR', result.get('CANCELLED', 'Export failed'))
+                    stop_timer("Export Operator")
                     return {'CANCELLED'}
         
         except (OSError, ValueError) as e:  # noqa: E722
             Debug.report_and_log(self, 'ERROR', f"Export failed: {str(e)}")
             traceback.print_exc()
+            stop_timer("Export Operator")
             return {'CANCELLED'}
         finally:
             wm.progress_end()
             execution_props.operation_type = 'NONE'
             update_progress(0, "")
+
