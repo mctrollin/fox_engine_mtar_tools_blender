@@ -83,6 +83,7 @@ class MTAR_PT_ImportPanel(Panel):
 
         # MTAR header preview (read-only display)
         info_box = mtar_box.box()
+        header_info = None
         if import_props.mtar_filepath:
             mtar_filepath_abs = bpy.path.abspath(import_props.mtar_filepath)
             if os.path.exists(mtar_filepath_abs):
@@ -95,6 +96,8 @@ class MTAR_PT_ImportPanel(Panel):
                     row.label(text=f"Files: {header_info.file_count}")
                 except Exception as e:
                     info_box.label(text=f"Error reading MTAR: {e}", icon='ERROR')
+            else:
+                info_box.label(text="MTAR path not found", icon='ERROR')
 
         # FRIG file picker
         mapping_box = box_import.box()
@@ -157,6 +160,16 @@ class MTAR_PT_ImportPanel(Panel):
         col.operator("mtar.import_animation", text="Import Animation", icon='IMPORT')
 
         draw_progress_bar(box_button, props, 'IMPORT')
+
+        # If we successfully read header_info above and it contains many GANIs, warn the user
+        if header_info and header_info.file_count > 100:
+            warn_box = box_button.box()
+            warn_box.alert = True
+            warn_box.label(text=f"{header_info.file_count} animations!", icon='ERROR')
+            warn_box.label(text=f"Import may take several minutes.")
+            warn_box.label(text="View console to track progress.")
+            # Provide a button to toggle the system console so users can track progress
+            warn_box.operator("wm.console_toggle", text="Toggle Console", icon='CONSOLE')
 
         if not import_props.mtar_filepath:
             box_button.label(text="No import path set", icon='ERROR')

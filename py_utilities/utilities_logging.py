@@ -13,7 +13,7 @@ You can control the minimum shown level with set_log_level(). By default
 only WARNING and ERROR are shown.
 """
 import time
-from typing import Dict
+from typing import Dict, Optional
 from enum import IntEnum
 
 from contextlib import contextmanager
@@ -139,6 +139,7 @@ _progress_active: bool = False
 _last_redraw_time: float = 0.0
 _redraw_min_interval: float = 0.1  # seconds
 _last_console_log_time: float = 0.0  # seconds, throttle console progress prints
+_current_main_progress: float = 0.0  # Track main progress value (0-100) for secondary increments
 
 
 def start_timer(block_name: str) -> None:
@@ -212,10 +213,10 @@ def _throttled_redraw() -> None:
         if now - _last_redraw_time >= _redraw_min_interval:
             try:
                 bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
-                try:
-                    time.sleep(0.001)
-                except Exception:
-                    pass
+                # try:
+                #     time.sleep(0.001)
+                # except Exception:
+                #     pass
             except Exception:  # noqa: E722
                 pass
             _last_redraw_time = now
@@ -228,13 +229,18 @@ def update_progress(value: float, text: str = "") -> None:
 
     This function begins and ends the Blender progress lifecycle automatically
     and throttles UI redraws to avoid starving Blender's event loop during
-    long-running operations.
+    long-running operations. When a new main progress value is set, any
+    secondary progress is automatically reset.
 
     Args:
         value: Progress value from 0 to 100
         text: Optional status text to display
     """
-    global _progress_active
+    global _progress_active, _current_main_progress
+    
+    # Store main progress and reset secondary (by storing only the main value)
+    _current_main_progress = value
+    
     try:
         wm = bpy.context.window_manager
 
@@ -277,9 +283,9 @@ def update_progress(value: float, text: str = "") -> None:
         # Always log progress to the console (not affected by log level). Throttle to avoid flooding.
         try:
             if text:
-                _throttled_console_print(f"[PROGRESS] {value:.0f}% - {text}", force=(value >= 100.0))
+                _throttled_console_print(f"[PROGRESS] {value:.1f}% - {text}", force=(value >= 100.0))
             else:
-                _throttled_console_print(f"[PROGRESS] {value:.0f}%", force=(value >= 100.0))
+                _throttled_console_print(f"[PROGRESS] {value:.1f}%", force=(value >= 100.0))
         except Exception:
             pass
 
@@ -302,23 +308,50 @@ def update_progress(value: float, text: str = "") -> None:
         # If we can't access Blender context, do nothing
         pass
 
-def update_progress_status(text: str) -> None:
-    """Update only the status text of the progress bar without changing the progress value.
+def update_progress_status(text: str, secondary_progress: Optional[float] = None) -> None:
+    """Update only the status text of the progress bar without changing the main progress value.
+    
+    Optionally updates a secondary progress increment (0.0-1.0) that adds sub-percentage
+    detail to the current main progress. For example, if main progress is 45% and
+    secondary_progress is 0.5, the displayed progress will be 45.5%.
 
     Args:
         text: Status text to display
+        secondary_progress: Optional secondary progress value (0.0-1.0) to add to current main progress
     """
+    # Compute combined progress if secondary is provided
+    combined_progress = _current_main_progress
+    if secondary_progress is not None:
+        # Clamp secondary progress to 0.0-1.0 range
+        secondary_clamped = max(0.0, min(1.0, secondary_progress))
+        combined_progress = _current_main_progress + secondary_clamped
+    
     try:
         settings = _get_settings_props()
         if settings is not None:
             exec_props = bpy.context.scene.mtar_properties.execution_props
             if hasattr(exec_props, 'status'):
                 exec_props.status = text
+            # Update progress property with combined value if secondary is provided
+            if secondary_progress is not None and hasattr(exec_props, 'progress'):
+                exec_props.progress = combined_progress / 100.0
     except Exception:
         pass
 
+    # Update window manager progress with combined value if secondary is provided
+    if secondary_progress is not None:
+        try:
+            wm = bpy.context.window_manager
+            if hasattr(wm, 'progress_update'):
+                wm.progress_update(combined_progress)
+        except Exception:
+            pass
+
     # Always log progress status to the console (not affected by log level). Throttle to avoid flooding.
-    _throttled_console_print(f"[PROGRESS] {text}")
+    if secondary_progress is not None:
+        _throttled_console_print(f"[PROGRESS] {combined_progress:.1f}% - {text}")
+    else:
+        _throttled_console_print(f"[PROGRESS] {text}")
 
     # Throttled redraw
     _throttled_redraw()

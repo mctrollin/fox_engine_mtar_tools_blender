@@ -636,11 +636,11 @@ def create_animation_actions(
         configure_action(action, frame_start=0, frame_end=gani_frame_count)
         Debug.log(f"  Configured action frame range: 0 - {gani_frame_count}")
         
-        # Yield briefly to let Blender process events (prevents UI lockups on long imports)
-        try:
-            time.sleep(0.001)
-        except Exception:
-            pass
+        # # Yield briefly to let Blender process events (prevents UI lockups on long imports)
+        # try:
+        #     time.sleep(0.001)
+        # except Exception:
+        #     pass
 
         # Update offset for next strip (used for calculating total frame range)
         current_frame_offset += gani_frame_count
@@ -730,11 +730,11 @@ def create_motion_points_animation_actions(
         # Configure action with frame range from MTAR file header
         configure_action(action, frame_start=0, frame_end=gani_frame_count)
         Debug.log(f"  Configured motion point action frame range: 0 - {gani_frame_count}")
-        # Yield briefly to let Blender process events (prevents UI lockups on long imports)
-        try:
-            time.sleep(0.001)
-        except Exception:
-            pass
+        # # Yield briefly to let Blender process events (prevents UI lockups on long imports)
+        # try:
+        #     time.sleep(0.001)
+        # except Exception:
+        #     pass
     
     return motion_point_actions
 

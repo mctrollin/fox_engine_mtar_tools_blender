@@ -1510,11 +1510,11 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
         )
 
         stop_timer(f"4.{action_idx}.1 Main Animation Tracks")
-        # Yield briefly to allow the UI event loop to process
-        try:
-            time.sleep(0.001)
-        except Exception:
-            pass
+        # # Yield briefly to allow the UI event loop to process
+        # try:
+        #     time.sleep(0.001)
+        # except Exception:
+        #     pass
         
         # =============================
         

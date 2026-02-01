@@ -646,8 +646,9 @@ def bake_armature_nla_strips(rig_armature: bpy.types.Object,
     for idx, (track, strip, action) in enumerate(strips_to_bake, 1):
         Debug.log(f"  Baking strip {idx}/{len(strips_to_bake)}: '{strip.name}' (action: '{action.name}')")
         
-        # Update status text without changing progress percentage
-        update_progress_status(f"Baking {idx}/{len(strips_to_bake)}: {strip.name}")
+        # Calculate secondary progress within this strip batch (0.0 at start of first strip, approaching 1.0 at end of last)
+        secondary = (idx - 1) / len(strips_to_bake) if len(strips_to_bake) > 1 else 0.0
+        update_progress_status(f"Baking {idx}/{len(strips_to_bake)}: {strip.name}", secondary_progress=secondary)
             
         try:
             # Bake the action
