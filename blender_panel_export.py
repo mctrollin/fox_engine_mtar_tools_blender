@@ -28,6 +28,8 @@ class MTAR_PT_ExportPanel(Panel):
         settings_props = props.settings_props
         
         box_export = layout.box()
+        # Compute count of animations/strips that will be exported (None = unknown/no armature)
+        export_count = None
 
         # Armatures selector
         box_rig = box_export.box()
@@ -39,22 +41,26 @@ class MTAR_PT_ExportPanel(Panel):
             adv_box.alert = True
             draw_bool_prop_checkbox_icon(adv_box, export_props, "use_nla")
 
-            # Show info about NLA status
-            if export_props.armature and export_props.armature.animation_data:
-                anim_data = export_props.armature.animation_data
-                if anim_data.nla_tracks and export_props.use_nla:
-                    unmuted_strips = sum(1 for track in anim_data.nla_tracks 
-                                        if not track.mute 
-                                        for strip in track.strips 
-                                        if is_relevant_strip(strip))
-                    if unmuted_strips > 0:
-                        adv_box.label(text=f"Found {unmuted_strips} NLA strip(s)", icon='CHECKMARK')
-                    else:
-                        adv_box.label(text="No unmuted NLA strips", icon='INFO')
-                elif anim_data.action:
-                    adv_box.label(text="Using active action", icon='ACTION')
+        # Show info about NLA status and compute export_count
+        animinfo_box = box_rig.box()
+        if export_props.armature and export_props.armature.animation_data:
+            anim_data = export_props.armature.animation_data
+            if anim_data.nla_tracks and export_props.use_nla:
+                unmuted_strips = sum(1 for track in anim_data.nla_tracks
+                                    if not track.mute
+                                    for strip in track.strips
+                                    if is_relevant_strip(strip))
+                export_count = unmuted_strips
+                if unmuted_strips > 0:
+                    animinfo_box.label(text=f"Found {unmuted_strips} NLA strip(s)", icon='CHECKMARK')
                 else:
-                    adv_box.label(text="No animation data", icon='ERROR')
+                    animinfo_box.label(text="No unmuted NLA strips", icon='INFO')
+            elif anim_data.action:
+                export_count = 1
+                animinfo_box.label(text="Using active action", icon='ACTION')
+            else:
+                export_count = 0
+                animinfo_box.label(text="No animation data", icon='ERROR')
 
         # Mapping file (optional)
         box = box_export
@@ -99,6 +105,14 @@ class MTAR_PT_ExportPanel(Panel):
         col.operator("mtar.export_animation", text="Export Animation", icon='EXPORT')
 
         draw_progress_bar(box_button, props, 'EXPORT')
+
+        # Slim warning if exporting many animations/strips (no filtering available for export)
+        if export_count is not None and export_count > 100:
+            warn_box = box_button.box()
+            warn_box.alert = True
+            warn_box.label(text=f"Exporting {export_count} animations.")
+            warn_box.label(text="This may take several minutes.")
+            warn_box.label(text="View console to track progress.")
 
         if not export_props.armature:
             box_button.label(text="No armature selected", icon='ERROR')

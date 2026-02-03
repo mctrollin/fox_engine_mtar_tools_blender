@@ -10,15 +10,10 @@ from ..py_utilities.utilities_logging import Debug
 
 from ..py_fox.fox_gani_types import TrackUnitFlags, EvpHeader
 
-from .foxwrap_metadata import parse_action_track_metadata, TrackMetaData, parse_track_property_key
+from .foxwrap_metadata import parse_action_track_metadata, TrackMetaData, parse_track_property_key, merge_track_metadata
 from .foxwrap_misc import Tracks, TrackUnitWrapper
 from .foxwrap_gani_writer import Gani2Writer
 from .foxwrap_mapping import BoneParameters
-
-
-
-
-
 
 
 @dataclass
@@ -419,3 +414,72 @@ class TrackSegmentBoneMapping:
                 
                 # Populate missing segments
                 self.populate_missing_segments(track_idx, expected_segment_count)
+
+
+def create_synthetic_mapping(armature: 'bpy.types.Object', 
+                            action: 'bpy.types.Action',
+                            layout_metadata_dict: Optional[Dict[str, TrackMetaData]]) -> Tuple[TrackSegmentBoneMapping, Dict[str, TrackMetaData]]:
+    """Create synthetic track mapping from armature bones when no mapping is provided.
+    
+    This is used for motion points export or when exporting without a mapping file.
+    Builds a TrackSegmentBoneMapping with one track per bone and derives metadata
+    from either the provided layout_metadata_dict or by analyzing fcurves.
+    
+    Args:
+        armature: Armature object (bpy.types.Object)
+        action: Action to analyze for fcurves and metadata (bpy.types.Action)
+        layout_metadata_dict: Optional metadata dict (for motion points)
+        
+    Returns:
+        Tuple of (mapping, metadata_dict):
+        - mapping: TrackSegmentBoneMapping with one track per bone (segment 0)
+        - metadata_dict: Dictionary of bone_name -> TrackMetaData
+    """
+
+    Debug.log("    Building synthetic mapping from armature bones...")
+    
+    bones_iterable = armature.pose.bones if armature.pose else armature.data.bones
+    temp_mapping = TrackSegmentBoneMapping()
+    metadata_dict = {}
+    
+    track_idx = 0
+    for bone in bones_iterable:
+        bone_name = bone.name
+        
+        # Get metadata for this bone (from layout_metadata_dict or by analyzing fcurves)
+        bone_metadata = None
+        if layout_metadata_dict and bone_name in layout_metadata_dict:
+            # Use provided metadata
+            bone_metadata = layout_metadata_dict[bone_name]
+        else:
+            # Build minimal metadata by analyzing fcurves (legacy fallback)
+            bone_metadata = TrackMetaData.from_fcurves(bone_name=bone_name, action=action)
+        
+        # Skip bones with no metadata (no fcurves and not in metadata_dict)
+        if not bone_metadata:
+            continue
+        
+        # Merge per-action overrides if available
+        if action:
+            action_meta_bone = TrackMetaData.from_action(action, bone_name)
+            if action_meta_bone:
+                bone_metadata = merge_track_metadata(bone_metadata, action_meta_bone)
+        
+        # Create single-segment mapping for this bone
+        # Each bone becomes a single track with one segment (segment 0)
+        temp_mapping.set_segment_mapping(
+            track_idx, 0, bone_name,
+            BoneParameters(fox_name=bone_name)
+        )
+        
+        metadata_dict[bone_name] = bone_metadata
+        track_idx += 1
+    
+    # Finalize temp_mapping to populate missing segments (e.g., if a bone has both rotation and location)
+    # This prevents "Missing mapping" warnings for segment 1, 2, etc.
+    if layout_metadata_dict:
+        temp_mapping.finalize_with_layout_metadata(layout_metadata_dict)
+    
+    Debug.log(f"    Built synthetic mapping: {track_idx} track(s)")
+    
+    return temp_mapping, metadata_dict

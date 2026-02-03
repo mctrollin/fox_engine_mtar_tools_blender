@@ -35,7 +35,7 @@ from .py_foxwrap.foxwrap_misc import TrackUnitWrapper, Tracks, TrackDataBlobWrap
 from .py_foxwrap.foxwrap_mtar_writer import MtarWriter
 from .py_foxwrap.foxwrap_misc_export import (
     GaniData, GaniTracksData, GaniMotionPointsData, GaniMotionEventsData,
-    TrackSegmentBoneMapping, ExportActionData
+    TrackSegmentBoneMapping, ExportActionData, create_synthetic_mapping
 )
 from .py_foxwrap.foxwrap_mapping import BoneParameters
 
@@ -471,13 +471,17 @@ def get_bone_keyframe_numbers_from_action(action: bpy.types.Action, bone_name: s
     return sorted(list(keyframe_frames))
 
 
-def export_keyframes_track(armature: bpy.types.Object, blender_bone_name: str,
-                          bone_params: BoneParameters, segment_type: SegmentType,
-                          frame_start: int, frame_end: int,
-                          is_static: bool, action: bpy.types.Action = None,
-                          rig_unit_type: Optional[RigUnitType] = None,
-                          fcurve_cache: Optional[FCurveCache] = None,
-                          transform_cache: Optional[TransformsCache] = None) -> List['AnimKeyframe']:
+def export_keyframes_track(armature: bpy.types.Object, 
+                           blender_bone_name: str,
+                           bone_params: BoneParameters, 
+                           segment_type: SegmentType,
+                           frame_start: int, 
+                           frame_end: int,
+                           is_static: bool, 
+                           action: bpy.types.Action = None,
+                           rig_unit_type: Optional[RigUnitType] = None,
+                           fcurve_cache: Optional[FCurveCache] = None,
+                           transform_cache: Optional[TransformsCache] = None) -> List['AnimKeyframe']:
     """Export a single track data segment (one segment of a bone's animation).
     
     This is the export counterpart to import_keyframes_track().
@@ -513,16 +517,26 @@ def export_keyframes_track(armature: bpy.types.Object, blender_bone_name: str,
     if segment_type in [SegmentType.QUAT, SegmentType.QUAT_DIFF]:
         # Rotation segment
         return export_rotation_segment(
-            armature, blender_bone_name, bone_params,
-            export_frames, frame_start, is_static, rig_unit_type,
+            armature, 
+            blender_bone_name, 
+            bone_params,
+            export_frames, 
+            frame_start, 
+            is_static, 
+            rig_unit_type,
             transform_cache
         )
     
     elif segment_type in [SegmentType.VECTOR3, SegmentType.VECTOR_DIFF]:
         # Location segment
         return export_location_segment(
-            armature, blender_bone_name, bone_params,
-            export_frames, frame_start, is_static, rig_unit_type,
+            armature, 
+            blender_bone_name, 
+            bone_params,
+            export_frames, 
+            frame_start, 
+            is_static, 
+            rig_unit_type,
             transform_cache
         )
     
@@ -714,12 +728,16 @@ def export_location_segment(armature: bpy.types.Object, blender_bone_name: str,
     return keyframes
 
 
-def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
-                     track_segment_bone_mapping: TrackSegmentBoneMapping, frame_start: int, frame_end: int,
-                     action: bpy.types.Action, layout_metadata: Optional[TrackMetaData],
-                     fcurve_cache: Optional[FCurveCache] = None,
-                     force_highest_bit_encoding: bool = False,
-                     transform_cache: Optional[TransformsCache] = None) -> 'TrackUnitWrapper':
+def export_gani_track_from_action(armature: bpy.types.Object, 
+                                  track_idx: int,
+                                  track_segment_bone_mapping: TrackSegmentBoneMapping,
+                                  frame_start: int,
+                                  frame_end: int,
+                                  action: bpy.types.Action,
+                                  layout_metadata: Optional[TrackMetaData],
+                                  fcurve_cache: Optional[FCurveCache] = None,
+                                  force_highest_bit_encoding: bool = False,
+                                  transform_cache: Optional[TransformsCache] = None) -> 'TrackUnitWrapper':
     """Export a GaniTrack (all segments for one track).
     
     This is the export counterpart to import_gani_track().
@@ -824,26 +842,36 @@ def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
     unit_flags_list = TrackUnitFlags.int_to_track_unit_flags(unit_flags_int)
     
     for segment_idx, segment_type in enumerate(segment_types):
+        segment_fox_mapping_params = None
+
         # Look up the specific bone and parameters for this segment
-        segment_mapping = track_segment_bone_mapping.get_segment_mapping(track_idx, segment_idx)
-        if segment_mapping:
-            # Segment-specific bone found
-            segment_bone_name, segment_fox_mapping_params = segment_mapping
-            segment_type_str = "multi-segment" if track_segment_bone_mapping.is_multi_segment_track(track_idx) else "single-segment"
-            Debug.log(f"        Mapping Segment {segment_idx}: '{segment_bone_name}' ({segment_type_str})")
-        else:
-            # Fallback to base bone (should not happen with proper mapping)
-            segment_bone_name, segment_fox_mapping_params = base_blender_bone_name, base_fox_mapping_params
-            Debug.log_warning(f"        Warning: Missing mapping. Segment {segment_idx}: '{segment_bone_name}' (fallback to base (track) bone)")
+        if track_segment_bone_mapping:
+            segment_mapping = track_segment_bone_mapping.get_segment_mapping(track_idx, segment_idx)
+            if segment_mapping:
+                # Segment-specific bone found
+                segment_bone_name, segment_fox_mapping_params = segment_mapping
+                segment_type_str = "multi-segment" if track_segment_bone_mapping.is_multi_segment_track(track_idx) else "single-segment"
+                Debug.log(f"        Mapping Segment {segment_idx}: '{segment_bone_name}' ({segment_type_str})")
+            else:
+                # Fallback to base bone (should not happen with proper mapping)
+                segment_bone_name, segment_fox_mapping_params = base_blender_bone_name, base_fox_mapping_params
+                Debug.log_warning(f"        Warning: Missing mapping. Segment {segment_idx}: '{segment_bone_name}' (fallback to base (track) bone)")
         
         # Check if this bone exists in the armature
         if segment_bone_name and segment_bone_name in armature.pose.bones:
             Debug.start_timer(f"export_keyframes_track(segment_bone_name={segment_bone_name})")
             # Export keyframes for this segment
             keyframes = export_keyframes_track(
-                armature, segment_bone_name, segment_fox_mapping_params,
-                segment_type, frame_start, frame_end, is_static, action,
-                merged_metadata.rig_unit_type, fcurve_cache, transform_cache
+                armature, 
+                segment_bone_name, 
+                segment_fox_mapping_params,
+                segment_type, frame_start, 
+                frame_end, 
+                is_static, 
+                action,
+                merged_metadata.rig_unit_type, 
+                fcurve_cache, 
+                transform_cache
             )
             Debug.stop_timer(f"export_keyframes_track(segment_bone_name={segment_bone_name})")
 
@@ -969,89 +997,51 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
         transform_cache = TransformsCache(armature, frame_start, frame_end)
         transform_cache.build()
 
-        # If a mapping and layout metadata dict are provided, use the mapping to export tracks
-        if track_segment_bone_mapping and layout_metadata_dict:
-            # Process each track in the mapping
-            track_indices = track_segment_bone_mapping.get_track_indices()
-            Debug.log(f"    Processing {len(track_indices)} track(s)...")
-            for track_idx in track_indices:
-                # Find base fox track name for this track index to lookup metadata
-                base_mapping = track_segment_bone_mapping.get_base_mapping(track_idx)
-                if base_mapping:
-                    _blender_bone_name, fox_mapping_params = base_mapping
-                    fox_track_name = fox_mapping_params.fox_name
-                    # Strip multi-segment suffix if present
-                    base_fox_track_name = fox_track_name
-                    if '_' in fox_track_name:
-                        parts = fox_track_name.rsplit('_', 1)
-                        if len(parts) == 2 and parts[1].isdigit():
-                            base_fox_track_name = parts[0]
-                    layout_metadata = None
-                    if layout_metadata_dict and base_fox_track_name in layout_metadata_dict:
-                        layout_metadata = layout_metadata_dict[base_fox_track_name]
-                else:
-                    layout_metadata = None
-
-                gani_track = export_gani_track_from_action(
-                    armature, track_idx,
-                    track_segment_bone_mapping, frame_start, frame_end, action, layout_metadata, fcurve_cache,
-                    force_highest_bit_encoding, transform_cache
-                )
-                gani_tracks.append(gani_track)
-        else:
-            # Fallback: No mapping provided (e.g., exporting motion points)
-            # Build a synthetic mapping and reuse export_gani_track_from_action()
-            Debug.log("    No mapping provided; exporting tracks from armature bones (fallback mode)")
+        # Create synthetic mapping if needed (when no mapping provided)
+        if not track_segment_bone_mapping or not layout_metadata_dict:
+            track_segment_bone_mapping, synthetic_metadata = create_synthetic_mapping(
+                armature, action, layout_metadata_dict
+            )
+            # Merge synthetic metadata into layout_metadata_dict
+            layout_metadata_dict = {**(layout_metadata_dict or {}), **synthetic_metadata}
+        
+        # Export all tracks using the mapping (provided or synthetic)
+        track_indices = track_segment_bone_mapping.get_track_indices()
+        Debug.log(f"    Processing {len(track_indices)} track(s)...")
+        
+        for track_idx in track_indices:
+            # Find base fox track name for this track index to lookup metadata
+            base_mapping = track_segment_bone_mapping.get_base_mapping(track_idx)
+            layout_metadata = None
             
-            # Step 1: Build synthetic mapping and prepare metadata for all bones
-            bones_iterable = armature.pose.bones if armature.pose else armature.data.bones
-            temp_mapping = TrackSegmentBoneMapping()
-            bones_to_export = []  # List of (track_idx, bone_name, bone_metadata)
+            if base_mapping:
+                _blender_bone_name, fox_mapping_params = base_mapping
+                fox_track_name = fox_mapping_params.fox_name
+                # Strip multi-segment suffix if present
+                base_fox_track_name = fox_track_name
+                if '_' in fox_track_name:
+                    parts = fox_track_name.rsplit('_', 1)
+                    if len(parts) == 2 and parts[1].isdigit():
+                        base_fox_track_name = parts[0]
+                
+                if layout_metadata_dict and base_fox_track_name in layout_metadata_dict:
+                    layout_metadata = layout_metadata_dict[base_fox_track_name]
             
-            for track_idx, bone in enumerate(bones_iterable):
-                bone_name = bone.name
-                
-                # Get metadata for this bone (from layout_metadata_dict or by analyzing fcurves)
-                bone_metadata: TrackMetaData = None
-                if layout_metadata_dict and bone_name in layout_metadata_dict:
-                    # Use provided metadata
-                    bone_metadata = layout_metadata_dict[bone_name]
-                else:
-                    # Build minimal metadata by analyzing fcurves (legacy fallback)
-                    bone_metadata = TrackMetaData.from_fcurves(bone_name=bone_name, action=action)
-                
-                # Skip bones with no metadata (no fcurves and not in metadata_dict)
-                if not bone_metadata:
-                    continue
-                
-                # Merge per-action overrides if available
-                if action:
-                    action_meta_bone = TrackMetaData.from_action(action, bone_name)
-                    if action_meta_bone:
-                        bone_metadata = merge_track_metadata(bone_metadata, action_meta_bone)
-                
-                # Create single-segment mapping for this bone
-                # Each bone becomes a single track with one segment (segment 0)
-                temp_mapping.set_segment_mapping(
-                    track_idx, 0, bone_name,
-                    BoneParameters(fox_name=bone_name)
-                )
-                
-                bones_to_export.append((track_idx, bone_name, bone_metadata))
+            gani_track = export_gani_track_from_action(
+                armature,
+                track_idx,
+                track_segment_bone_mapping,
+                frame_start,
+                frame_end,
+                action,
+                layout_metadata,
+                fcurve_cache,
+                force_highest_bit_encoding,
+                transform_cache
+            )
             
-            # Step 2: Call export_gani_track_from_action for each bone
-            Debug.log(f"    Processing {len(bones_to_export)} bone(s) with fcurves...")
-            for track_idx, bone_name, bone_metadata in bones_to_export:
-                gani_track = export_gani_track_from_action(
-                    armature, track_idx,
-                    temp_mapping, frame_start, frame_end, action,
-                    bone_metadata, fcurve_cache,
-                    force_highest_bit_encoding, transform_cache
-                )
-                
-                # Only add tracks that have segments
-                if gani_track.segments_track_data:
-                    gani_tracks.append(gani_track)
+            # Add track to output (empty tracks are added to preserve structure)
+            gani_tracks.append(gani_track)
         
         return gani_tracks
 

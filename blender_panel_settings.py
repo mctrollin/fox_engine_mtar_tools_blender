@@ -24,7 +24,8 @@ class MTAR_PT_SettingsPanel(Panel):
 
         # Show advanced settings toggle
         box_advanced = layout.box()
-
+        box_advanced.alert = True
+        
         box_advanced.label(text="Pro", icon='PREFERENCES')
         col = box_advanced.column()
         draw_bool_prop_checkbox_icon(col, settings_props, "show_advanced_settings")

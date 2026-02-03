@@ -9,6 +9,7 @@ from bpy.types import Panel, PropertyGroup, Context, UILayout, Object
 from bpy.props import StringProperty, PointerProperty, IntProperty
 
 from .py_foxwrap.foxwrap_mtar_reader import MtarReader
+from .py_utilities.utilities_parsing import parse_index_selection
 
 from .blender_operators_import import (
     MTAR_OT_GenerateTrackMappingTemplateFile,
@@ -116,6 +117,30 @@ class MTAR_PT_ImportPanel(Panel):
         row.prop(import_props, "mapping_filepath", text="", icon='TEXT')
         box = box_import
         box.prop(import_props, "gani_indices_str", text="", icon='FILTER')
+
+        # Compute filtered selection once and show the selection count below the GANI filter (if header info is available)
+        selected_count = None
+        parse_error_msg = None
+        selected_indices = None
+        if header_info:
+            if import_props.gani_indices_str.strip():
+                try:
+                    selected_indices = parse_index_selection(import_props.gani_indices_str, header_info.file_count)
+                    selected_count = len(selected_indices)
+                except ValueError as e:
+                    parse_error_msg = str(e)
+                    selected_count = 0
+            else:
+                selected_count = header_info.file_count
+
+            if parse_error_msg:
+                err_row = box.row()
+                err_row.alert = True
+                err_row.label(text=f"Invalid GANI selection: {parse_error_msg}", icon='ERROR')
+            else:
+                label_text = f"{selected_count} animation{'s' if selected_count != 1 else ''} selected"
+                row = box.row()
+                row.label(text=label_text, icon='ANIM')
         
         # Strip padding (advanced setting)
         if settings_props.show_advanced_settings:
@@ -161,15 +186,15 @@ class MTAR_PT_ImportPanel(Panel):
 
         draw_progress_bar(box_button, props, 'IMPORT')
 
-        # If we successfully read header_info above and it contains many GANIs, warn the user
-        if header_info and header_info.file_count > 100:
-            warn_box = box_button.box()
-            warn_box.alert = True
-            warn_box.label(text=f"{header_info.file_count} animations!", icon='ERROR')
-            warn_box.label(text=f"Import may take several minutes.")
-            warn_box.label(text="View console to track progress.")
-            # Provide a button to toggle the system console so users can track progress
-            warn_box.operator("wm.console_toggle", text="Toggle Console", icon='CONSOLE')
+        # Show a slim warning if the number of animations that will be processed (after applying the GANI filter)
+        # exceeds the threshold; keep parse error shown only below the filter (do not duplicate it here).
+        if header_info:
+            if selected_count is not None and selected_count > 100 and import_props.bake_after_import and not parse_error_msg:
+                warn_box = box_button.box()
+                warn_box.alert = True
+                warn_box.label(text=f"Importing + baking {selected_count} animations.")
+                warn_box.label(text="This may take several minutes.")
+                warn_box.label(text="View console to track progress.")
 
         if not import_props.mtar_filepath:
             box_button.label(text="No import path set", icon='ERROR')

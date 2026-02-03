@@ -19,9 +19,6 @@ from .foxwrap_metadata import (
 )
 
 
-
-
-
 @dataclass
 class IkUpParameters:
     """Parameters for as_ik_up directional vector IK.
