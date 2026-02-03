@@ -561,6 +561,10 @@ class TransformsCache:
             for name in bone_names:
                 self._data[name] = {}
 
+            # Track previous frame quaternions to ensure sign consistency
+            prev_local_rots: Dict[str, Quaternion] = {}
+            prev_world_rots: Dict[str, Quaternion] = {}
+
             for frame in range(self.frame_start, self.frame_end + 1):
                 bpy.context.scene.frame_set(frame)
 
@@ -574,6 +578,19 @@ class TransformsCache:
                     world_mat = arm_matrix_world @ bone.matrix
                     world_loc = world_mat.to_translation()
                     world_rot = world_mat.to_quaternion()
+
+                    # Ensure quaternion sign consistency across frames
+                    # Quaternions q and -q represent the same rotation, but we need
+                    # consistent signs for proper interpolation and export
+                    if frame > self.frame_start:
+                        if bone.name in prev_local_rots:
+                            local_rot.make_compatible(prev_local_rots[bone.name])
+                        if bone.name in prev_world_rots:
+                            world_rot.make_compatible(prev_world_rots[bone.name])
+
+                    # Store quaternions for next frame comparison
+                    prev_local_rots[bone.name] = local_rot.copy()
+                    prev_world_rots[bone.name] = world_rot.copy()
 
                     self._data[bone.name][frame] = (
                         local_rot,
