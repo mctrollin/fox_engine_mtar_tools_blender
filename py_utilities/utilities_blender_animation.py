@@ -295,12 +295,6 @@ def remove_action_from_datablock(datablock: 'bpy.types.ID') -> None:
         Debug.log_warning(f"Failed to remove action from datablock '{getattr(datablock, 'name', '<unknown>')}': {e}")
 
 
-# NOTE: `ensure_action_group` was removed — grouping is now handled at FCurve creation time via
-# the `ensure_action_fcurve(..., action_group_name=...)` parameter when supported by the API.
-# We intentionally avoid reassigning groups on existing FCurves to preserve user data and avoid
-# destructive changes across Blender versions.
-
-
 def get_action_slot(action: 'bpy.types.Action', slot_name: Optional[str] = None) -> 'bpy.types.ActionSlot':
     """Return or create an Action slot.
 
@@ -357,6 +351,7 @@ def get_action_slot(action: 'bpy.types.Action', slot_name: Optional[str] = None)
             except Exception:
                 continue
 
+
 def get_all_fcurves_from_action(action):
     """
     Return all F-Curves from an Action.
@@ -394,7 +389,6 @@ def get_all_fcurves_from_action(action):
     return fcurves
 
 
-
 def action_has_fcurves(action: 'bpy.types.Action') -> bool:
     """Return True if the Action has or can manage fcurves in this Blender API.
 
@@ -426,6 +420,59 @@ def action_has_fcurves(action: 'bpy.types.Action') -> bool:
 
     # Best-effort fallback 
     return False
+
+
+def is_relevant_strip(strip) -> bool:
+    """Return True if a strip represents a GANI (i.e., should be exported/baked).
+
+    A GANI strip is defined as one that:
+      - is not None and has an action
+      - is not muted (strip.mute is False)
+      - its action name does NOT contain 'layout' (case-insensitive)
+      - its frame end is not entirely in negative time (strip.action_frame_end or strip.frame_end > 0)
+
+    This consolidates common checks (muted, layout, negative time) in one place
+    so call sites do not need to duplicate the logic.
+    """
+    try:
+        if strip is None:
+            return False
+
+        # Skip muted strips
+        try:
+            if getattr(strip, 'mute', False):
+                return False
+        except Exception:
+            pass
+
+        action = getattr(strip, 'action', None)
+        if not action:
+            return False
+
+        name = getattr(action, 'name', '') or ''
+        if 'layout' in name.lower():
+            return False
+
+        # Prefer strip.action_frame_end if available, fall back to strip.frame_end
+        end = None
+        if hasattr(strip, 'action_frame_end') and getattr(strip, 'action_frame_end') is not None:
+            try:
+                end = int(strip.action_frame_end)
+            except Exception:
+                end = None
+        elif hasattr(strip, 'frame_end') and getattr(strip, 'frame_end') is not None:
+            try:
+                end = int(strip.frame_end)
+            except Exception:
+                end = None
+
+        if end is not None and end <= 0:
+            return False
+
+        return True
+    except Exception:
+        # Be conservative: treat unknowns as non-GANI by default
+        return False
 
 def iter_channelbags(owner) -> Iterator:
     """Yield channelbag objects using the canonical slot-based API.
@@ -472,37 +519,6 @@ def iter_action_fcurves(action: 'bpy.types.Action') -> Iterator['bpy.types.FCurv
     """ Return an iterator over all F-Curves in an Action. 
     Uses Python's built-in iter() on the list returned by get_all_fcurves_from_action(). """ 
     return iter(get_all_fcurves_from_action(action))
-
-# def iter_action_fcurves(action: 'bpy.types.Action') -> Iterator['bpy.types.FCurve']:
-#     """Iterate over fcurves for an action in a version-safe manner.
-
-#     Yields existing FCurves, or an empty iterator when none are accessible.
-#     """
-#     if action is None:
-#         return iter(())
-#     if hasattr(action, 'fcurves'):
-#         try:
-#             return iter(action.fcurves)
-#         except Exception as e:
-#             Debug.log_warning(f"Error iterating action.fcurves for action '{getattr(action, 'name', '<unknown>')}': {e}")
-#             return iter(())
-
-#     # Blender 5.0+: attempt to gather fcurves from channelbags/channels if present
-#     for possible_collection_name in ('channelbags', 'channelbag', 'channels'):
-#         col = getattr(action, possible_collection_name, None)
-#         if col:
-#             try:
-#                 fcurves_list = []
-#                 for ch in col:
-#                     if hasattr(ch, 'fcurves'):
-#                         for fc in ch.fcurves:
-#                             fcurves_list.append(fc)
-#                 return iter(fcurves_list)
-#             except Exception as e:
-#                 Debug.log_warning(f"Error collecting fcurves from channelbags on action '{getattr(action, 'name', '<unknown>')}': {e}")
-#                 continue
-
-#     return iter(())
 
 
 def find_action_fcurve(action: 'bpy.types.Action', data_path: str, index: int, slot_name: Optional[str] = None):

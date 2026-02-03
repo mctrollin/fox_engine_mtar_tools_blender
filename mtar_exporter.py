@@ -23,7 +23,9 @@ from .py_utilities.utilities_transforms import (
     reverse_rest_pose_correction_local,
     reverse_rest_pose_correction_world
 )
-from .py_utilities.utilities_blender_animation import FCurveCache, action_has_fcurves, iter_action_fcurves
+from .py_utilities.utilities_blender_animation import (
+    FCurveCache, action_has_fcurves, iter_action_fcurves, is_relevant_strip
+)
 
 from .py_foxwrap.foxwrap_motionevent import read_motion_events_from_action
 from .py_foxwrap.foxwrap_metadata import parse_action_track_metadata, read_track_header_properties_from_action
@@ -317,27 +319,15 @@ def collect_actions_for_export_from_armature(armature: bpy.types.Object, use_nla
             Debug.log(f"  Track {track_idx} '{track.name}':")
             
             for strip_idx, strip in enumerate(track.strips):
-                if strip.mute:
-                    Debug.log(f"    Strip {strip_idx} '{strip.name}': Muted (skipping)")
+                # Skip non-GANI strips (includes muted, layout, or negative-time strips)
+                if not is_relevant_strip(strip):
+                    Debug.log(f"    Strip {strip_idx} '{getattr(strip, 'name', '<unknown>')}': Skipping (not a GANI strip)")
                     continue
-                
-                if not strip.action:
-                    Debug.log(f"    Strip {strip_idx} '{strip.name}': No action (skipping)")
-                    continue
-                
-                # Skip layout track actions (they contain metadata, not animation data)
-                if 'layout' in strip.action.name.lower() or 'LAYOUT_TRACK' in strip.action.name:
-                    Debug.log(f"    Strip {strip_idx} '{strip.name}': Layout track (skipping - metadata only)")
-                    continue
-                
+
                 # Calculate frame range (use strip's frame range)
                 frame_start = int(strip.frame_start)
                 frame_end = int(strip.frame_end)
-                
-                # Skip animations in negative time range (e.g., layout track at frames -100 to -50)
-                if frame_end <= 0:
-                    Debug.log(f"    Strip {strip_idx} '{strip.name}': Negative time range {frame_start} to {frame_end} (skipping)")
-                    continue
+
                 
                 # Use strip name if available, otherwise action name
                 source = f'NLA Track "{track.name}" Strip "{strip.name}"'
@@ -1060,7 +1050,7 @@ def build_motion_points_list_from_armature(motion_points_armature: bpy.types.Obj
     if motion_points_armature.animation_data:
         for nla_track in motion_points_armature.animation_data.nla_tracks:
             for strip in nla_track.strips:
-                if strip.action:
+                if strip.action and is_relevant_strip(strip):
                     for fcurve in iter_action_fcurves(strip.action):
                         # Extract bone name from data_path (e.g., 'pose.bones["BoneName"].location')
                         if 'pose.bones[' in fcurve.data_path:
@@ -1069,6 +1059,9 @@ def build_motion_points_list_from_armature(motion_points_armature: bpy.types.Obj
                             if start > 1 and end > start:
                                 bone_name = fcurve.data_path[start:end]
                                 bones_with_animation.add(bone_name)
+                else:
+                    if strip.action:
+                        Debug.log(f"  Skipping motion point strip '{getattr(strip, 'name', '<unknown>')}' (not a GANI strip)")
     
     if not bones_with_animation:
         Debug.log_warning("  Warning: No bones with animation data found in motion points armature. All bones in the armature will be exported as motion points")
@@ -1251,9 +1244,11 @@ def collect_motion_point_actions(motion_points_armature: bpy.types.Object, use_n
             if track.mute:
                 continue
             for strip in track.strips:
-                if strip.mute or not strip.action:
+                if not is_relevant_strip(strip):
+                    if strip.action:
+                        Debug.log(f"    Skipping motion point strip '{getattr(strip, 'name', '<unknown>')}' (not a GANI strip)")
                     continue
-                
+
                 action_data = ExportActionData(
                     action=strip.action,
                     frame_start=int(strip.action_frame_start),
@@ -1262,6 +1257,7 @@ def collect_motion_point_actions(motion_points_armature: bpy.types.Object, use_n
                 )
                 actions.append(action_data)
                 Debug.log(f"    {action_data.to_string()}")
+
     
     elif motion_points_armature.animation_data and motion_points_armature.animation_data.action:
         # Use active action

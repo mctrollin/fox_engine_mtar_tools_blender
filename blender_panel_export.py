@@ -7,6 +7,7 @@ from bpy.types import Panel, Context
 from .blender_operators_export import (
     MTAR_OT_ExportAnimationToMTAR,
 )
+from .py_utilities.utilities_blender_animation import is_relevant_strip
 
 # Import shared utilities and properties from the import panel module
 # (This avoids duplication of the PropertyGroup and helper functions)
@@ -45,7 +46,7 @@ class MTAR_PT_ExportPanel(Panel):
                     unmuted_strips = sum(1 for track in anim_data.nla_tracks 
                                         if not track.mute 
                                         for strip in track.strips 
-                                        if not strip.mute and strip.action)
+                                        if is_relevant_strip(strip))
                     if unmuted_strips > 0:
                         adv_box.label(text=f"Found {unmuted_strips} NLA strip(s)", icon='CHECKMARK')
                     else:

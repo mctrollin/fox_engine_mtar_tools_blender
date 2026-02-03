@@ -9,7 +9,10 @@ from typing import Set, Dict, Optional
 import bpy
 
 from ..py_utilities.utilities_logging import Debug
-from ..py_utilities.utilities_blender_animation import assign_action_to_datablock, remove_action_from_datablock, action_has_fcurves, iter_action_fcurves, ensure_action_fcurve, remove_action_fcurve
+from ..py_utilities.utilities_blender_animation import (
+    assign_action_to_datablock, remove_action_from_datablock, action_has_fcurves,
+    iter_action_fcurves, ensure_action_fcurve, remove_action_fcurve, is_relevant_strip
+)
 
 
 def get_bones_with_keyframes(action: bpy.types.Action) -> Set[str]:
@@ -412,7 +415,7 @@ def bake_armature_action(rig_armature: bpy.types.Object,
         rig_armature.animation_data_create()
     
     # Update status text without changing progress percentage
-    Debug.Debug.update_progress_status(f"Baking: {action.name}")
+    Debug.update_progress_status(f"Baking: {action.name}")
         
     Debug.log(f"Baking action '{action.name}' for armature '{rig_armature.name}'")
     
@@ -500,6 +503,28 @@ def bake_armature_action(rig_armature: bpy.types.Object,
         frame_start = min(keyframe_frames)
         frame_end = max(keyframe_frames)
         Debug.log(f"  Using keyframe-detected frame range: {frame_start} - {frame_end}")
+
+    # If the whole action is in negative time (layout track etc.), skip baking it
+    if frame_end <= 0:
+        Debug.log(f"  Action '{action.name}' is in negative time range {frame_start} to {frame_end} (skipping)")
+        # Restore any modified state before returning
+        try:
+            if original_track_mute_state is not None and nla_track is not None:
+                nla_track.mute = original_track_mute_state
+        except Exception:
+            pass
+        try:
+            if source_armature and source_armature != rig_armature and original_source_action is not None:
+                assign_action_to_datablock(source_armature, original_source_action)
+        except Exception:
+            pass
+        return {
+            'success': False,
+            'bones_baked': set(),
+            'frames_baked': set(),
+            'constraints_removed': 0,
+            'message': 'Action in negative time range (skipped)'
+        }
     
     # Select bones to bake
     bpy.ops.object.mode_set(mode='POSE')
@@ -692,16 +717,17 @@ def bake_armature_nla_strips(rig_armature: bpy.types.Object,
     # Store original state
     original_action = rig_armature.animation_data.action if rig_armature.animation_data else None
     
-    # Collect strips to bake
+    # Collect strips to bake (only include actual GANI strips)
     strips_to_bake = []
     for track in rig_armature.animation_data.nla_tracks:
-        if track.mute and only_unmuted:
+        # Skip muted tracks
+        if getattr(track, 'mute', False):
             continue
         for strip in track.strips:
-            if strip.mute and only_unmuted:
-                continue
-            if strip.action:
+            if strip.action and is_relevant_strip(strip):
                 strips_to_bake.append((track, strip, strip.action))
+            else:
+                Debug.log(f"  Skipping strip '{getattr(strip, 'name', '<unknown>')}' (not a GANI strip)")
     
     Debug.log(f"  Found {len(strips_to_bake)} strips to bake")
     
@@ -728,7 +754,7 @@ def bake_armature_nla_strips(rig_armature: bpy.types.Object,
         
         # Calculate secondary progress within this strip batch (0.0 at start of first strip, approaching 1.0 at end of last)
         secondary = (idx - 1) / len(strips_to_bake) if len(strips_to_bake) > 1 else 0.0
-        Debug.Debug.update_progress_status(f"Baking {idx}/{len(strips_to_bake)}: {strip.name}", secondary_progress=secondary)
+        Debug.update_progress_status(f"Baking {idx}/{len(strips_to_bake)}: {strip.name}", secondary_progress=secondary)
             
         try:
             # Bake the action
