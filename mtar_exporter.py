@@ -21,7 +21,8 @@ from .py_utilities.utilities_transforms import (
     blender_to_fox_vector, 
     blender_to_fox_quaternion,
     reverse_rest_pose_correction_local,
-    reverse_rest_pose_correction_world
+    reverse_rest_pose_correction_world,
+    TransformsCache
 )
 from .py_utilities.utilities_blender_animation import (
     FCurveCache, action_has_fcurves, iter_action_fcurves, is_relevant_strip
@@ -475,7 +476,8 @@ def export_keyframes_track(armature: bpy.types.Object, blender_bone_name: str,
                           frame_start: int, frame_end: int,
                           is_static: bool, action: bpy.types.Action = None,
                           rig_unit_type: Optional[RigUnitType] = None,
-                          fcurve_cache: Optional[FCurveCache] = None) -> List['AnimKeyframe']:
+                          fcurve_cache: Optional[FCurveCache] = None,
+                          transform_cache: Optional[TransformsCache] = None) -> List['AnimKeyframe']:
     """Export a single track data segment (one segment of a bone's animation).
     
     This is the export counterpart to import_keyframes_track().
@@ -491,6 +493,7 @@ def export_keyframes_track(armature: bpy.types.Object, blender_bone_name: str,
         action: Blender action to get actual keyframe frames from
         rig_unit_type: Type of rig unit (determines if world space transforms are needed)
         fcurve_cache: Optional pre-built FCurveCache for fast lookups
+        transform_cache: Optional pre-computed transform cache for all bones/frames
         
     Returns:
         List of AnimKeyframe objects
@@ -511,14 +514,16 @@ def export_keyframes_track(armature: bpy.types.Object, blender_bone_name: str,
         # Rotation segment
         return export_rotation_segment(
             armature, blender_bone_name, bone_params,
-            export_frames, frame_start, is_static, rig_unit_type
+            export_frames, frame_start, is_static, rig_unit_type,
+            transform_cache
         )
     
     elif segment_type in [SegmentType.VECTOR3, SegmentType.VECTOR_DIFF]:
         # Location segment
         return export_location_segment(
             armature, blender_bone_name, bone_params,
-            export_frames, frame_start, is_static, rig_unit_type
+            export_frames, frame_start, is_static, rig_unit_type,
+            transform_cache
         )
     
     else:
@@ -528,7 +533,8 @@ def export_keyframes_track(armature: bpy.types.Object, blender_bone_name: str,
 
 def _get_rotation_transform_fn(bone_params: BoneParameters, armature: bpy.types.Object,
                                blender_bone_name: str, space_bone: Optional[str],
-                               rig_unit_type: Optional[RigUnitType]):
+                               rig_unit_type: Optional[RigUnitType],
+                               transform_cache: Optional[TransformsCache] = None):
     """Return a callable that produces rotation quaternion for a given frame.
     
     This helper eliminates code duplication between as_ik_up and normal rotation paths.
@@ -540,6 +546,7 @@ def _get_rotation_transform_fn(bone_params: BoneParameters, armature: bpy.types.
         blender_bone_name: Name of the bone in Blender
         space_bone: Custom space bone name (or None for default space)
         rig_unit_type: Rig unit type (determines local vs world space for normal tracks)
+        transform_cache: Optional pre-computed transform cache
         
     Returns:
         Callable that takes (frame: int) and returns Quaternion
@@ -551,8 +558,12 @@ def _get_rotation_transform_fn(bone_params: BoneParameters, armature: bpy.types.
         base_bone_name = as_ik_up_data.bone_base
         
         def get_rotation_as_ik_up(frame: int) -> Quaternion:
-            ik_location, _ = get_world_space_transform(armature, blender_bone_name, frame, space_bone)
-            base_location, _ = get_world_space_transform(armature, base_bone_name, frame, space_bone)
+            if transform_cache:
+                ik_location, _ = transform_cache.get_world(blender_bone_name, frame, space_bone)
+                base_location, _ = transform_cache.get_world(base_bone_name, frame, space_bone)
+            else:
+                ik_location, _ = get_world_space_transform(armature, blender_bone_name, frame, space_bone)
+                base_location, _ = get_world_space_transform(armature, base_bone_name, frame, space_bone)
             return reverse_directional_location(ik_location, base_location, axis)
         
         return get_rotation_as_ik_up
@@ -561,10 +572,16 @@ def _get_rotation_transform_fn(bone_params: BoneParameters, armature: bpy.types.
         use_world_space = RigUnitType.is_world_space_unit_type(rig_unit_type)
         
         def get_rotation_normal(frame: int) -> Quaternion:
-            if use_world_space:
-                _, quat = get_world_space_transform(armature, blender_bone_name, frame, space_bone)
+            if transform_cache:
+                if use_world_space:
+                    _, quat = transform_cache.get_world(blender_bone_name, frame, space_bone)
+                else:
+                    _, quat = transform_cache.get_local(blender_bone_name, frame)
             else:
-                _, quat = get_local_space_transform(armature, blender_bone_name, frame)
+                if use_world_space:
+                    _, quat = get_world_space_transform(armature, blender_bone_name, frame, space_bone)
+                else:
+                    _, quat = get_local_space_transform(armature, blender_bone_name, frame)
             return quat
         
         return get_rotation_normal
@@ -572,7 +589,8 @@ def _get_rotation_transform_fn(bone_params: BoneParameters, armature: bpy.types.
 def export_rotation_segment(armature: bpy.types.Object, blender_bone_name: str,
                             bone_params: BoneParameters, export_frames: List[int],
                             frame_start: int, is_static: bool, 
-                            rig_unit_type: Optional[RigUnitType] = None) -> List['AnimKeyframe']:
+                            rig_unit_type: Optional[RigUnitType] = None,
+                            transform_cache: Optional[TransformsCache] = None) -> List['AnimKeyframe']:
     """Export rotation segment keyframes."""
     keyframes = []
     Debug.start_timer("export_rotation_segment")
@@ -581,7 +599,13 @@ def export_rotation_segment(armature: bpy.types.Object, blender_bone_name: str,
     # These are constant across all frames, so extract once to avoid redundant lookups
     rotation_offset = bone_params.rotation_offset
     rotation_axis_map = bone_params.rotation_axis_map
-    space_bone = TrackMetaData.extract_space_bone(bone_params.space_r)
+    
+    # For as_ik_up bones, use space_ik instead of space_r for the space bone
+    # This is because space_ik defines the transformation constraint space for IK targets
+    if bone_params.as_ik_up:
+        space_bone = TrackMetaData.extract_space_bone(bone_params.space_ik)
+    else:
+        space_bone = TrackMetaData.extract_space_bone(bone_params.space_r)
     
     # Extract rest pose correction parameters (duck-typed dict access)
     map_r_dict = getattr(bone_params, 'map_r', None) if hasattr(bone_params, 'map_r') else bone_params.get('map_r') if isinstance(bone_params, dict) else None
@@ -590,10 +614,14 @@ def export_rotation_segment(armature: bpy.types.Object, blender_bone_name: str,
     # Get rotation transform function (varies by as_ik_up and space type)
     # This eliminates ~40 lines of code duplication between two paths
     get_rotation = _get_rotation_transform_fn(bone_params, armature, blender_bone_name,
-                                              space_bone, rig_unit_type)
+                                              space_bone, rig_unit_type, transform_cache)
     
     # Unified frame loop for both as_ik_up and normal rotation
     for frame in export_frames:
+        # Set frame explicitly for performance (if no cache present)
+        if not transform_cache:
+            bpy.context.scene.frame_set(frame)
+        
         # Get rotation using appropriate method (as_ik_up or normal)
         blender_quat = get_rotation(frame)
         
@@ -626,7 +654,8 @@ def export_rotation_segment(armature: bpy.types.Object, blender_bone_name: str,
 def export_location_segment(armature: bpy.types.Object, blender_bone_name: str,
                             bone_params: BoneParameters, export_frames: List[int],
                             frame_start: int, is_static: bool,
-                            rig_unit_type: Optional[RigUnitType] = None) -> List['AnimKeyframe']:
+                            rig_unit_type: Optional[RigUnitType] = None,
+                            transform_cache: Optional[TransformsCache] = None) -> List['AnimKeyframe']:
     """Export location segment keyframes.
     
     Note: When space_l=custom,<custom_bone> is used, the import creates a Copy Location constraint
@@ -649,13 +678,23 @@ def export_location_segment(armature: bpy.types.Object, blender_bone_name: str,
     
     # For regular location: read and convert per frame
     for frame in export_frames:
+        # Set frame explicitly for performance (if no cache present)
+        if not transform_cache:
+            bpy.context.scene.frame_set(frame)
+        
         # Read location (using pre-determined space)
-        if use_world_space:
-            # Use world space transforms for ORIENTATION, TWO_BONE, ARM
-            blender_location, _ = get_world_space_transform(armature, blender_bone_name, frame, space_bone)
+        if transform_cache:
+            if use_world_space:
+                blender_location, _ = transform_cache.get_world(blender_bone_name, frame, space_bone)
+            else:
+                blender_location, _ = transform_cache.get_local(blender_bone_name, frame)
         else:
-            # Use local space transforms for other types (LOCAL_ORIENTATION, TRANSFORM, ROOT, etc.)
-            blender_location, _ = get_local_space_transform(armature, blender_bone_name, frame)
+            if use_world_space:
+                # Use world space transforms for ORIENTATION, TWO_BONE, ARM
+                blender_location, _ = get_world_space_transform(armature, blender_bone_name, frame, space_bone)
+            else:
+                # Use local space transforms for other types (LOCAL_ORIENTATION, TRANSFORM, ROOT, etc.)
+                blender_location, _ = get_local_space_transform(armature, blender_bone_name, frame)
         
         # Reverse X and Y inversion if custom space bone was used during import
         if invert_xy:
@@ -679,7 +718,8 @@ def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
                      track_segment_bone_mapping: TrackSegmentBoneMapping, frame_start: int, frame_end: int,
                      action: bpy.types.Action, layout_metadata: Optional[TrackMetaData],
                      fcurve_cache: Optional[FCurveCache] = None,
-                     force_highest_bit_encoding: bool = False) -> 'TrackUnitWrapper':
+                     force_highest_bit_encoding: bool = False,
+                     transform_cache: Optional[TransformsCache] = None) -> 'TrackUnitWrapper':
     """Export a GaniTrack (all segments for one track).
     
     This is the export counterpart to import_gani_track().
@@ -699,6 +739,7 @@ def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
         layout_metadata: TrackMetaData instance containing track structure metadata for this track
         fcurve_cache: Optional pre-built FCurveCache for fast lookups
         force_highest_bit_encoding: If True, use highest available bit sizes for all segments
+        transform_cache: Optional pre-computed transform cache
         
     Returns:
         GaniTrack object with all keyframes tracks
@@ -802,7 +843,7 @@ def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
             keyframes = export_keyframes_track(
                 armature, segment_bone_name, segment_fox_mapping_params,
                 segment_type, frame_start, frame_end, is_static, action,
-                merged_metadata.rig_unit_type, fcurve_cache
+                merged_metadata.rig_unit_type, fcurve_cache, transform_cache
             )
             Debug.stop_timer(f"export_keyframes_track(segment_bone_name={segment_bone_name})")
 
@@ -923,6 +964,11 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
         if fcurve_cache and not fcurve_cache.is_empty():
             Debug.log(f"    Built fcurve cache: {len(fcurve_cache.get_bones())} bones indexed")
 
+        # Build transform cache once for this action (major performance optimization)
+        # This eliminates thousands of scene.frame_set() calls during track export
+        transform_cache = TransformsCache(armature, frame_start, frame_end)
+        transform_cache.build()
+
         # If a mapping and layout metadata dict are provided, use the mapping to export tracks
         if track_segment_bone_mapping and layout_metadata_dict:
             # Process each track in the mapping
@@ -949,7 +995,7 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
                 gani_track = export_gani_track_from_action(
                     armature, track_idx,
                     track_segment_bone_mapping, frame_start, frame_end, action, layout_metadata, fcurve_cache,
-                    force_highest_bit_encoding
+                    force_highest_bit_encoding, transform_cache
                 )
                 gani_tracks.append(gani_track)
         else:
@@ -1000,7 +1046,7 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
                     armature, track_idx,
                     temp_mapping, frame_start, frame_end, action,
                     bone_metadata, fcurve_cache,
-                    force_highest_bit_encoding
+                    force_highest_bit_encoding, transform_cache
                 )
                 
                 # Only add tracks that have segments

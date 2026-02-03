@@ -2,6 +2,12 @@
 # 
 # This file defines track metadata and bone transformations for MTAR animation.
 # 
+# NOTES:
+# - `map_r` is applied BEFORE `offset_r` when parsing a mapping line.
+# - Order strings for `offset_r` are case-insensitive and accept: XYZ, XZY, YXZ, YZX, ZXY, ZYX. Defaults to XYZ if invalid.
+# - Axis syntax for `map_r` accepts optional negation (e.g. -x, y, z) and is case-insensitive.
+# - `as_ik_up` axis token is case-insensitive; valid values: X, Y, Z.
+# 
 # ===== TRACK METADATA DIRECTIVES =====
 #
 # @track directives define the structure of animation tracks for export.

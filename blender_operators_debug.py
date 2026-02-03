@@ -51,6 +51,9 @@ class MTAR_OT_InspectWorldSpaceTransform(Operator):
             return {'FINISHED'}
         
         try:
+            # Set frame explicitly (as it's no longer done inside transform getters)
+            context.scene.frame_set(frame)
+            
             # Get world space transform
             location, rotation = get_world_space_transform(
                 armature, bone_name, frame,
@@ -104,6 +107,9 @@ class MTAR_OT_InspectLocalSpaceTransform(Operator):
             return {'FINISHED'}
         
         try:
+            # Set frame explicitly (as it's no longer done inside transform getters)
+            context.scene.frame_set(frame)
+            
             # Get local space transform
             location, rotation = get_local_space_transform(
                 armature, bone_name, frame

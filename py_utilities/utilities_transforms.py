@@ -224,6 +224,9 @@ def apply_reverse_transforms(quat: Quaternion, rotation_offset: Optional[List[di
 def get_local_space_transform(obj: bpy.types.Object, bone_name: str, frame: int) -> Tuple[Vector, Quaternion]:
     """Get local bone space transform (relative to parent) for a bone at a specific frame.
     
+    IMPORTANT: Caller must call bpy.context.scene.frame_set(frame) before calling this function
+    for optimal performance in loops.
+    
     Args:
         obj: Armature object
         bone_name: Name of the bone
@@ -232,8 +235,6 @@ def get_local_space_transform(obj: bpy.types.Object, bone_name: str, frame: int)
     Returns:
         Tuple of (location, rotation_quaternion) in local bone space
     """
-    bpy.context.scene.frame_set(frame)
-    
     # Get raw keyframe/matrix_basis transform (before constraints, IK, etc.)
     pose_bone = obj.pose.bones[bone_name]
     
@@ -248,6 +249,9 @@ def get_world_space_transform(obj: bpy.types.Object, bone_name: str, frame: int,
                                space_bone: Optional[str] = None) -> Tuple[Vector, Quaternion]:
     """Get world space or custom space transform for a bone at a specific frame.
     
+    IMPORTANT: Caller must call bpy.context.scene.frame_set(frame) before calling this function
+    for optimal performance in loops.
+    
     Args:
         obj: Armature object
         bone_name: Name of the bone
@@ -257,8 +261,6 @@ def get_world_space_transform(obj: bpy.types.Object, bone_name: str, frame: int,
     Returns:
         Tuple of (location, rotation_quaternion) in the specified space
     """
-    bpy.context.scene.frame_set(frame)
-    
     # Get raw keyframe/matrix_basis transform (before constraints, IK, etc.)
     pose_bone = obj.pose.bones[bone_name]
     
@@ -528,3 +530,85 @@ def blender_to_fox_quaternion(blender_quat: Quaternion) -> List[float]:
     
     # Convert from Blender's Quaternion (w, x, y, z) to list [x, y, z, w]
     return [q.x, q.y, q.z, q.w]
+
+
+# Transforms Cache (optimized export helper) ###############################################################
+
+class TransformsCache:
+    """Cache for bone transforms across multiple frames to optimize export.
+
+    Use this for export phases to avoid repeated scene.frame_set() calls and
+    expensive depsgraph evaluations. Build once per action and read from it.
+    """
+    def __init__(self, armature: bpy.types.Object, frame_start: int, frame_end: int):
+        self.armature = armature
+        self.frame_start = frame_start
+        self.frame_end = frame_end
+        # Map: bone_name -> frame -> (local_rot, local_loc, world_rot, world_loc, bone_mat)
+        self._data: Dict[str, Dict[int, tuple]] = {}
+
+    def build(self):
+        """Precompute all bone transforms for the specified frame range."""
+        if not self.armature or not self.armature.pose:
+            return
+
+        Debug.start_timer("TransformsCache.build()")
+
+        original_frame = bpy.context.scene.frame_current
+
+        try:
+            bone_names = [bone.name for bone in self.armature.pose.bones]
+            for name in bone_names:
+                self._data[name] = {}
+
+            for frame in range(self.frame_start, self.frame_end + 1):
+                bpy.context.scene.frame_set(frame)
+
+                arm_matrix_world = self.armature.matrix_world.copy()
+
+                for bone in self.armature.pose.bones:
+                    local_mat = bone.matrix_basis
+                    local_loc = local_mat.to_translation()
+                    local_rot = local_mat.to_quaternion()
+
+                    world_mat = arm_matrix_world @ bone.matrix
+                    world_loc = world_mat.to_translation()
+                    world_rot = world_mat.to_quaternion()
+
+                    self._data[bone.name][frame] = (
+                        local_rot,
+                        local_loc,
+                        world_rot,
+                        world_loc,
+                        bone.matrix.copy()
+                    )
+        finally:
+            bpy.context.scene.frame_set(original_frame)
+
+        Debug.stop_timer("TransformsCache.build()")
+
+    def get_local(self, bone_name: str, frame: int):
+        """Return (location, rotation) in local space for a bone at a frame."""
+        frame_data = self._data.get(bone_name, {}).get(frame)
+        if frame_data:
+            return frame_data[1], frame_data[0]
+        return None, None
+
+    def get_world(self, bone_name: str, frame: int, space_bone: Optional[str] = None):
+        """Return (location, rotation) in world or custom bone space for a bone at a frame."""
+        bone_frame_data = self._data.get(bone_name, {}).get(frame)
+        if not bone_frame_data:
+            return None, None
+
+        if not space_bone:
+            return bone_frame_data[3], bone_frame_data[2]
+
+        space_frame_data = self._data.get(space_bone, {}).get(frame)
+        if not space_frame_data:
+            return bone_frame_data[3], bone_frame_data[2]
+
+        bone_rel_mat = bone_frame_data[4]
+        space_rel_mat = space_frame_data[4]
+
+        local_matrix = space_rel_mat.inverted() @ bone_rel_mat
+        return local_matrix.to_translation(), local_matrix.to_quaternion()
