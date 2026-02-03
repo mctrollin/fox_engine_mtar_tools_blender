@@ -1421,6 +1421,12 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
         # Parse metadata from layout track action
         Debug.log("\nParsing layout track metadata...")
         metadata_dict = get_all_track_metadata_from_action(layout_action)
+
+        # Finalize mapping using layout metadata so missing per-segment mappings
+        # (i.e., tracks that only had a base mapping defined) are populated.
+        if track_segment_bone_mapping:
+            Debug.log("  Finalizing mapping with layout metadata (populate missing segments from base mapping)")
+            track_segment_bone_mapping.finalize_with_layout_metadata(metadata_dict)
         
         # Build layout track from metadata (including header properties)
         Debug.log("\nBuilding layout track structure...")
