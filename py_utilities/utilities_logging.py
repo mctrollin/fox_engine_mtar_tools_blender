@@ -13,7 +13,7 @@ You can control the minimum shown level with set_log_level(). By default
 only WARNING and ERROR are shown.
 """
 import time
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 from enum import IntEnum
 
 from contextlib import contextmanager
@@ -33,7 +33,7 @@ class _LogLevel(IntEnum):
 _min_log_level = _LogLevel.WARNING
 
 
-def set_log_level(level: _LogLevel) -> None:
+def _set_log_level(level: _LogLevel) -> None:
     """Set the minimum log level to display.
 
     Args:
@@ -43,7 +43,7 @@ def set_log_level(level: _LogLevel) -> None:
     _min_log_level = level
 
 
-def get_log_level() -> _LogLevel:
+def _get_log_level() -> _LogLevel:
     """Return the current minimum log level."""
     return _min_log_level
 
@@ -118,7 +118,7 @@ def _notify_player(message: str, level: _LogLevel) -> None:
 
 
 
-def is_logging_enabled() -> bool:
+def _is_logging_enabled() -> bool:
     """Check if logging is currently enabled in plugin settings.
 
     Returns:
@@ -133,6 +133,8 @@ def is_logging_enabled() -> bool:
 
 # Global timer storage for performance measurements
 _performance_timers: Dict[str, float] = {}
+# Stack to track timer nesting for hierarchical indentation in timer logs
+_performance_timer_stack: List[str] = []
 
 # Progress UI state (throttling & lifecycle)
 _progress_active: bool = False
@@ -142,18 +144,30 @@ _last_console_log_time: float = 0.0  # seconds, throttle console progress prints
 _current_main_progress: float = 0.0  # Track main progress value (0-100) for secondary increments
 
 
-def start_timer(block_name: str) -> None:
+def _start_timer(block_name: str) -> None:
     """Start a performance timer for a named code block.
     
+    Tracks the start time and pushes the block name onto the timer stack so
+    the eventual stop log can include a hierarchical indentation level.
+
     Args:
         block_name: Name of the code block being timed
     """
     _performance_timers[block_name] = time.time()
+    # Track nesting for indentation (best-effort - non-critical)
+    try:
+        _performance_timer_stack.append(block_name)
+    except Exception:
+        pass
 
 
-def stop_timer(block_name: str) -> float:
+def _stop_timer(block_name: str) -> float:
     """Stop a performance timer and log elapsed time if timer logging is enabled.
     
+    The timer completion message is indented according to the nesting depth
+    the timer had when it was started, so timer logs reflect the same
+    hierarchical structure used by normal debug logs.
+
     Args:
         block_name: Name of the code block being timed
         
@@ -164,13 +178,25 @@ def stop_timer(block_name: str) -> float:
         if _should_log_timers():
             Debug.log_warning(f"[TIMER] No timer started for '{block_name}'")
         return 0.0
-    
+
     start_time = _performance_timers.pop(block_name)
     elapsed = time.time() - start_time
-    
+
+    # Determine nesting depth based on most recent occurrence in the stack
+    depth = 0
+    try:
+        for i in range(len(_performance_timer_stack) - 1, -1, -1):
+            if _performance_timer_stack[i] == block_name:
+                depth = i
+                _performance_timer_stack.pop(i)
+                break
+    except Exception:
+        depth = 0
+
     if _should_log_timers():
-        print(f"[TIMER] {block_name}: {elapsed:.3f} seconds")
-    
+        indent = '  ' * depth
+        print(f"[TIMER] {indent}|_ {block_name}: {elapsed:.3f} seconds")
+
     return elapsed
 
 
@@ -224,7 +250,7 @@ def _throttled_redraw() -> None:
         pass
 
 
-def update_progress(value: float, text: str = "") -> None:
+def _update_progress(value: float, text: str = "") -> None:
     """Update the Blender progress bar and the UI progress property.
 
     This function begins and ends the Blender progress lifecycle automatically
@@ -308,7 +334,7 @@ def update_progress(value: float, text: str = "") -> None:
         # If we can't access Blender context, do nothing
         pass
 
-def update_progress_status(text: str, secondary_progress: Optional[float] = None) -> None:
+def _update_progress_status(text: str, secondary_progress: Optional[float] = None) -> None:
     """Update only the status text of the progress bar without changing the main progress value.
     
     Optionally updates a secondary progress increment (0.0-1.0) that adds sub-percentage
@@ -357,7 +383,7 @@ def update_progress_status(text: str, secondary_progress: Optional[float] = None
     _throttled_redraw()
 
 
-def set_busy_cursor(enabled: bool) -> None:
+def _set_busy_cursor(enabled: bool) -> None:
     """Set or clear the busy/wait cursor in Blender (best-effort).
 
     This is intentionally non-throwing and best-effort so it can be used
@@ -401,18 +427,18 @@ def set_busy_cursor(enabled: bool) -> None:
 
 
 @contextmanager
-def busy_cursor():
+def _busy_cursor():
     """Context manager that sets a busy cursor for the duration of the context.
 
     Usage:
         with busy_cursor():
             long_running_task()
     """
-    set_busy_cursor(True)
+    _set_busy_cursor(True)
     try:
         yield
     finally:
-        set_busy_cursor(False)
+        _set_busy_cursor(False)
 
 
 # Convenience passthrough on Debug for callers elsewhere in the codebase
@@ -453,15 +479,54 @@ class Debug:
             return
         print(f"[ERROR] {message}")
 
+    # ------------------------------------------------------------------
+    # Backwards-compatible Debug wrappers for module-level public helpers
+    # These allow calling logging utilities as Debug.* (consistent API)
+    # while keeping existing module-level functions intact.
+    @staticmethod
+    def set_log_level(level: _LogLevel) -> None:
+        """Set the minimum log level (wrapper for module-level set_log_level)."""
+        _set_log_level(level)
+
+    @staticmethod
+    def get_log_level() -> _LogLevel:
+        """Return the current minimum log level (wrapper)."""
+        return _get_log_level()
+
+    @staticmethod
+    def is_logging_enabled() -> bool:
+        """Return whether logging is enabled (wrapper for module-level check)."""
+        return _is_logging_enabled()
+
+    @staticmethod
+    def start_timer(block_name: str) -> None:
+        """Start a performance timer for a named code block (wrapper)."""
+        _start_timer(block_name)
+
+    @staticmethod
+    def stop_timer(block_name: str) -> float:
+        """Stop a performance timer and return elapsed seconds (wrapper)."""
+        return _stop_timer(block_name)
+
+    @staticmethod
+    def update_progress(value: float, text: str = "") -> None:
+        """Update the UI progress bar (wrapper for module-level function)."""
+        _update_progress(value, text)
+
+    @staticmethod
+    def update_progress_status(text: str, secondary_progress: Optional[float] = None) -> None:
+        """Update the UI status text (wrapper for module-level function)."""
+        _update_progress_status(text, secondary_progress)
+
     @staticmethod
     def set_busy_cursor(enabled: bool) -> None:
         """Convenience wrapper for set_busy_cursor defined at module level."""
-        set_busy_cursor(enabled)
+        _set_busy_cursor(enabled)
 
     @staticmethod
     def busy_cursor():
         """Return a context manager that sets a busy cursor for the duration of the context."""
-        return busy_cursor()
+        return _busy_cursor()
 
     @staticmethod
     def report_and_log(operator: Operator, level: str, message: str) -> None:

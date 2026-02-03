@@ -5,8 +5,8 @@ from typing import Optional, List, Dict, Union, Tuple
 import bpy
 from mathutils import Quaternion, Vector
 
-from .py_utilities.utilities_logging import Debug, start_timer, stop_timer, update_progress
 import time
+from .py_utilities.utilities_logging import Debug
 from .py_utilities.utilities_rig_hash import unhash_rig_type
 from .py_utilities.utilities_transforms import (
     calculate_directional_location, 
@@ -583,7 +583,7 @@ def create_animation_actions(
                 display_name = f"0x{int(all_file_headers[gani_index].path):016X}"
             else:
                 display_name = f"Gani_{gani_index+1:03d}"
-            update_progress(progress, f"GANI {gani_index + 1}/{total_ganis}: {display_name}")
+            Debug.update_progress(progress, f"GANI {gani_index + 1}/{total_ganis}: {display_name}")
         except Exception:
             # Best-effort progress update; do not interrupt import on failure
             pass
@@ -689,7 +689,7 @@ def create_motion_points_animation_actions(
             total_mp = len(all_motion_point_gani_tracks) if len(all_motion_point_gani_tracks) > 0 else 1
             progress = 60 + min(4, int(((gani_index + 1) / total_mp) * 5))
             display_name = f"MotionPoints_Gani_{gani_index+1:03d}"
-            update_progress(progress, f"MotionPoints GANI {gani_index + 1}/{total_mp}: {display_name}")
+            Debug.update_progress(progress, f"MotionPoints GANI {gani_index + 1}/{total_mp}: {display_name}")
         except Exception:
             pass
         # -----------------------------------------------------
@@ -1463,7 +1463,7 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
     Returns:
         Tuple of (result dict, imported armature object)
     """
-    start_timer("MTAR Import")
+    Debug.start_timer("MTAR Import")
     Debug.log("=== MTAR Import Started ===")
     Debug.log(f"File: {filepath}")
     if frig:
@@ -1473,7 +1473,7 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
 
     # Read animation tracks - selective or all
     Debug.log("Reading MTAR file data...")
-    update_progress(10, "Reading MTAR...")
+    Debug.update_progress(10, "Reading MTAR...")
     all_gani_tracks: List[List[TrackUnitWrapper]]
     all_motion_point_gani_tracks: List[List[TrackUnitWrapper]]  # Motion point animation tracks
     all_motion_events: List[Optional['EvpHeader']]  # Motion events for each GANI
@@ -1547,7 +1547,7 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
                     Debug.log_warning(f"  Warning: No rig unit def for GaniTrack {gani_track_index} '{gani_track.name}'")
     
     # Modify keyframes track names based on rig unit type and apply track mapping transformations
-    update_progress(20, "Applying Mapping...")
+    Debug.update_progress(20, "Applying Mapping...")
     apply_track_transformations(all_gani_tracks, track_mapping)
     
     # Extract rest pose from custom rig if provided (merges with mapping file transformations)
@@ -1564,7 +1564,7 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
     strip_suffix: str = ".gani" if os.path.splitext(filepath)[1].lower() == ".mtar" else ""
     
     # Create animation actions first (primary task - can work without armature)
-    update_progress(30, "Creating Actions...")
+    Debug.update_progress(30, "Creating Actions...")
     layout_action, gani_actions, _ = create_animation_actions(
         context,
         mtar_file_name,
@@ -1576,7 +1576,7 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
     )
     
     # Create and setup the armature with animation data (optional secondary task)
-    update_progress(50, "Setting up Armature...")
+    Debug.update_progress(50, "Setting up Armature...")
     armature = create_and_setup_armature(
         context,
         mtar_file_name,
@@ -1589,7 +1589,7 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
     )
     
     # Create motion points animation actions (primary task for motion points)
-    update_progress(60, "Creating Motion Points...")
+    Debug.update_progress(60, "Creating Motion Points...")
     motion_point_actions = create_motion_points_animation_actions(
         context,
         mtar_file_name,
@@ -1600,7 +1600,7 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
     
     # Create and setup motion points armature with animation data (optional secondary task)
     # Pass gani_actions as reference to synchronize frame offsets across armatures
-    update_progress(65, "Setting up Motion Points...")
+    Debug.update_progress(65, "Setting up Motion Points...")
     _motion_points_armature = create_and_setup_motion_points_armature(
         context,
         mtar_file_name,
@@ -1612,7 +1612,7 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
     )
     
     Debug.log("\n=== MTAR Import Completed Successfully ===")
-    update_progress(70, "Import MTAR Data Finished")
+    Debug.update_progress(70, "Import MTAR Data Finished")
 
-    stop_timer("MTAR Import")
+    Debug.stop_timer("MTAR Import")
     return {'FINISHED'}, armature

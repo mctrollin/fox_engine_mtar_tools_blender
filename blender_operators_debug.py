@@ -12,11 +12,10 @@ from bpy.types import Operator, Context
 from bpy.props import StringProperty, BoolProperty
 
 from .py_utilities.utilities_transforms import get_world_space_transform, get_local_space_transform
-from .py_utilities.utilities_logging import Debug, update_progress
-from .py_utilities.utilities_debug import create_or_update_dummy_object
-from .py_tools.tools_blender_animation_bake import bake_armature_action, bake_armature_nla_strips, remove_bone_constraints, get_bones_with_keyframes
 from .py_utilities.utilities_logging import Debug
+from .py_utilities.utilities_debug import create_or_update_dummy_object
 from .py_utilities.utilities_blender_animation import assign_action_to_datablock, remove_action_from_datablock
+from .py_tools.tools_blender_animation_bake import bake_armature_action, bake_armature_nla_strips, remove_bone_constraints, get_bones_with_keyframes
 
 from .blender_operators_import import clear_armature_transforms
 
@@ -335,7 +334,7 @@ class MTAR_OT_DebugRunBake(Operator):
         prepare_only = props.debug_prepare_only
 
         try:
-            update_progress(75, "Baking (debug)...")
+            Debug.update_progress(75, "Baking (debug)...")
 
             if target_arm.animation_data and target_arm.animation_data.nla_tracks:
                 # Gather strips
@@ -386,7 +385,7 @@ class MTAR_OT_DebugRunBake(Operator):
                             Debug.report_and_log(self, 'INFO', "Cleared transforms from target armature after bake")
                         else:
                             Debug.report_and_log(self, 'WARNING', "Could not clear transforms from target armature")
-                        update_progress(100, "Bake complete")
+                        Debug.update_progress(100, "Bake complete")
                         return {'FINISHED'}
                 else:
                     # Bake only specific index
@@ -509,7 +508,7 @@ class MTAR_OT_DebugRunBake(Operator):
             Debug.report_and_log(self, 'ERROR', f"Debug bake failed: {e}")
             return {'CANCELLED'}
 
-        update_progress(100, "Bake complete")
+        Debug.update_progress(100, "Bake complete")
         return {'FINISHED'}
 
 

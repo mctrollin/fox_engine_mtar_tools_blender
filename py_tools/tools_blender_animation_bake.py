@@ -8,7 +8,7 @@ from typing import Set, Dict, Optional
 
 import bpy
 
-from ..py_utilities.utilities_logging import Debug, start_timer, stop_timer, update_progress_status
+from ..py_utilities.utilities_logging import Debug
 from ..py_utilities.utilities_blender_animation import assign_action_to_datablock, remove_action_from_datablock, action_has_fcurves, iter_action_fcurves, ensure_action_fcurve, remove_action_fcurve
 
 
@@ -286,6 +286,80 @@ def remove_bone_constraints(armature: bpy.types.Object, bone_names: Set[str]) ->
     return constraint_count
 
 
+def reset_baked_bone_transforms(armature: bpy.types.Object, bone_names: Set[str]) -> int:
+    """Reset transforms on baked bones to rest pose and clear library overrides.
+    
+    Clears location, rotation, and scale on specified bones. For library-linked
+    armatures with overrides, also removes transform property overrides.
+    
+    Args:
+        armature: Armature object
+        bone_names: Set of bone names to reset
+        
+    Returns:
+        Number of bones reset
+    """
+    if not armature or armature.type != 'ARMATURE':
+        return 0
+    
+    if not bone_names:
+        return 0
+    
+    bones_reset = 0
+    
+    # Clear library overrides on transform properties if armature is overridden
+    if hasattr(armature, 'override_library') and armature.override_library:
+        Debug.log(f"  Clearing library overrides on transform properties for {len(bone_names)} bones")
+        for bone_name in bone_names:
+            if bone_name in armature.pose.bones:
+                pose_bone = armature.pose.bones[bone_name]
+                # Clear overrides on transform properties
+                for prop in ['location', 'rotation_euler', 'rotation_quaternion', 'rotation_axis_angle', 'scale']:
+                    try:
+                        pose_bone.property_unset(prop)
+                    except (TypeError, AttributeError):
+                        # Property might not be overridden or doesn't exist
+                        pass
+    
+    # Ensure proper context: armature must be selected and active
+    bpy.ops.object.select_all(action='DESELECT')
+    armature.select_set(True)
+    bpy.context.view_layer.objects.active = armature
+    
+    # Switch to POSE mode
+    bpy.ops.object.mode_set(mode='POSE')
+    
+    # Deselect all bones first
+    bpy.ops.pose.select_all(action='DESELECT')
+    
+    # Select bones to reset
+    for bone_name in bone_names:
+        if bone_name in armature.pose.bones:
+            pose_bone = armature.pose.bones[bone_name]
+            # Blender 5.0+ selects via pose bone, older versions via data bone
+            if hasattr(pose_bone, "select"):
+                pose_bone.select = True
+            else:
+                pose_bone.bone.select = True
+            bones_reset += 1
+    
+    if bones_reset > 0:
+        # Use Blender operators to clear transforms (handles rotation modes automatically)
+        try:
+            bpy.ops.pose.loc_clear()
+            bpy.ops.pose.rot_clear()
+            bpy.ops.pose.scale_clear()
+            Debug.log(f"  Reset transforms on {bones_reset} baked bones")
+        except Exception as e:
+            Debug.log_warning(f"  Failed to reset transforms: {e}")
+            return 0
+    
+    # Switch back to OBJECT mode
+    bpy.ops.object.mode_set(mode='OBJECT')
+    
+    return bones_reset
+
+
 def bake_armature_action(rig_armature: bpy.types.Object, 
                         action: Optional[bpy.types.Action] = None,
                         remove_constraints: bool = True,
@@ -338,7 +412,7 @@ def bake_armature_action(rig_armature: bpy.types.Object,
         rig_armature.animation_data_create()
     
     # Update status text without changing progress percentage
-    update_progress_status(f"Baking: {action.name}")
+    Debug.Debug.update_progress_status(f"Baking: {action.name}")
         
     Debug.log(f"Baking action '{action.name}' for armature '{rig_armature.name}'")
     
@@ -447,7 +521,7 @@ def bake_armature_action(rig_armature: bpy.types.Object,
     try:
         Debug.log("  Starting bake operation...")
 
-        start_timer("bpy.ops.nla.bake()")
+        Debug.start_timer("bpy.ops.nla.bake()")
         # Bake the action
         # Note: bpy.ops.nla.bake requires specific parameters
         bpy.ops.nla.bake(
@@ -463,7 +537,7 @@ def bake_armature_action(rig_armature: bpy.types.Object,
             bake_types={'POSE'},  # Only bake pose (not object transforms)
             channel_types={'LOCATION', 'ROTATION'}
         )
-        stop_timer("bpy.ops.nla.bake()")
+        Debug.stop_timer("bpy.ops.nla.bake()")
         
         Debug.log("  Bake operation completed")
         
@@ -531,6 +605,12 @@ def bake_armature_action(rig_armature: bpy.types.Object,
                 fcurve.update()
         if interpolation_count > 0:
             Debug.log(f"  Set interpolation on {interpolation_count} keyframes")
+        
+        # Reset transforms on baked bones to prevent accumulation issues in subsequent bakes
+        Debug.log("  Resetting transforms on baked bones...")
+        bones_reset = reset_baked_bone_transforms(rig_armature, bones_with_keyframes)
+        if bones_reset > 0:
+            Debug.log(f"  Reset complete for {bones_reset} bones")
         
         return {
             'success': True,
@@ -648,7 +728,7 @@ def bake_armature_nla_strips(rig_armature: bpy.types.Object,
         
         # Calculate secondary progress within this strip batch (0.0 at start of first strip, approaching 1.0 at end of last)
         secondary = (idx - 1) / len(strips_to_bake) if len(strips_to_bake) > 1 else 0.0
-        update_progress_status(f"Baking {idx}/{len(strips_to_bake)}: {strip.name}", secondary_progress=secondary)
+        Debug.Debug.update_progress_status(f"Baking {idx}/{len(strips_to_bake)}: {strip.name}", secondary_progress=secondary)
             
         try:
             # Bake the action

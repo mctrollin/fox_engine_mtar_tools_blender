@@ -10,7 +10,7 @@ import bpy
 from bpy.types import Operator, Context
 
 
-from .py_utilities.utilities_logging import Debug, update_progress, start_timer, stop_timer
+from .py_utilities.utilities_logging import Debug
 from .py_utilities.utilities_rig_hash import unhash_rig_type
 from .py_utilities.utilities_parsing import parse_index_selection
 
@@ -132,14 +132,14 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
     
     def execute(self, context: Context) -> Set[str]:
         # Start timer for mapping generation
-        start_timer("Generate Mapping Template")
+        Debug.start_timer("Generate Mapping Template")
         props = context.scene.mtar_properties
         import_props = props.import_props
         
         # Validate FRIG file path
         if not import_props.frig_filepath:
             Debug.report_and_log(self, 'ERROR', "No FRIG file selected")
-            stop_timer("Generate Mapping Template")
+            Debug.stop_timer("Generate Mapping Template")
             return {'CANCELLED'}
         
         frig_filepath_abs = bpy.path.abspath(import_props.frig_filepath)
@@ -189,7 +189,7 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
             # Check if file already exists
             if os.path.exists(output_path):
                 Debug.report_and_log(self, 'WARNING', f"Mapping file already exists: {output_path}")
-                stop_timer("Generate Mapping Template")
+                Debug.stop_timer("Generate Mapping Template")
                 return {'CANCELLED'}
             
             # Generate mapping file content
@@ -329,13 +329,13 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
             # Auto-fill the mapping file path
             import_props.mapping_filepath = output_path
             
-            stop_timer("Generate Mapping Template")
+            Debug.stop_timer("Generate Mapping Template")
             return {'FINISHED'}
             
         except Exception as e:  # noqa: E722
             Debug.report_and_log(self, 'ERROR', f"Failed to generate mapping file: {str(e)}")
             traceback.print_exc()
-            stop_timer("Generate Mapping Template")
+            Debug.stop_timer("Generate Mapping Template")
             return {'CANCELLED'}
 
 
@@ -351,7 +351,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
         Debug.log("========= STARTING IMPORT MTAR OPERATION =========")
 
         # Start operator-level timer
-        start_timer("Import Operator")
+        Debug.start_timer("Import Operator")
 
         props = context.scene.mtar_properties
         import_props = props.import_props
@@ -360,13 +360,13 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
         # Validate MTAR file path
         if not import_props.mtar_filepath:
             Debug.report_and_log(self, 'ERROR', "No MTAR file selected")
-            stop_timer("Import Operator")
+            Debug.stop_timer("Import Operator")
             return {'CANCELLED'}
         
         mtar_filepath_abs = bpy.path.abspath(import_props.mtar_filepath)
         if not os.path.exists(mtar_filepath_abs):
             Debug.report_and_log(self, 'ERROR', f"MTAR file not found: {mtar_filepath_abs}")
-            stop_timer("Import Operator")
+            Debug.stop_timer("Import Operator")
             return {'CANCELLED'}
         
         # Load FRIG file if provided
@@ -390,7 +390,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                 except (OSError, ValueError) as e:
                     Debug.report_and_log(self, 'ERROR', f"Failed to load FRIG file: {str(e)}")
                     traceback.print_exc()
-                    stop_timer("Import Operator")
+                    Debug.stop_timer("Import Operator")
                     return {'CANCELLED'}
         else:
             # No FRIG file specified
@@ -430,12 +430,12 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                 Debug.log(f"Parsed GANI selection: {gani_indices}")
             except ValueError as e:
                 Debug.report_and_log(self, 'ERROR', f"Invalid GANI selection: {e}")
-                stop_timer("Import Operator")
+                Debug.stop_timer("Import Operator")
                 return {'CANCELLED'}
             except Exception as e:
                 Debug.report_and_log(self, 'ERROR', f"Error parsing GANI selection: {e}")
                 traceback.print_exc()
-                stop_timer("Import Operator")
+                Debug.stop_timer("Import Operator")
                 return {'CANCELLED'}
         
         # Initialize progress bar
@@ -443,7 +443,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
         wm.progress_begin(0, 100)
         execution_props.operation_type = 'IMPORT'
         # Initialize UI progress state
-        update_progress(0, "Starting import...")
+        Debug.update_progress(0, "Starting import...")
         
         # Import MTAR animation
         try:
@@ -467,10 +467,10 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                     # Bake custom rig if requested
                     if import_props.bake_after_import and custom_rig:
                         Debug.log("\n========= STARTING BAKE OPERATION =========\n")
-                        update_progress(75, "Baking...")
+                        Debug.update_progress(75, "Baking...")
 
                         # Time the bake operation separately
-                        start_timer("Bake Operation")
+                        Debug.start_timer("Bake Operation")
                         try:
                             # Check if custom rig has NLA tracks (common after import)
                             if custom_rig.animation_data and custom_rig.animation_data.nla_tracks:
@@ -510,33 +510,25 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                             Debug.report_and_log(self, 'ERROR', f"Failed to bake custom rig: {str(e)}")
                             traceback.print_exc()
                         finally:
-                            stop_timer("Bake Operation")
+                            Debug.stop_timer("Bake Operation")
                     
-                    # Clear all transforms from custom rig after import/bake
-                    if custom_rig:
-                        update_progress(95, "Cleaning up...")
-                        if clear_armature_transforms(custom_rig):
-                            Debug.report_and_log(self, 'INFO', "Cleared transforms from custom rig")
-                        else:
-                            Debug.report_and_log(self, 'WARNING', "Could not clear transforms from custom rig")
-                    
-                    update_progress(100, "Done")
-                    stop_timer("Import Operator")
+                    Debug.update_progress(100, "Done")
+                    Debug.stop_timer("Import Operator")
                     return {'FINISHED'}
                 else:
                     Debug.report_and_log(self, 'WARNING', "MTAR import completed with warnings")
-                    stop_timer("Import Operator")
+                    Debug.stop_timer("Import Operator")
                     return {'FINISHED'}
         
         except (OSError, ValueError) as e:  # noqa: E722
             Debug.report_and_log(self, 'ERROR', f"Failed to import MTAR: {str(e)}")
             traceback.print_exc()
-            stop_timer("Import Operator")
+            Debug.stop_timer("Import Operator")
             return {'CANCELLED'}
         finally:
             wm.progress_end()
             execution_props.operation_type = 'NONE'
-            update_progress(0, "")
+            Debug.update_progress(0, "")
 
 
 

@@ -11,7 +11,7 @@ from pathlib import Path
 import bpy
 from mathutils import Quaternion
 
-from .py_utilities.utilities_logging import Debug, start_timer, stop_timer, update_progress
+from .py_utilities.utilities_logging import Debug
 import time
 from .py_utilities.utilities_transforms import (
     reverse_directional_location, 
@@ -585,7 +585,7 @@ def export_rotation_segment(armature: bpy.types.Object, blender_bone_name: str,
                             rig_unit_type: Optional[RigUnitType] = None) -> List['AnimKeyframe']:
     """Export rotation segment keyframes."""
     keyframes = []
-    start_timer("export_rotation_segment")
+    Debug.start_timer("export_rotation_segment")
     
     # POINT 4 OPTIMIZATION: Extract loop-invariant setup and use pluggable transform function
     # These are constant across all frames, so extract once to avoid redundant lookups
@@ -630,7 +630,7 @@ def export_rotation_segment(armature: bpy.types.Object, blender_bone_name: str,
         keyframe = AnimKeyframe(frame=frame_delta, value=fox_quat_final)
         keyframes.append(keyframe)
     
-    stop_timer("export_rotation_segment")
+    Debug.stop_timer("export_rotation_segment")
     return keyframes
 
 def export_location_segment(armature: bpy.types.Object, blender_bone_name: str,
@@ -643,7 +643,7 @@ def export_location_segment(armature: bpy.types.Object, blender_bone_name: str,
     with X and Y axes inverted. During export, we need to reverse this by inverting X and Y again.
     """
     keyframes = []
-    start_timer("export_location_segment")
+    Debug.start_timer("export_location_segment")
     
     # Get custom space if specified (constant across all frames)
     # Use the same extraction logic as rotation export for consistency
@@ -681,7 +681,7 @@ def export_location_segment(armature: bpy.types.Object, blender_bone_name: str,
         keyframe = AnimKeyframe(frame=frame_delta, value=fox_location)
         keyframes.append(keyframe)
     
-    stop_timer("export_location_segment")
+    Debug.stop_timer("export_location_segment")
     return keyframes
 
 
@@ -767,7 +767,7 @@ def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
             unit_flags=[TrackUnitFlags.NONE]
         )
     
-    start_timer(f"export_gani_track_from_action(track={track_idx})")
+    Debug.start_timer(f"export_gani_track_from_action(track={track_idx})")
 
     # Merge per-action overrides into layout metadata (if any)
     merged_metadata = layout_metadata
@@ -807,14 +807,14 @@ def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
         
         # Check if this bone exists in the armature
         if segment_bone_name and segment_bone_name in armature.pose.bones:
-            start_timer(f"export_keyframes_track(segment_bone_name={segment_bone_name})")
+            Debug.start_timer(f"export_keyframes_track(segment_bone_name={segment_bone_name})")
             # Export keyframes for this segment
             keyframes = export_keyframes_track(
                 armature, segment_bone_name, segment_fox_mapping_params,
                 segment_type, frame_start, frame_end, is_static, action,
                 merged_metadata.rig_unit_type, fcurve_cache
             )
-            stop_timer(f"export_keyframes_track(segment_bone_name={segment_bone_name})")
+            Debug.stop_timer(f"export_keyframes_track(segment_bone_name={segment_bone_name})")
 
             # Get component_bit_size from metadata if available, otherwise use default
             component_bit_size = 16  # Default for export
@@ -873,7 +873,7 @@ def export_gani_track_from_action(armature: bpy.types.Object, track_idx: int,
             )
             keyframes_tracks.append(empty_keyframes_track)
     
-    stop_timer(f"export_gani_track_from_action(track={track_idx})")
+    Debug.stop_timer(f"export_gani_track_from_action(track={track_idx})")
 
     # Create GaniTrack - use base track name for the track itself
     return TrackUnitWrapper(
@@ -926,9 +926,9 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
         
         # Build fcurve cache once for this action (major performance optimization)
         # This eliminates 20-100× redundancy from scanning action.fcurves for every bone
-        start_timer("build_fcurve_cache")
+        Debug.start_timer("build_fcurve_cache")
         fcurve_cache = FCurveCache.build(action) if action else None
-        stop_timer("build_fcurve_cache")
+        Debug.stop_timer("build_fcurve_cache")
         
         if fcurve_cache and not fcurve_cache.is_empty():
             Debug.log(f"    Built fcurve cache: {len(fcurve_cache.get_bones())} bones indexed")
@@ -1307,7 +1307,7 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
     Returns:
         Dictionary with export result information
     """
-    start_timer("MTAR Export")
+    Debug.start_timer("MTAR Export")
     
     # Mark context as used so static analysis doesn't flag it as unused
     _ = context
@@ -1336,8 +1336,8 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
 
     # Mapping
     Debug.log("\n1. Mapping ++++++++++++++++++++++++++++++++++++++++++++")
-    start_timer("1. Mapping")
-    update_progress(5, "Mapping...")
+    Debug.start_timer("1. Mapping")
+    Debug.update_progress(5, "Mapping...")
 
     # Use provided track_segment_bone_mapping or create default mapping from armature
     if track_segment_bone_mapping is None:
@@ -1360,15 +1360,15 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
     else:
         Debug.log("\nRest pose correction disabled in settings - skipping extraction")
     
-    stop_timer("1. Mapping")
+    Debug.stop_timer("1. Mapping")
 
     # =============================
     # =============================
 
     # Meta Data 
     Debug.log("\n2. Meta Data ++++++++++++++++++++++++++++++++++++++++++++")
-    start_timer("2. Meta Data")
-    update_progress(10, "Meta Data...")
+    Debug.start_timer("2. Meta Data")
+    Debug.update_progress(10, "Meta Data...")
 
     # Find and parse layout track action
     Debug.log("\nSearching for layout track action...")
@@ -1424,15 +1424,15 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
     # Set the layout track on the writer
     writer.set_layout_track(layout_track)
 
-    stop_timer("2. Meta Data")
+    Debug.stop_timer("2. Meta Data")
 
     # =============================
     # =============================
 
     # Motion Points
     Debug.log("\n3. Motion Points ++++++++++++++++++++++++++++++++++++++++++++")
-    start_timer("3. Motion Points")
-    update_progress(20, "Motion Points...")
+    Debug.start_timer("3. Motion Points")
+    Debug.update_progress(20, "Motion Points...")
 
     # Find motion points armature and collect motion point data
     Debug.log("\n=== Motion Points Detection ===")
@@ -1461,15 +1461,15 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
             Debug.log("No motion points armature selected")
         Debug.log("Motion points will not be exported")
     
-    stop_timer("3. Motion Points")
+    Debug.stop_timer("3. Motion Points")
 
     # =============================
     # =============================
 
     # Export each action as a GaniData object
     Debug.log("\n4. Animations ++++++++++++++++++++++++++++++++++++++++++++")
-    start_timer("4. Animations")
-    update_progress(30, "Animations...")
+    Debug.start_timer("4. Animations")
+    Debug.update_progress(30, "Animations...")
 
     for action_idx, action_data in enumerate(actions_to_export):
         # -----------------------------------------------------
@@ -1479,7 +1479,7 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
             display_name = action_data.action.name if hasattr(action_data, 'action') and action_data.action else f"Gani_{action_idx+1:03d}"
         except Exception:
             display_name = f"Gani_{action_idx+1:03d}"
-        update_progress(progress, f"GANI {action_idx+1}/{len(actions_to_export)}: {display_name}")
+        Debug.update_progress(progress, f"GANI {action_idx+1}/{len(actions_to_export)}: {display_name}")
         # -----------------------------------------------------
 
         # Get frame info from action data
@@ -1495,7 +1495,7 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
 
         # Main animation tracks
         Debug.log(f"\n4.{action_idx}.1 Main Animation Tracks ----------------------------------------")
-        start_timer(f"4.{action_idx}.1 Main Animation Tracks")
+        Debug.start_timer(f"4.{action_idx}.1 Main Animation Tracks")
 
         gani_tracks: List[TrackUnitWrapper] = export_gani_tracks_from_action(
             armature, action_data,
@@ -1509,7 +1509,7 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
             source=action_data.source
         )
 
-        stop_timer(f"4.{action_idx}.1 Main Animation Tracks")
+        Debug.stop_timer(f"4.{action_idx}.1 Main Animation Tracks")
         # # Yield briefly to allow the UI event loop to process
         # try:
         #     time.sleep(0.001)
@@ -1520,7 +1520,7 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
         
         # Motion Points
         Debug.log(f"\n4.{action_idx}.2 Motion Points ----------------------------------------")
-        start_timer(f"4.{action_idx}.2 Motion Points")
+        Debug.start_timer(f"4.{action_idx}.2 Motion Points")
 
         # Export motion point tracks for this GANI (if corresponding motion point action exists)
         motion_point_tracks: List[TrackUnitWrapper] = None
@@ -1552,13 +1552,13 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
                 action=motion_point_action_data.action if motion_point_action_data else None
             )
         
-        stop_timer(f"4.{action_idx}.2 Motion Points")
+        Debug.stop_timer(f"4.{action_idx}.2 Motion Points")
 
         # =============================
         
         # Motion Events
         Debug.log(f"\n4.{action_idx}.3 Motion Events ----------------------------------------")
-        start_timer(f"4.{action_idx}.3 Motion Events")
+        Debug.start_timer(f"4.{action_idx}.3 Motion Events")
 
         # Read motion events from the action if present
         motion_events = read_motion_events_from_action(gani_action)
@@ -1571,7 +1571,7 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
             )
             Debug.log(f"  Found {motion_events.count} motion event categor(ies) in action")
         
-        stop_timer(f"4.{action_idx}.3 Motion Events")
+        Debug.stop_timer(f"4.{action_idx}.3 Motion Events")
 
         # =============================
 
@@ -1596,15 +1596,15 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
         else:
             Debug.log(f"  Added GANI data: '{gani_name}' ({frame_count} frames)")
     
-    stop_timer("4. Animations")
+    Debug.stop_timer("4. Animations")
 
     # Write the MTAR file
     Debug.log("\n5. Writing MTAR file... ++++++++++++++++++++++++++++++++++++++++++++")
-    start_timer("5. Writing MTAR file")
+    Debug.start_timer("5. Writing MTAR file")
     # Update progress bar for the writing phase (90-100%)
-    update_progress(95, "Writing MTAR...")
+    Debug.update_progress(95, "Writing MTAR...")
     writer.write()
-    stop_timer("5. Writing MTAR file")
+    Debug.stop_timer("5. Writing MTAR file")
 
     # Build animation names for the info file using the writer helper so we
     # reuse the same naming logic (handles NLA strips and active actions).
@@ -1612,7 +1612,7 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
 
     # Write the info file with animation names
     Debug.log("\n6. Writing animation info file... ++++++++++++++++++++++++++++++++++++++++++++")
-    start_timer("6. Writing animation info file")
+    Debug.start_timer("6. Writing animation info file")
     
     # Only write the info file if the export setting is enabled
     if export_props.info_file:
@@ -1628,10 +1628,10 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
     else:
         Debug.log("  Skipping info file export (disabled in export settings)")
     
-    stop_timer("6. Writing animation info file")
+    Debug.stop_timer("6. Writing animation info file")
     
     Debug.log("\n=== MTAR Data Export Complete ===")
     Debug.log(f"Exported {len(actions_to_export)} action(s) to {filepath}\n")
-    stop_timer("MTAR Export")
+    Debug.stop_timer("MTAR Export")
     
     return {'FINISHED': f'Exported to {filepath}'}
