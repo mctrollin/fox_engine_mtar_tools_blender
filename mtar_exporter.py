@@ -5,7 +5,7 @@ This module handles the export of Blender animation data to MTAR format.
 """
 
 import math
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
 from pathlib import Path
 
 import bpy
@@ -35,15 +35,13 @@ from .py_foxwrap.foxwrap_misc import TrackUnitWrapper, Tracks, TrackDataBlobWrap
 from .py_foxwrap.foxwrap_mtar_writer import MtarWriter
 from .py_foxwrap.foxwrap_misc_export import (
     GaniData, GaniTracksData, GaniMotionPointsData, GaniMotionEventsData,
-    TrackSegmentBoneMapping, ExportActionData, create_synthetic_mapping
+    TrackSegmentBoneMapping, ExportActionData, create_synthetic_mapping, build_motion_point_action_maps, find_motion_point_action_for_gani
 )
 from .py_foxwrap.foxwrap_mapping import BoneParameters
-
 from .py_fox.fox_gani_types import AnimKeyframe, SegmentType, TrackUnitFlags, TrackHeader, TrackUnit, TrackData, TrackDataBlob
 from .py_fox.fox_mtar_types import MotionPointList2, MotionPointEntry
 from .py_fox.fox_frig_types import RigUnitType
 from .py_fox.fox_misc_types import StrCode32
-
 
 # Utility Functions ###############################################################
 
@@ -1481,15 +1479,16 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
     if motion_points_armature:
         Debug.log(f"Found motion points armature: {motion_points_armature.name}")
         
-        # Build MotionPointsList from armature bones
+        # Build MotionPointsList from armature bones (but do not write header count yet - it is computed at write time)
         motion_points_list : MotionPointList2 = build_motion_points_list_from_armature(motion_points_armature)
-        writer.set_motion_points_list(motion_points_list)
         
         # Collect motion point actions
         motion_point_actions_data = collect_motion_point_actions(motion_points_armature, use_nla)
         
         if motion_point_actions_data:
             Debug.log(f"Found {len(motion_point_actions_data)} motion point action(s)")
+            # Build lookup map for motion-point actions by GANI index
+            motion_point_actions_by_gani_index = build_motion_point_action_maps(motion_point_actions_data)
         else:
             Debug.log("No motion point actions found (motion points list will be exported without animations)")
     else:
@@ -1509,6 +1508,8 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
     Debug.start_timer("4. Animations")
     Debug.update_progress(30, "Animations...")
 
+    # Track per-GANI motion point unit counts so we can compute the final header value at write time
+    gani_motion_point_units: List[int] = []
     for action_idx, action_data in enumerate(actions_to_export):
         # -----------------------------------------------------
         # Update UI progress for each action (30-90% range)
@@ -1560,35 +1561,43 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
         Debug.log(f"\n4.{action_idx}.2 Motion Points ----------------------------------------")
         Debug.start_timer(f"4.{action_idx}.2 Motion Points")
 
-        # Export motion point tracks for this GANI (if corresponding motion point action exists)
+        # Export motion point tracks for this GANI (match by extracted GANI index)
         motion_point_tracks: List[TrackUnitWrapper] = None
-        if motion_point_actions_data and action_idx < len(motion_point_actions_data):
-            motion_point_action_data: ExportActionData = motion_point_actions_data[action_idx]
-            Debug.log(f"\n  Exporting motion points for GANI #{action_idx}: {motion_point_action_data.action.name}")
-            
+        motion_point_action_data: Optional[ExportActionData] = None
+
+        if motion_point_actions_data:
+            motion_point_action_data = find_motion_point_action_for_gani(gani_name, motion_point_actions_by_gani_index)
+
+        if motion_point_action_data:
+            Debug.log(f"\n  Exporting motion points for GANI '{gani_name}': {motion_point_action_data.action.name}")
+
             # MetaData: Build metadata dict for motion points by analyzing the action and armature
-            motion_point_metadata_dict: Dict[str, TrackMetaData] = build_motion_point_metadata_dict(
-                motion_points_armature, 
-                motion_point_action_data.action
-            )
+            motion_point_metadata_dict: Dict[str, TrackMetaData] = build_motion_point_metadata_dict(motion_points_armature, motion_point_action_data.action)
             Debug.log(f"    Built metadata from {len(motion_point_metadata_dict)} motion point bone(s)")
-            
+
             # Export motion point tracks
-            motion_point_tracks = export_gani_tracks_from_action(
-                motion_points_armature,
-                motion_point_action_data,
-                None,  # No bone mapping needed yet for motion points
-                motion_point_metadata_dict,  # Pass the built metadata dict
-                force_highest_bit_encoding
-            )
-            Debug.log(f"    Exported {len(motion_point_tracks)} motion point track(s)")
+            motion_point_tracks = export_gani_tracks_from_action(motion_points_armature,
+                                                                 motion_point_action_data,
+                                                                 None,  # No bone mapping needed yet for motion points
+                                                                 motion_point_metadata_dict,  # Pass the built metadata dict
+                                                                 force_highest_bit_encoding)
+            if motion_point_tracks:
+                Debug.log(f"    Exported {len(motion_point_tracks)} motion point track(s)")
+            else:
+                Debug.log_warning(f"    Warning: Motion point action '{motion_point_action_data.action.name}' matched GANI '{gani_name}' but exported 0 motion point tracks")
+        else:
+            Debug.log(f"    No motion point action for GANI '{gani_name}'")
         
         motion_points_data = None
+        total_units = 0
         if motion_point_tracks:
             motion_points_data = GaniMotionPointsData(
                 motion_point_tracks=motion_point_tracks,
                 action=motion_point_action_data.action if motion_point_action_data else None
             )
+            # Record the number of motion point units for this GANI for later validation/header calculation
+            total_units = len(motion_point_tracks)
+        gani_motion_point_units.append(total_units)
         
         Debug.stop_timer(f"4.{action_idx}.2 Motion Points")
 
@@ -1635,6 +1644,23 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
             Debug.log(f"  Added GANI data: '{gani_name}' ({frame_count} frames)")
     
     Debug.stop_timer("4. Animations")
+
+    # Update motion point header count based on maximum observed across GANIs
+    max_units_from_ganis = max(gani_motion_point_units) if gani_motion_point_units else 0
+    
+    if max_units_from_ganis > 0 and motion_points_list:
+        # Change only the header count value
+        motion_points_list.count = max_units_from_ganis
+        
+        # Warn if header count exceeds available motion point entries
+        if max_units_from_ganis > len(motion_points_list.entries):
+            Debug.log_warning(f"Motion point header unit count ({max_units_from_ganis}) is larger than motion points list entries ({len(motion_points_list.entries)})")
+        
+        writer.set_motion_points_list(motion_points_list)
+        Debug.log(f"Motion point unit count written to MTAR header: {max_units_from_ganis}")
+    else:
+        # No motion points to export
+        writer.set_motion_points_list(None)
 
     # Write the MTAR file
     Debug.log("\n5. Writing MTAR file... ++++++++++++++++++++++++++++++++++++++++++++")

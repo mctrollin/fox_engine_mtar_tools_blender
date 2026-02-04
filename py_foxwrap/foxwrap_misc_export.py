@@ -14,6 +14,7 @@ from .foxwrap_metadata import parse_action_track_metadata, TrackMetaData, parse_
 from .foxwrap_misc import Tracks, TrackUnitWrapper
 from .foxwrap_gani_writer import Gani2Writer
 from .foxwrap_mapping import BoneParameters
+import re
 
 
 @dataclass
@@ -320,7 +321,7 @@ class TrackSegmentBoneMapping:
             Number of unique tracks
         """
         return len(self.get_track_indices())
-    
+
     def get_all_mappings(self) -> Dict[Tuple[int, int], Tuple[str, BoneParameters]]:
         """Get all mappings as a dictionary.
         
@@ -340,7 +341,7 @@ class TrackSegmentBoneMapping:
     def __iter__(self):
         """Iterate over all (track_idx, segment_idx) keys."""
         return iter(self._mappings.keys())
-    
+
     def populate_missing_segments(self, track_idx: int, expected_segment_count: int) -> None:
         """Populate missing segments for a track using the base mapping.
         
@@ -414,6 +415,47 @@ class TrackSegmentBoneMapping:
                 
                 # Populate missing segments
                 self.populate_missing_segments(track_idx, expected_segment_count)
+
+
+# Helper utilities for motion-point action matching ################################
+
+def build_motion_point_action_maps(motion_point_actions: List[ExportActionData]) -> Dict[int, ExportActionData]:
+    """Build lookup map for motion point actions indexed by extracted GANI index.
+
+    Returns:
+    - by_gani_index: Dict[int, ExportActionData] mapping extracted GANI index -> action
+    """
+    by_gani_index: Dict[int, ExportActionData] = {}
+
+    for a in motion_point_actions:
+        # Try extract GANI index
+        match = re.search(r'[Gg]ani[_\s]*(\d+)', a.action.name)
+        if match:
+            try:
+                idx = int(match.group(1))
+                if idx not in by_gani_index:
+                    by_gani_index[idx] = a
+            except ValueError:
+                Debug.log_warning(f"Warning: Invalid GANI index in motion point action name '{a.action.name}'")
+        else:
+            Debug.log(f"Note: No GANI index found in motion point action name '{a.action.name}'")
+
+    return by_gani_index
+
+
+def find_motion_point_action_for_gani(gani_name: str, by_gani_index: Dict[int, ExportActionData]) -> Optional[ExportActionData]:
+    """Find the motion point action matching a GANI using only extracted GANI index.
+
+    Returns the ExportActionData if a motion-point action exists for the given index, else None.
+    """
+    match = re.search(r'[Gg]ani[_\s]*(\d+)', gani_name)
+    if match:
+        try:
+            idx = int(match.group(1))
+            return by_gani_index.get(idx)
+        except ValueError:
+            return None
+    return None
 
 
 def create_synthetic_mapping(armature: 'bpy.types.Object', 

@@ -72,14 +72,11 @@ def _should_log(level: _LogLevel) -> bool:
         verbosity_str = settings.log_verbosity
         level_map = {'ERROR': _LogLevel.ERROR, 'WARNING': _LogLevel.WARNING, 'INFO': _LogLevel.INFO, 'DEBUG': _LogLevel.DEBUG}
         panel_level = level_map.get(verbosity_str, _LogLevel.WARNING)
-        if level > panel_level:
-            return False
+        return level <= panel_level
 
     # If there are issues accessing Blender context, fall back to module-level min
-    if level > _min_log_level:
-        return False
+    return level <= _min_log_level
 
-    return True
 
 
 def _should_log_timers() -> bool:
