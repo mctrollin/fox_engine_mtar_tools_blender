@@ -59,6 +59,13 @@ class MtarWriter:
         # Motion points data (shared across all GANI files)
         self.motion_points_list: Optional['MotionPointList2'] = None
         
+        # Motion point header count (separate from CommonInfo count)
+        # IMPORTANT: MTAR header count != CommonInfo count!
+        # - MTAR header: max motion point units used across all GANIs (game engine requirement)
+        # - CommonInfo: total number of motion point bone definitions
+        # During import, MTAR header value is informational only; CommonInfo has the actual data.
+        self.motion_point_header_count: int = 0
+        
         # Custom path hashing settings
         self.export_custom_path_hashes = export_custom_path_hashes
         self.export_custom_path_base = export_custom_path_base
@@ -82,11 +89,41 @@ class MtarWriter:
     def set_motion_points_list(self, motion_points_list: Optional['MotionPointList2']) -> None:
         """Set the motion points list for the MTAR.
         
+        This sets the CommonInfo motion points list (bone definitions).
+        The count in this list represents the total number of motion point entries.
+        
         Args:
             motion_points_list: MotionPointList2 object containing motion point definitions,
                               or None to write an empty motion points list
         """
         self.motion_points_list = motion_points_list
+    
+    def set_motion_point_header_count(self, count: int) -> None:
+        """Set the motion point unit count for the MTAR header.
+        
+        This is SEPARATE from the CommonInfo motion points count!
+        - Header count: max motion point units used across all GANIs (for game engine)
+        - CommonInfo count: total number of motion point bone definitions (from motion_points_list)
+        
+        Args:
+            count: Maximum motion point units used across all GANI files
+        """
+        self.motion_point_header_count = count
+    
+    def sort_file_table_by_hash(self, file_table_entries: List['MtarTableList2']) -> List['MtarTableList2']:
+        """Sort file table entries by path hash in ascending order.
+        
+        The GANI data has already been written in Blender NLA strip order,
+        and the offsets in these entries point to those locations.
+        This sorting only reorders the directory (file table), not the data.
+        
+        Args:
+            file_table_entries: List of MtarTableList2 entries with offsets already set
+            
+        Returns:
+            Same list sorted by path hash (ascending)
+        """
+        return sorted(file_table_entries, key=lambda entry: entry.path)
     
     def get_animation_name_for_gani(self, gani_data: 'GaniData') -> str:
         """Extract the animation name string from GaniData.
@@ -197,15 +234,18 @@ class MtarWriter:
         segment_count = self.layout_track.header.segment_count
         file_count = len(self.gani_data_list)
         
-        # Get motion point count
-        motion_point_unit_count = 0
-        if self.motion_points_list:
-            motion_point_unit_count = self.motion_points_list.count
+        # Get motion point counts
+        # IMPORTANT: Header count is separate from CommonInfo count!
+        # - motion_point_header_count: for MTAR header (max units across GANIs)
+        # - motion_points_list.count: for CommonInfo (total bone definitions)
+        motion_point_header_count = self.motion_point_header_count
+        motion_point_commoninfo_count = self.motion_points_list.count if self.motion_points_list else 0
         
         Debug.log(f"  File count: {file_count}")
         Debug.log(f"  Track count: {track_count} (from layout track)")
         Debug.log(f"  Segment count: {segment_count} (from layout track)")
-        Debug.log(f"  Motion point count: {motion_point_unit_count}")
+        Debug.log(f"  Motion point header count: {motion_point_header_count} (max units across GANIs)")
+        Debug.log(f"  Motion point CommonInfo count: {motion_point_commoninfo_count} (total bone definitions)")
         
         # Convert all GaniData to bytes using the layout track
         Debug.log(f"  Converting {len(self.gani_data_list)} GANI data object(s) to bytes...")
@@ -232,7 +272,7 @@ class MtarWriter:
             segment_count=segment_count,
             shader_node_count=0,
             shader_unit_count=0,
-            motion_point_unit_count=motion_point_unit_count,
+            motion_point_unit_count=motion_point_header_count,
             flags=flags,
             common_info_offset=0,  # Will update
             padding=0
@@ -255,6 +295,10 @@ class MtarWriter:
         # Write all GANI files (mirrors processing file table in read_all_tracks)
         Debug.log(f"  Writing {file_count} GANI file(s)...")
         file_table_entries = self._write_all_gani_files(buffer, gani_bytes_list)
+        
+        # ========== SORT FILE TABLE BY HASH (comment out to disable) ==========
+        file_table_entries = self.sort_file_table_by_hash(file_table_entries)
+        # ========== END SORT FILE TABLE BY HASH ==========
         
         # Update header with common_info_offset
         placeholder_header.common_info_offset = common_info_offset

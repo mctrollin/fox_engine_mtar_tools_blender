@@ -1421,6 +1421,71 @@ def create_and_setup_motion_points_armature(
 
 # MTAR import #############################################################
 
+def sort_gani_data_by_file_offset(
+    all_gani_tracks: List[List[TrackUnitWrapper]],
+    all_motion_point_gani_tracks: List[List[TrackUnitWrapper]],
+    all_motion_events: List[Optional[EvpHeader]],
+    all_track_mini_headers: List[TrackMiniHeader],
+    all_motion_point_layouts: List[Optional[Tracks]],
+    all_file_headers: List[MtarTableList2],
+    all_motion_point_track_headers: List[Optional[TrackHeader]]
+) -> Tuple[
+    List[List[TrackUnitWrapper]],
+    List[List[TrackUnitWrapper]],
+    List[Optional[EvpHeader]],
+    List[TrackMiniHeader],
+    List[Optional[Tracks]],
+    List[MtarTableList2],
+    List[Optional[TrackHeader]]
+]:
+    """Sort all GANI data lists by tracks_offset from file headers.
+    
+    Sorts data in the order GANIs appear in the MTAR file (by file offset).
+    This affects action names and NLA strip ordering.
+    
+    Args:
+        All GANI data lists (must have same length)
+        
+    Returns:
+        Same lists sorted by tracks_offset
+    """
+    # Create list of tuples: (tracks_offset, original_index, all_data)
+    combined = []
+    for i in range(len(all_file_headers)):
+        combined.append((
+            all_file_headers[i].tracks_offset,
+            i,
+            all_gani_tracks[i],
+            all_motion_point_gani_tracks[i],
+            all_motion_events[i],
+            all_track_mini_headers[i],
+            all_motion_point_layouts[i],
+            all_file_headers[i],
+            all_motion_point_track_headers[i]
+        ))
+    
+    # Sort by tracks_offset
+    combined.sort(key=lambda x: x[0])
+    
+    # Unpack sorted data
+    sorted_gani_tracks = [item[2] for item in combined]
+    sorted_motion_point_gani_tracks = [item[3] for item in combined]
+    sorted_motion_events = [item[4] for item in combined]
+    sorted_track_mini_headers = [item[5] for item in combined]
+    sorted_motion_point_layouts = [item[6] for item in combined]
+    sorted_file_headers = [item[7] for item in combined]
+    sorted_motion_point_track_headers = [item[8] for item in combined]
+    
+    return (
+        sorted_gani_tracks,
+        sorted_motion_point_gani_tracks,
+        sorted_motion_events,
+        sorted_track_mini_headers,
+        sorted_motion_point_layouts,
+        sorted_file_headers,
+        sorted_motion_point_track_headers
+    )
+
 def import_mtar(context: bpy.types.Context, filepath: str, frig: Optional[FrigFile], track_mapping: Optional[Dict[str, BoneParameters]] = None, gani_indices: Optional[List[int]] = None, custom_rig: Optional[bpy.types.Object] = None, strip_padding: int = 10) -> Tuple[Dict[str, str], bpy.types.Object]:
     """Import MTAR animation data and create corresponding objects and animations.
     
@@ -1517,6 +1582,19 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
         Debug.log("Importing all GANIs")
         all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers = reader.read_all_tracks()
         Debug.log(f"Found {len(all_gani_tracks)} GANI file(s)")
+
+    # ========== SORT BY FILE OFFSET (comment out to disable) ==========
+    if all_file_headers:
+        all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers = sort_gani_data_by_file_offset(
+            all_gani_tracks,
+            all_motion_point_gani_tracks,
+            all_motion_events,
+            all_track_mini_headers,
+            all_motion_point_layouts,
+            all_file_headers,
+            all_motion_point_track_headers
+        )
+    # ========== END SORT BY FILE OFFSET ==========
 
     # Get layout track for metadata storage
     layout_track = None

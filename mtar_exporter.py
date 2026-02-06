@@ -1645,22 +1645,27 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
     
     Debug.stop_timer("4. Animations")
 
-    # Update motion point header count based on maximum observed across GANIs
-    max_units_from_ganis = max(gani_motion_point_units) if gani_motion_point_units else 0
-    
-    if max_units_from_ganis > 0 and motion_points_list:
-        # Change only the header count value
-        motion_points_list.count = max_units_from_ganis
+    # Set motion points data if available
+    # IMPORTANT: MTAR header count is SEPARATE from CommonInfo count!
+    # - Header count: max motion point units used across all GANIs (set via set_motion_point_header_count)
+    # - CommonInfo count: total motion point bone definitions (in motion_points_list.count)
+    # The header value is informational only during import; CommonInfo has the actual bone data.
+    if motion_points_list:
+        writer.set_motion_points_list(motion_points_list)
+        
+        # Compute max motion point units across all GANIs for the header
+        max_units_from_ganis = max(gani_motion_point_units) if gani_motion_point_units else 0
+        writer.set_motion_point_header_count(max_units_from_ganis)
         
         # Warn if header count exceeds available motion point entries
         if max_units_from_ganis > len(motion_points_list.entries):
             Debug.log_warning(f"Motion point header unit count ({max_units_from_ganis}) is larger than motion points list entries ({len(motion_points_list.entries)})")
         
-        writer.set_motion_points_list(motion_points_list)
-        Debug.log(f"Motion point unit count written to MTAR header: {max_units_from_ganis}")
+        Debug.log(f"Motion points: {len(motion_points_list.entries)} bone definitions, {max_units_from_ganis} max units in MTAR header")
     else:
         # No motion points to export
         writer.set_motion_points_list(None)
+        writer.set_motion_point_header_count(0)
 
     # Write the MTAR file
     Debug.log("\n5. Writing MTAR file... ++++++++++++++++++++++++++++++++++++++++++++")

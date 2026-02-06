@@ -16,9 +16,9 @@ from .py_utilities.utilities_logging import Debug
 from .py_utilities.utilities_debug import create_or_update_dummy_object
 from .py_utilities.utilities_blender_animation import assign_action_to_datablock, remove_action_from_datablock
 from .py_tools.tools_blender_animation_bake import bake_armature_action, bake_armature_nla_strips, remove_bone_constraints, get_bones_with_keyframes
+from .py_tools.tools_hash_generator import hash_filename_all_modes
 
 from .blender_operators_import import clear_armature_transforms
-
 
 # Transform Debug Operators ##################################################################
 
@@ -532,7 +532,6 @@ class MTAR_OT_GenerateHashWithExternalExe(Operator):
     
     def execute(self, context: Context) -> set:
         """Execute the hash conversion."""
-        from .py_tools.tools_hash_generator import hash_filename_all_modes
         
         props = context.scene.mtar_debug_hash_properties
         # The executable path is read strictly from main scene settings
