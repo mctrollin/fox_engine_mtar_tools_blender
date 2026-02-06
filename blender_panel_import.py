@@ -95,6 +95,14 @@ class MTAR_PT_ImportPanel(Panel):
                     row = info_box.row()
                     row.label(text=f"v: {header_info.version}")
                     row.label(text=f"Files: {header_info.file_count}")
+                    
+                    # Validate MTAR header and show warning if invalid
+                    is_valid, error_msg = reader.validate_header()
+                    if not is_valid:
+                        warn_box = info_box.box()
+                        warn_box.alert = True
+                        warn_box.label(text="File validation", icon='ERROR')
+                        warn_box.label(text=error_msg)
                 except Exception as e:
                     info_box.label(text=f"Error reading MTAR: {e}", icon='ERROR')
             else:

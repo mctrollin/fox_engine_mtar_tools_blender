@@ -121,62 +121,46 @@ class GaniData:
         # Create writer and write to memory buffer
         writer = Gani2Writer()
         buffer = io.BytesIO()
-        # Gather per-file per-track metadata (unit flags and per-segment component bit sizes) from the action
-        unit_flags_per_file = None
-        segment_bit_sizes_per_file = None
+        
+        # Extract per-file per-track metadata (unit flags and per-segment component bit sizes) 
+        # from the already-merged TrackUnitWrapper objects (merged via merge_track_metadata())
+        unit_flags_per_file = []
+        segment_bit_sizes_per_file = []
 
-        action = self.tracks_data.action
-        if action is not None:
-            unit_flags_per_file = []
-            segment_bit_sizes_per_file = []
-
-            # Parse per-track metadata from the action using the exporter metadata parser (already handles @track bits=... and flags)
-            for track_idx, track_unit in enumerate(layout_track.track_units):
-                # Default values from layout track
-                default_flags = track_unit.unit_flags if track_idx < len(layout_track.track_units) else 0
-
-                # Attempt to find metadata for this track using parse_track_property_key
-                prop_key = None
-                for k in (action.keys() if hasattr(action, 'keys') else []):
-                    parsed = parse_track_property_key(k)
-                    if parsed and parsed[0] == track_idx:  # parsed[0] is track_idx
-                        prop_key = k
-                        break
-
-                # Parse metadata using existing function if property found
-                flags_value = default_flags
-                bits_for_track = []
-                if prop_key is not None:
-                    metadata_params = parse_action_track_metadata(action[prop_key])
-                    if metadata_params:
-                        flags_list = metadata_params.get('flags', [])
-                        if flags_list:
-                            flag_enums = []
-                            for name in flags_list:
-                                try:
-                                    flag_enums.append(TrackUnitFlags[name])
-                                except KeyError:
-                                    pass
-                            if flag_enums:
-                                flags_value = TrackUnitFlags.track_unit_flags_to_int(flag_enums)
-                        bits_list = metadata_params.get('component_bit_sizes', [])
-                        bits_for_track = bits_list if bits_list else []
-
-                unit_flags_per_file.append(flags_value)
-
-                # Extend segment_bit_sizes_per_file with bits_for_track or zeros if not present
-                segment_count = len(track_unit.segments_data) if track_unit and track_unit.segments_data else 0
-                if bits_for_track:
-                    # If only a single bit size is provided, replicate across all segments
-                    if len(bits_for_track) == 1 and segment_count > 1:
-                        for _ in range(segment_count):
-                            segment_bit_sizes_per_file.append(bits_for_track[0])
-                    else:
-                        for i in range(segment_count):
-                            segment_bit_sizes_per_file.append(bits_for_track[i] if i < len(bits_for_track) else 0)
+        for track_idx, track_unit in enumerate(layout_track.track_units):
+            # Default fallback values from layout track
+            default_flags = track_unit.unit_flags if track_idx < len(layout_track.track_units) else 0
+            segment_count = len(track_unit.segments_data) if track_unit and track_unit.segments_data else 0
+            
+            # Try to get merged metadata from gani_tracks (populated by export_gani_track_from_action)
+            if track_idx < len(self.tracks_data.gani_tracks):
+                gani_track = self.tracks_data.gani_tracks[track_idx]
+                
+                # Extract unit_flags (already merged via merge_track_metadata in export_gani_track_from_action)
+                if gani_track.unit_flags:
+                    flags_value = TrackUnitFlags.track_unit_flags_to_int(gani_track.unit_flags)
                 else:
-                    for _ in range(segment_count):
+                    Debug.log_warning(f"Warning: Track {track_idx} has no unit_flags in gani_track, using layout default ({default_flags})")
+                    flags_value = default_flags
+                
+                unit_flags_per_file.append(flags_value)
+                
+                # Extract component_bit_sizes from segment data blobs (already set during export)
+                for segment_idx in range(segment_count):
+                    if segment_idx < len(gani_track.segments_track_data):
+                        segment_data = gani_track.segments_track_data[segment_idx]
+                        component_bit_size = segment_data.data_blob.component_bit_size
+                        segment_bit_sizes_per_file.append(component_bit_size)
+                    else:
+                        # Missing segment - use 0 as fallback
+                        Debug.log_warning(f"Warning: Track {track_idx} segment {segment_idx} missing in gani_track, using bit size 0")
                         segment_bit_sizes_per_file.append(0)
+            else:
+                # Missing track - use layout defaults and log warning
+                Debug.log_warning(f"Warning: Track {track_idx} missing in gani_tracks, using layout defaults (flags={default_flags}, bits=0)")
+                unit_flags_per_file.append(default_flags)
+                for _ in range(segment_count):
+                    segment_bit_sizes_per_file.append(0)
 
         # Write GANI data to buffer
         # Pass the action-derived unit_flags and segment bit sizes if present

@@ -860,15 +860,15 @@ def export_gani_track_from_action(armature: bpy.types.Object,
             Debug.start_timer(f"export_keyframes_track(segment_bone_name={segment_bone_name})")
             # Export keyframes for this segment
             keyframes = export_keyframes_track(
-                armature, 
-                segment_bone_name, 
+                armature,
+                segment_bone_name,
                 segment_fox_mapping_params,
-                segment_type, frame_start, 
-                frame_end, 
-                is_static, 
+                segment_type, frame_start,
+                frame_end,
+                is_static,
                 action,
-                merged_metadata.rig_unit_type, 
-                fcurve_cache, 
+                merged_metadata.rig_unit_type,
+                fcurve_cache,
                 transform_cache
             )
             Debug.stop_timer(f"export_keyframes_track(segment_bone_name={segment_bone_name})")

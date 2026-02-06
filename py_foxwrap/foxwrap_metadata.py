@@ -921,18 +921,8 @@ def merge_track_metadata(layout_meta: TrackMetaData, action_meta: Optional[Track
         result.component_bit_sizes = action_meta.component_bit_sizes
 
     # Override flags: prefer explicit integer if available, otherwise flags list
-    if action_meta.unit_flags is not None:
-        result.unit_flags = action_meta.unit_flags
-    elif action_meta.flags_list:
-        # Convert flag list to integer bitfield
-        flags_enums = []
-        for name in action_meta.flags_list:
-            if name in TrackUnitFlags.__members__:
-                flags_enums.append(TrackUnitFlags[name])
-        if flags_enums:
-            result.unit_flags = TrackUnitFlags.track_unit_flags_to_int(flags_enums)
-        else:
-            result.unit_flags = layout_meta.unit_flags
+    # Edit: unit flags are a special case. The action always (!) overrides the layout
+    result.unit_flags = action_meta.unit_flags
 
     # Override rig unit type if provided
     if action_meta.rig_unit_type:

@@ -61,6 +61,55 @@ class MtarReader:
                 has_common_info=header.common_info_offset > 0
             )
 
+    def validate_header(self) -> Tuple[bool, Optional[str]]:
+        """Validate MTAR header for basic sanity checks.
+        
+        Performs validation on:
+        - Version number (first 4 digits should be between 2010 and 2015)
+        - File count (should be > 0 and < 10000)
+        - File size (should be large enough for header + file table)
+        - CommonInfo offset (should be within file bounds if present)
+        
+        Returns:
+            Tuple of (is_valid, error_message)
+            - is_valid: True if all checks pass, False otherwise
+            - error_message: None if valid, otherwise a string describing the issue
+        """
+        try:
+            with open(self.filepath, 'rb') as f:
+                header = MtarHeader.read(f)
+                
+                # Get file size
+                f.seek(0, 2)
+                file_size = f.tell()
+            
+            # Check version (first 4 digits should be between 2010 and 2015)
+            version_string = str(abs(int(header.version)))
+            version_year = int(version_string[:4]) if len(version_string) >= 4 else int(version_string)
+            if version_year < 2010 or version_year > 2015:
+                return False, f"Invalid version: {header.version} (expected year ~2010-2015)"
+            
+            # Check file count
+            if header.file_count <= 0:
+                return False, f"Invalid file count: {header.file_count} (must be > 0)"
+            if header.file_count >= 10000:
+                return False, f"{header.file_count} animations seems too large"
+            
+            # Check file size is large enough for header + file table
+            min_size = MtarHeader.SIZE + (header.file_count * MtarTableList2.SIZE)
+            if file_size < min_size:
+                return False, f"File too small: {file_size} bytes (needs at least {min_size})"
+            
+            # Check CommonInfo offset if present
+            if header.common_info_offset > 0:
+                if header.common_info_offset >= file_size:
+                    return False, f"CommonInfo offset {header.common_info_offset} exceeds file size {file_size}"
+            
+            return True, None
+            
+        except Exception as e:
+            return False, f"Error reading MTAR header: {str(e)}"
+
     def read_all_tracks(self) -> Tuple[List[List[TrackUnitWrapper]], List[List[TrackUnitWrapper]], List[Optional[EvpHeader]], List[TrackMiniHeader], List[Optional[Tracks]], List[MtarTableList2], List[Optional[TrackHeader]]]:
         """Read all animation tracks from the MTAR file.
         
