@@ -296,8 +296,14 @@ class MtarWriter:
         Debug.log(f"  Writing {file_count} GANI file(s)...")
         file_table_entries = self._write_all_gani_files(buffer, gani_bytes_list)
         
-        # ========== SORT FILE TABLE BY HASH (comment out to disable) ==========
-        file_table_entries = self.sort_file_table_by_hash(file_table_entries)
+        # ========== SORT FILE TABLE BY HASH (controlled by 'Sort GANI' setting) ==========
+        try:
+            sort_enabled = bool(bpy.context.scene.mtar_properties.settings_props.sort_gani)
+        except Exception:
+            sort_enabled = True
+
+        if sort_enabled:
+            file_table_entries = self.sort_file_table_by_hash(file_table_entries)
         # ========== END SORT FILE TABLE BY HASH ==========
         
         # Update header with common_info_offset

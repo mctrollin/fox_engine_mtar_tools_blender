@@ -334,6 +334,13 @@ class MTAR_PG_SettingsProperties(PropertyGroup):
         default=True
     )
 
+    # Sorting GANI import/export to match file order / hash
+    sort_gani: BoolProperty(
+        name="Sort GANI",
+        description="When enabled, import will reorder GANIs by file offset and export will sort the MTAR file table by path hash. Can be disabled for testing.",
+        default=True
+    )
+
     # Stored preference for marker visibility (persisted)
     show_pose_markers_pref: BoolProperty(
         name="Show Pose Markers (pref)",

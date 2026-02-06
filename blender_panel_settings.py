@@ -42,6 +42,9 @@ class MTAR_PT_SettingsPanel(Panel):
             if not settings_props.enable_rest_pose_correction:
                 adv_box.label(text="Only mapping file transforms", icon='INFO')
 
+            # Sorting option for GANI (advanced)
+            draw_bool_prop_checkbox_icon(adv_box, settings_props, "sort_gani", text="Sort GANI", toggle=True)
+
             # Hash Generator executable
             conv_box = adv_box.box()
             conv_box.label(text="External Hash Generator", icon='FILE_SCRIPT')

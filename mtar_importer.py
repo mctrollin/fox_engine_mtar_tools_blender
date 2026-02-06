@@ -1583,8 +1583,14 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
         all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers = reader.read_all_tracks()
         Debug.log(f"Found {len(all_gani_tracks)} GANI file(s)")
 
-    # ========== SORT BY FILE OFFSET (comment out to disable) ==========
-    if all_file_headers:
+    # ========== SORT BY FILE OFFSET (controlled by 'Sort GANI' setting) ==========
+    # Default to enabled (True) if property is missing for backwards compatibility
+    try:
+        sort_enabled = bool(context.scene.mtar_properties.settings_props.sort_gani)
+    except Exception:
+        sort_enabled = True
+
+    if sort_enabled and all_file_headers:
         all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers = sort_gani_data_by_file_offset(
             all_gani_tracks,
             all_motion_point_gani_tracks,
