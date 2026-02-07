@@ -236,10 +236,6 @@ def _throttled_redraw() -> None:
         if now - _last_redraw_time >= _redraw_min_interval:
             try:
                 bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
-                # try:
-                #     time.sleep(0.001)
-                # except Exception:
-                #     pass
             except Exception:  # noqa: E722
                 pass
             _last_redraw_time = now

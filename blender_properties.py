@@ -207,6 +207,18 @@ class MTAR_PG_ImportProperties(PropertyGroup):
         ],
         default='BEZIER'
     )
+    
+    use_verbose_naming: BoolProperty(
+        name="Verbose Naming",
+        description=(
+            "Include header and data indices in action/strip names.\n"
+            "Verbose: player2.0.h340_d278.gani\n"
+            "Simple: player2.0.gani\n"
+            "h = header index (position in MTAR file table)\n"
+            "d = data index (position sorted by file offset)"
+        ),
+        default=True
+    )
 
 class MTAR_PG_ExportProperties(PropertyGroup):
     """Property group for MTAR export settings."""

@@ -110,7 +110,7 @@ class MtarReader:
         except Exception as e:
             return False, f"Error reading MTAR header: {str(e)}"
 
-    def read_all_tracks(self) -> Tuple[List[List[TrackUnitWrapper]], List[List[TrackUnitWrapper]], List[Optional[EvpHeader]], List[TrackMiniHeader], List[Optional[Tracks]], List[MtarTableList2], List[Optional[TrackHeader]]]:
+    def read_all_ganies(self) -> Tuple[List[List[TrackUnitWrapper]], List[List[TrackUnitWrapper]], List[Optional[EvpHeader]], List[TrackMiniHeader], List[Optional[Tracks]], List[MtarTableList2], List[Optional[TrackHeader]]]:
         """Read all animation tracks from the MTAR file.
         
         Returns:

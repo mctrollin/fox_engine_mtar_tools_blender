@@ -69,15 +69,15 @@ def get_highest_bit_size_for_segment(segment_type: SegmentType) -> int:
 def find_layout_track_action() -> Optional[bpy.types.Action]:
     """Find the layout track action in the scene.
     
-    Searches for an action with a name containing 'layout' or 'LAYOUT_TRACK'.
+    Searches for an action with a name containing '.layout.'.
         
     Returns:
         Layout track action if found, None otherwise
     """
     # Search in all actions
     for action in bpy.data.actions:
-        # Check for layout track naming patterns
-        if 'layout' in action.name.lower() or 'LAYOUT_TRACK' in action.name:
+        # Check for layout track naming pattern
+        if '.layout.' in action.name.lower():
             Debug.log(f"  Found layout track action: '{action.name}'")
             return action
     
@@ -353,7 +353,7 @@ def collect_actions_for_export_from_armature(armature: bpy.types.Object, use_nla
         action = armature.animation_data.action
         
         # Skip layout track action (metadata only, not animation data)
-        if 'layout' in action.name.lower() or 'LAYOUT_TRACK' in action.name:
+        if '.layout.' in action.name.lower():
             Debug.log(f"\nActive action '{action.name}' is a layout track (skipping - metadata only)")
         else:
             frame_start = int(action.frame_range[0])
@@ -1549,11 +1549,6 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
         )
 
         Debug.stop_timer(f"4.{action_idx}.1 Main Animation Tracks")
-        # # Yield briefly to allow the UI event loop to process
-        # try:
-        #     time.sleep(0.001)
-        # except Exception:
-        #     pass
         
         # =============================
         

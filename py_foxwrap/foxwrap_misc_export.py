@@ -407,13 +407,14 @@ def build_motion_point_action_maps(motion_point_actions: List[ExportActionData])
     """Build lookup map for motion point actions indexed by extracted GANI index.
 
     Returns:
-    - by_gani_index: Dict[int, ExportActionData] mapping extracted GANI index -> action
+    - by_gani_index: Dict[int, ExportActionData] mapping extracted running index -> action
     """
     by_gani_index: Dict[int, ExportActionData] = {}
 
     for a in motion_point_actions:
-        # Try extract GANI index
-        match = re.search(r'[Gg]ani[_\s]*(\d+)', a.action.name)
+        # Extract running index as digits immediately following the first dot in the name
+        # Example: 'player2.0.h340_d278.motionpoints.gani' -> capture '0'
+        match = re.search(r'^[^.]*\.(\d+)(?:\.|$)', a.action.name)
         if match:
             try:
                 idx = int(match.group(1))
@@ -428,11 +429,12 @@ def build_motion_point_action_maps(motion_point_actions: List[ExportActionData])
 
 
 def find_motion_point_action_for_gani(gani_name: str, by_gani_index: Dict[int, ExportActionData]) -> Optional[ExportActionData]:
-    """Find the motion point action matching a GANI using only extracted GANI index.
+    """Find the motion point action matching a GANI using only extracted running index.
 
     Returns the ExportActionData if a motion-point action exists for the given index, else None.
     """
-    match = re.search(r'[Gg]ani[_\s]*(\d+)', gani_name)
+    # Extract running index as digits immediately following the first dot in the name
+    match = re.search(r'^[^.]*\.(\d+)(?:\.|$)', gani_name)
     if match:
         try:
             idx = int(match.group(1))

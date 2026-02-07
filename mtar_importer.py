@@ -16,6 +16,7 @@ from .py_utilities.utilities_transforms import (
     apply_rest_pose_correction_local
 )
 from .py_utilities.utilities_blender_animation import add_dummy_keyframes_to_action, configure_action, remove_action_from_datablock, ensure_action_fcurve, iter_action_fcurves
+from .py_utilities.utilities_naming import format_action_name, format_strip_name
 
 from .py_foxwrap.foxwrap_metadata import store_track_header_properties_on_action, TrackMetaData, make_track_property_key
 from .py_foxwrap.foxwrap_misc import TrackUnitWrapper, TrackDataBlobWrapper, Tracks
@@ -23,7 +24,7 @@ from .py_foxwrap.foxwrap_motionevent import store_motion_events_on_action
 from .py_foxwrap.foxwrap_mtar_reader import MtarReader
 from .py_foxwrap.foxwrap_mapping import BoneParameters
 
-from .py_fox.fox_mtar_types import MotionPointList2, MtarTableList2
+from .py_fox.fox_mtar_types import MotionPointList2, MtarTableList2, MtarHeader
 from .py_fox.fox_gani_types import SegmentType, TrackUnitFlags, TrackHeader, TrackMiniHeader, EvpHeader
 from .py_fox.fox_frig_types import RigUnitType, FrigFile
 from .py_fox.fox_misc_types import StrCode32
@@ -511,7 +512,9 @@ def create_animation_actions(
     all_track_mini_headers: List[TrackMiniHeader],
     all_file_headers: List[MtarTableList2],
     layout_track: Optional['Tracks'],
-    all_motion_events: List[Optional[EvpHeader]]
+    all_motion_events: List[Optional[EvpHeader]],
+    path_to_indices: Dict[int, Tuple[int, int]],
+    use_verbose_naming: bool
 ) -> Tuple[Optional[bpy.types.Action], List[bpy.types.Action], int]:
     """Create Blender animation actions from MTAR data.
     
@@ -527,6 +530,8 @@ def create_animation_actions(
         layout_track: Optional layout track for metadata
         all_motion_events: All motion event headers
         context: Blender context (passed to import functions for settings access)
+        path_to_indices: Mapping from path hash to (h_index, d_index) tuples
+        use_verbose_naming: Whether to include h/d indices in names
         
     Returns:
         Tuple of (layout_action, gani_actions_list, max_frame_end)
@@ -534,7 +539,7 @@ def create_animation_actions(
         Padding is applied separately when creating NLA strips.
     """
     # Debug: Log list lengths to diagnose IndexError
-    Debug.log(f"create_animation_actions received lists with lengths:")
+    Debug.log("create_animation_actions received lists with lengths:")
     Debug.log(f"  all_gani_tracks: {len(all_gani_tracks)}")
     Debug.log(f"  all_track_mini_headers: {len(all_track_mini_headers)}")
     Debug.log(f"  all_file_headers: {len(all_file_headers)}")
@@ -544,7 +549,7 @@ def create_animation_actions(
     layout_action: Optional[bpy.types.Action] = None
     if layout_track and layout_track.track_units:
         Debug.log("Creating layout track action for metadata storage...")
-        layout_action_name = f"{mtar_file_name}_LayoutTrack"
+        layout_action_name = format_action_name(mtar_file_name, 0, 0, 0, False, is_layout=True)
         layout_action = bpy.data.actions.new(name=layout_action_name)
         layout_action.use_fake_user = True
         
@@ -590,7 +595,13 @@ def create_animation_actions(
         # -----------------------------------------------------
 
         # Create one action per GANI file
-        action_name: str = f"{mtar_file_name}_Gani_{gani_index:03d}"
+        # Look up h/d indices from path hash
+        file_header = all_file_headers[gani_index]
+        h_idx, d_idx = path_to_indices.get(file_header.path, (0, 0))
+        if file_header.path not in path_to_indices:
+            Debug.log_warning(f"Missing path hash mapping for GANI: 0x{file_header.path:016X}, using h0_d0")
+        
+        action_name: str = format_action_name(mtar_file_name, gani_index, h_idx, d_idx, use_verbose_naming)
         action: bpy.types.Action = bpy.data.actions.new(name=action_name)
         gani_actions.append(action)
         Debug.log(f"Created action: {action_name}")
@@ -635,12 +646,6 @@ def create_animation_actions(
         # Configure action with frame range from MTAR file header
         configure_action(action, frame_start=0, frame_end=gani_frame_count)
         Debug.log(f"  Configured action frame range: 0 - {gani_frame_count}")
-        
-        # # Yield briefly to let Blender process events (prevents UI lockups on long imports)
-        # try:
-        #     time.sleep(0.001)
-        # except Exception:
-        #     pass
 
         # Update offset for next strip (used for calculating total frame range)
         current_frame_offset += gani_frame_count
@@ -653,7 +658,10 @@ def create_motion_points_animation_actions(
     mtar_file_name: str,
     all_motion_point_gani_tracks: List[List[TrackUnitWrapper]],
     all_motion_point_layouts: List[Optional[Tracks]],
-    all_motion_point_track_headers: List[Optional[TrackHeader]]
+    all_motion_point_track_headers: List[Optional[TrackHeader]],
+    all_file_headers: List[MtarTableList2],
+    path_to_indices: Dict[int, Tuple[int, int]],
+    use_verbose_naming: bool
 ) -> List[Optional[bpy.types.Action]]:
     """Create Blender animation actions for motion points from MTAR data.
     
@@ -665,8 +673,10 @@ def create_motion_points_animation_actions(
         mtar_file_name: Base name for actions
         all_motion_point_gani_tracks: Motion point animation tracks
         all_motion_point_layouts: Tracks objects for motion point metadata (like layout track)
-        all_file_headers: File headers for path hashes
         all_motion_point_track_headers: Motion point track headers
+        all_file_headers: File headers for path hashes
+        path_to_indices: Mapping from path hash to (h_index, d_index) tuples
+        use_verbose_naming: Whether to include h/d indices in names
         context: Blender context (passed to import functions for settings access)
         
     Returns:
@@ -695,7 +705,13 @@ def create_motion_points_animation_actions(
         # -----------------------------------------------------
 
         # Create action for this GANI file's motion point animation
-        action_name: str = f"{mtar_file_name}_MotionPoints_Gani_{gani_index:03d}"
+        # Look up h/d indices from path hash
+        file_header = all_file_headers[gani_index]
+        h_idx, d_idx = path_to_indices.get(file_header.path, (0, 0))
+        if file_header.path not in path_to_indices:
+            Debug.log_warning(f"Missing path hash mapping for motion points GANI: 0x{file_header.path:016X}, using h0_d0")
+        
+        action_name: str = format_action_name(mtar_file_name, gani_index, h_idx, d_idx, use_verbose_naming, is_motion_points=True)
         action: bpy.types.Action = bpy.data.actions.new(name=action_name)
         motion_point_actions.append(action)
         Debug.log(f"  Created action: {action_name}")
@@ -730,11 +746,6 @@ def create_motion_points_animation_actions(
         # Configure action with frame range from MTAR file header
         configure_action(action, frame_start=0, frame_end=gani_frame_count)
         Debug.log(f"  Configured motion point action frame range: 0 - {gani_frame_count}")
-        # # Yield briefly to let Blender process events (prevents UI lockups on long imports)
-        # try:
-        #     time.sleep(0.001)
-        # except Exception:
-        #     pass
     
     return motion_point_actions
 
@@ -768,8 +779,10 @@ def create_nla_strips_for_actions(
     nla_track: bpy.types.NlaTrack,
     actions: List[Optional[bpy.types.Action]],
     mtar_file_name: str,
-    strip_name_prefix: str,
-    strip_suffix: str = "",
+    all_file_headers: List[MtarTableList2],
+    path_to_indices: Dict[int, Tuple[int, int]],
+    use_verbose_naming: bool,
+    is_motion_points: bool = False,
     strip_padding: int = 10,
     reference_actions: Optional[List[bpy.types.Action]] = None
 ) -> int:
@@ -782,8 +795,10 @@ def create_nla_strips_for_actions(
         nla_track: NLA track to add strips to
         actions: List of actions to create strips from (may contain None for empty GANIs)
         mtar_file_name: Base name for strip naming
-        strip_name_prefix: Prefix for strip names (e.g., "Strip", "MotionPoints_Strip")
-        strip_suffix: Optional suffix to append to strip names (default: "")
+        all_file_headers: File headers for path hash lookup
+        path_to_indices: Mapping from path hash to (h_index, d_index) tuples
+        use_verbose_naming: Whether to include h/d indices in names
+        is_motion_points: Whether these are motion points strips
         strip_padding: Frames to add between strips (default: 10)
         reference_actions: Optional list of reference actions to determine frame offsets.
                           If provided, offsets are calculated based on reference action lengths
@@ -822,7 +837,10 @@ def create_nla_strips_for_actions(
                 start=int(current_frame_offset),
                 action=action
             )
-            strip.name = f"{mtar_file_name}_{strip_name_prefix}_{index:03d}{strip_suffix}"
+            # Look up h/d indices from path hash
+            file_header = all_file_headers[index]
+            h_idx, d_idx = path_to_indices.get(file_header.path, (0, 0))
+            strip.name = format_strip_name(mtar_file_name, index, h_idx, d_idx, use_verbose_naming, is_motion_points=is_motion_points)
             # strip.frame_start = int(current_frame_offset)
             strip.frame_end = strip.frame_start + action_length
             strip.action_frame_start = 0
@@ -1136,7 +1154,9 @@ def create_and_setup_armature(
     gani_actions: List[bpy.types.Action],
     layout_action: Optional[bpy.types.Action],
     custom_rig: Optional[bpy.types.Object],
-    strip_suffix: str = "",
+    all_file_headers: List[MtarTableList2],
+    path_to_indices: Dict[int, Tuple[int, int]],
+    use_verbose_naming: bool,
     strip_padding: int = 10
 ) -> bpy.types.Object:
     """Create and set up the imported armature with pre-created animation data.
@@ -1152,7 +1172,9 @@ def create_and_setup_armature(
         gani_actions: Pre-created list of GANI actions
         layout_action: Pre-created layout track action
         custom_rig: Optional custom rig for NLA tracks
-        strip_suffix: Optional suffix for strip names (default: "")
+        all_file_headers: File headers for path hash lookup
+        path_to_indices: Mapping from path hash to (h_index, d_index) tuples
+        use_verbose_naming: Whether to include h/d indices in names
         strip_padding: Frames to add between animation strips (default: 10)
         
     Returns:
@@ -1212,7 +1234,7 @@ def create_and_setup_armature(
             start=-100,
             action=layout_action
         )
-        layout_strip.name = f"{mtar_file_name}_LayoutTrack"
+        layout_strip.name = format_strip_name(mtar_file_name, 0, 0, 0, False, is_layout=True)
         layout_strip.frame_start = -100
         layout_strip.frame_end = -50
         layout_strip.blend_type = 'REPLACE'
@@ -1236,7 +1258,7 @@ def create_and_setup_armature(
                 start=-100,
                 action=layout_action
             )
-            layout_strip.name = f"{mtar_file_name}_LayoutTrack"
+            layout_strip.name = format_strip_name(mtar_file_name, 0, 0, 0, False, is_layout=True)
             layout_strip.frame_start = -100
             layout_strip.frame_end = -50
             layout_strip.blend_type = 'REPLACE'
@@ -1247,9 +1269,11 @@ def create_and_setup_armature(
         nla_track,
         gani_actions,
         mtar_file_name,
-        "Strip",
-        strip_suffix,
-        strip_padding
+        all_file_headers,
+        path_to_indices,
+        use_verbose_naming,
+        is_motion_points=False,
+        strip_padding=strip_padding
     )
     
     # Create NLA strips on custom rig if provided
@@ -1258,9 +1282,11 @@ def create_and_setup_armature(
             target_nla_track,
             gani_actions,
             mtar_file_name,
-            "Strip",
-            strip_suffix,
-            strip_padding
+            all_file_headers,
+            path_to_indices,
+            use_verbose_naming,
+            is_motion_points=False,
+            strip_padding=strip_padding
         )
 
     # Update scene frame range to include all strips and their padding
@@ -1276,7 +1302,9 @@ def create_and_setup_motion_points_armature(
     mtar_file_name: str,
     motion_points: Optional['MotionPointList2'],
     motion_point_actions: List[Optional[bpy.types.Action]],
-    strip_suffix: str = "",
+    all_file_headers: List[MtarTableList2],
+    path_to_indices: Dict[int, Tuple[int, int]],
+    use_verbose_naming: bool,
     strip_padding: int = 10,
     reference_actions: Optional[List[bpy.types.Action]] = None
 ) -> Optional[bpy.types.Object]:
@@ -1291,12 +1319,12 @@ def create_and_setup_motion_points_armature(
         mtar_file_name: Base name for the armature
         motion_points: Motion points data
         motion_point_actions: Pre-created motion point animation actions
-        strip_suffix: Optional suffix for NLA strip names
+        all_file_headers: File headers for path hash lookup
+        path_to_indices: Mapping from path hash to (h_index, d_index) tuples
+        use_verbose_naming: Whether to include h/d indices in names
         strip_padding: Number of frames between NLA strips
         reference_actions: Optional list of reference actions (typically animation actions)
                           to synchronize frame offsets when motion point GANIs are missing
-
-        motion_point_actions: Pre-created motion point animation actions
         
     Returns:
         Motion points armature object, or None if no motion points
@@ -1403,10 +1431,12 @@ def create_and_setup_motion_points_armature(
             nla_track,
             motion_point_actions,
             mtar_file_name,
-            "MotionPoints_Strip",
-            strip_suffix,
-            strip_padding,
-            reference_actions
+            all_file_headers,
+            path_to_indices,
+            use_verbose_naming,
+            is_motion_points=True,
+            strip_padding=strip_padding,
+            reference_actions=reference_actions
         )
         
         # Update scene frame range if motion points extend beyond current end
@@ -1486,7 +1516,14 @@ def sort_gani_data_by_file_offset(
         sorted_motion_point_track_headers
     )
 
-def import_mtar(context: bpy.types.Context, filepath: str, frig: Optional[FrigFile], track_mapping: Optional[Dict[str, BoneParameters]] = None, gani_indices: Optional[List[int]] = None, custom_rig: Optional[bpy.types.Object] = None, strip_padding: int = 10) -> Tuple[Dict[str, str], bpy.types.Object]:
+def import_mtar(
+        context: bpy.types.Context, 
+        filepath: str, 
+        frig: Optional[FrigFile], 
+        track_mapping: Optional[Dict[str, BoneParameters]] = None, 
+        gani_indices: Optional[List[int]] = None, 
+        custom_rig: Optional[bpy.types.Object] = None, 
+        strip_padding: int = 10) -> Tuple[Dict[str, str], bpy.types.Object]:
     """Import MTAR animation data and create corresponding objects and animations.
     
     Args:
@@ -1507,7 +1544,14 @@ def import_mtar(context: bpy.types.Context, filepath: str, frig: Optional[FrigFi
     
     return result, imported_armature
 
-def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[FrigFile], track_mapping: Optional[Dict[str, BoneParameters]] = None, gani_indices: Optional[List[int]] = None, custom_rig: Optional[bpy.types.Object] = None, strip_padding: int = 10) -> Tuple[Dict[str, str], bpy.types.Object]:
+def import_mtar_data(
+        context: bpy.types.Context, 
+        filepath: str, 
+        frig: Optional[FrigFile], 
+        track_mapping: Optional[Dict[str, BoneParameters]] = None, 
+        gani_indices: Optional[List[int]] = None, 
+        custom_rig: Optional[bpy.types.Object] = None, 
+        strip_padding: int = 10) -> Tuple[Dict[str, str], bpy.types.Object]:
     """Import MTAR animation data and create corresponding objects and animations.
     
     Each GANI file in the MTAR becomes one Blender action.
@@ -1539,27 +1583,16 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
     # Read animation tracks - selective or all
     Debug.log("Reading MTAR file data...")
     Debug.update_progress(10, "Reading MTAR...")
-    all_gani_tracks: List[List[TrackUnitWrapper]]
-    all_motion_point_gani_tracks: List[List[TrackUnitWrapper]]  # Motion point animation tracks
-    all_motion_events: List[Optional['EvpHeader']]  # Motion events for each GANI
-    all_track_mini_headers: List[TrackMiniHeader]  # List of TrackMiniHeader objects with segment_headers (main tracks)
-    all_motion_point_layouts: List[Optional[Tracks]]  # List of Tracks objects (motion point track structures)
-    all_file_headers: List[MtarTableList2]  # List of MtarTable2 objects with path hash
-    all_motion_point_track_headers: List[Optional['TrackHeader']]  # List of TrackHeader objects for motion points
+    all_gani_tracks: List[List[TrackUnitWrapper]] = []
+    all_motion_point_gani_tracks: List[List[TrackUnitWrapper]] = []  # Motion point animation tracks
+    all_motion_events: List[Optional['EvpHeader']] = []  # Motion events for each GANI
+    all_track_mini_headers: List[TrackMiniHeader] = []  # List of TrackMiniHeader objects with segment_headers (main tracks)
+    all_motion_point_layouts: List[Optional[Tracks]] = []  # List of Tracks objects (motion point track structures)
+    all_file_headers: List[MtarTableList2] = []  # List of MtarTable2 objects with path hash
+    all_motion_point_track_headers: List[Optional['TrackHeader']] = []  # List of TrackHeader objects for motion points
 
     if gani_indices is not None:
-        # Selective import - use read_selected_ganis()
-        if not gani_indices:
-            # Empty list = import nothing - TODO: merge this with var definitions and remove the block
-            Debug.log("Empty GANI selection - importing nothing")
-            all_gani_tracks = []
-            all_motion_point_gani_tracks = []
-            all_motion_events = []
-            all_track_mini_headers = []
-            all_motion_point_layouts = []
-            all_file_headers = []
-            all_motion_point_track_headers = []
-        else:
+        if gani_indices:
             # Import selected GANIs
             Debug.log(f"Selective import: GANI indices {gani_indices}")
             results_dict = reader.read_selected_ganis(gani_indices)
@@ -1580,14 +1613,15 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
     else:
         # Import all GANIs
         Debug.log("Importing all GANIs")
-        all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers = reader.read_all_tracks()
+        all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers = reader.read_all_ganies()
         Debug.log(f"Found {len(all_gani_tracks)} GANI file(s)")
 
-    # Default to enabled (True) if property is missing for backwards compatibility
+    # Reverse-sort GANIs to match the order of the data in the file instead of the order in the header
     try:
         sort_enabled = bool(context.scene.mtar_properties.settings_props.sort_gani)
     except Exception:
-        sort_enabled = True
+        Debug.log_warning("Missing settings property: context.scene.mtar_properties.settings_props.sort_gani")
+        sort_enabled = False
     if sort_enabled and all_file_headers:
         all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers = sort_gani_data_by_file_offset(
             all_gani_tracks,
@@ -1639,10 +1673,30 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
     elif custom_rig and not enable_rest_pose:
         Debug.log("\nRest pose correction disabled in settings - skipping extraction")
     
+    # Build h/d index mapping for naming (maps path hash to (header_index, data_index))
+    Debug.log("Building h/d index mapping for action/strip naming...")
+    path_to_indices: Dict[int, Tuple[int, int]] = {}
+    with open(filepath, 'rb') as f:
+        # Read MTAR header to get file count
+        header = MtarHeader.read(f)
+        # Read all file headers
+        all_headers_raw = [MtarTableList2.read(f) for _ in range(header.file_count)]
+    
+    # Create sorted index list by tracks_offset to determine d_index
+    sorted_h_indices = sorted(range(len(all_headers_raw)), key=lambda i: all_headers_raw[i].tracks_offset)
+    for d_idx, h_idx in enumerate(sorted_h_indices):
+        path_to_indices[all_headers_raw[h_idx].path] = (h_idx, d_idx)
+    Debug.log(f"Built mapping for {len(path_to_indices)} GANI files")
+    
+    # Get verbose naming setting from import properties
+    try:
+        use_verbose_naming = bool(context.scene.mtar_properties.import_props.use_verbose_naming)
+    except Exception:
+        Debug.log_warning("Missing use_verbose_naming property, defaulting to True")
+        use_verbose_naming = True
+    
     # Use the MTAR filename (without extension) as the armature name
     mtar_file_name: str = os.path.splitext(os.path.basename(filepath))[0]
-    # If importing from a .mtar file, append .gani to NLA strip names to indicate source
-    strip_suffix: str = ".gani" if os.path.splitext(filepath)[1].lower() == ".mtar" else ""
     
     # Create animation actions first (primary task - can work without armature)
     Debug.update_progress(30, "Creating Actions...")
@@ -1653,7 +1707,9 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
         all_track_mini_headers,
         all_file_headers,
         layout_track,
-        all_motion_events
+        all_motion_events,
+        path_to_indices,
+        use_verbose_naming
     )
     
     # Create and setup the armature with animation data (optional secondary task)
@@ -1665,7 +1721,9 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
         gani_actions,
         layout_action,
         custom_rig,
-        strip_suffix,
+        all_file_headers,
+        path_to_indices,
+        use_verbose_naming,
         strip_padding
     )
     
@@ -1676,7 +1734,10 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
         mtar_file_name,
         all_motion_point_gani_tracks,
         all_motion_point_layouts,
-        all_motion_point_track_headers
+        all_motion_point_track_headers,
+        all_file_headers,
+        path_to_indices,
+        use_verbose_naming
     )
     
     # Create and setup motion points armature with animation data (optional secondary task)
@@ -1687,7 +1748,9 @@ def import_mtar_data(context: bpy.types.Context, filepath: str, frig: Optional[F
         mtar_file_name,
         motion_points,
         motion_point_actions,
-        strip_suffix,
+        all_file_headers,
+        path_to_indices,
+        use_verbose_naming,
         strip_padding,
         gani_actions  # Reference actions for frame synchronization
     )

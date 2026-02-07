@@ -150,6 +150,12 @@ class MTAR_PT_ImportPanel(Panel):
                 row = box.row()
                 row.label(text=label_text, icon='ANIM')
         
+        # Verbose naming (advanced setting)
+        if settings_props.show_advanced_settings:
+            adv_box = box_import.box()
+            adv_box.alert = True
+            draw_bool_prop_checkbox_icon(adv_box, import_props, "use_verbose_naming")
+        
         # Strip padding (advanced setting)
         if settings_props.show_advanced_settings:
             adv_box = box_import.box()
