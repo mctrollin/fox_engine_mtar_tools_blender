@@ -334,7 +334,7 @@ class MTAR_OT_DebugRunBake(Operator):
             Debug.report_and_log(self, 'ERROR', "No target armature selected to bake into")
             return {'CANCELLED'}
 
-        target_arm = props.debug_armature
+        target_armature = props.debug_armature
         source_arm = props.debug_source_armature
         idx = props.debug_bake_gani_index
         prepare_only = props.debug_prepare_only
@@ -342,11 +342,11 @@ class MTAR_OT_DebugRunBake(Operator):
         try:
             Debug.update_progress(75, "Baking (debug)...")
 
-            if target_arm.animation_data and target_arm.animation_data.nla_tracks:
+            if target_armature.animation_data and target_armature.animation_data.nla_tracks:
                 # Gather strips
                 strips_by_index = {}
                 strips_list = []
-                for track in target_arm.animation_data.nla_tracks:
+                for track in target_armature.animation_data.nla_tracks:
                     for strip in track.strips:
                         if not strip.action:
                             continue
@@ -375,19 +375,18 @@ class MTAR_OT_DebugRunBake(Operator):
                         # Full bake using existing utility
                         Debug.log("Debug: Baking NLA strips on target armature")
                         bake_result = bake_armature_nla_strips(
-                            target_arm,
-                            remove_constraints=True,
-                            new_action_suffix="_baked",
-                            only_unmuted=True,
+                            rig_armature=target_armature,
                             create_new_action=True,
-                            source_armature=source_arm
+                            new_action_suffix="_baked",
+                            source_armature=source_arm,
+                            remove_constraints=True,
                         )
                         if bake_result.get('success'):
                             Debug.report_and_log(self, 'INFO', f"Debug bake completed: {bake_result.get('message')}")
                         else:
                             Debug.report_and_log(self, 'WARNING', f"Debug bake failed: {bake_result.get('message')}")
                         # Clear transforms
-                        if clear_armature_transforms(target_arm):
+                        if clear_armature_transforms(target_armature):
                             Debug.report_and_log(self, 'INFO', "Cleared transforms from target armature after bake")
                         else:
                             Debug.report_and_log(self, 'WARNING', "Could not clear transforms from target armature")
@@ -410,7 +409,7 @@ class MTAR_OT_DebugRunBake(Operator):
                 for (track, strip, action) in target_strips:
                     if prepare_only:
                         # Mute source NLA tracks and assign action for inspection
-                        if source_arm and source_arm != target_arm:
+                        if source_arm and source_arm != target_armature:
                             if not source_arm.animation_data:
                                 source_arm.animation_data_create()
                             if source_arm.animation_data.nla_tracks:
@@ -420,7 +419,7 @@ class MTAR_OT_DebugRunBake(Operator):
                             Debug.log(f"Prepared strip '{strip.name}': muted source NLA and assigned action '{action.name}'")
                             # Mute the target track and assign action so active action previews
                             track.mute = True
-                            assign_action_to_datablock(target_arm, action)
+                            assign_action_to_datablock(target_armature, action)
                             Debug.report_and_log(self, 'INFO', f"Prepared scene for strip '{strip.name}' (no bake performed)")
                         continue
 
@@ -428,7 +427,7 @@ class MTAR_OT_DebugRunBake(Operator):
                     original_source_action = None
                     original_source_nla_mute_states = None
                     try:
-                        if source_arm and source_arm != target_arm:
+                        if source_arm and source_arm != target_armature:
                             if not source_arm.animation_data:
                                 source_arm.animation_data_create()
                             original_source_action = source_arm.animation_data.action
@@ -440,8 +439,8 @@ class MTAR_OT_DebugRunBake(Operator):
                             assign_action_to_datablock(source_arm, action)
 
                         bake_result = bake_armature_action(
-                            target_arm,
-                            action,
+                            rig_armature=target_armature,
+                            action=action,
                             remove_constraints=False,
                             create_new_action=True,
                             new_action_suffix="_baked",
@@ -459,7 +458,7 @@ class MTAR_OT_DebugRunBake(Operator):
                     finally:
                         # Restore source armature state
                         try:
-                            if source_arm and source_arm != target_arm and source_arm.animation_data:
+                            if source_arm and source_arm != target_armature and source_arm.animation_data:
                                 if original_source_action:
                                     assign_action_to_datablock(source_arm, original_source_action)
                                 else:
@@ -478,10 +477,10 @@ class MTAR_OT_DebugRunBake(Operator):
                     for act in baked_actions:
                         baked_bones.update(get_bones_with_keyframes(act))
                     if baked_bones:
-                        removed = remove_bone_constraints(target_arm, baked_bones)
+                        removed = remove_bone_constraints(target_armature, baked_bones)
                         Debug.log(f"Removed constraints from {len(baked_bones)} bones ({removed} constraints)")
 
-                    if clear_armature_transforms(target_arm):
+                    if clear_armature_transforms(target_armature):
                         Debug.report_and_log(self, 'INFO', f"Baked {success_count} strip(s) and cleared transforms")
                         return {'FINISHED'}
                     else:
@@ -491,11 +490,11 @@ class MTAR_OT_DebugRunBake(Operator):
                     Debug.report_and_log(self, 'WARNING', "No strips were successfully baked")
                     return {'CANCELLED'}
 
-            elif target_arm.animation_data and target_arm.animation_data.action:
+            elif target_armature.animation_data and target_armature.animation_data.action:
                 Debug.log("Debug: Baking active action on target armature")
                 bake_result = bake_armature_action(
-                    target_arm,
-                    target_arm.animation_data.action,
+                    rig_armature=target_armature,
+                    action=target_armature.animation_data.action,
                     remove_constraints=True,
                     create_new_action=True,
                     new_action_suffix="_baked"

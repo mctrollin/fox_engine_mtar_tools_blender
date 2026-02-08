@@ -1,11 +1,47 @@
 """
 Blender property groups for MTAR import and export functionality.
 """
+from typing import Optional
+
 import bpy
 from bpy.types import PropertyGroup
 from bpy.props import StringProperty, PointerProperty, IntProperty, BoolProperty, FloatProperty, EnumProperty
 
+from .py_fox.fox_frig_types import RigUnitType
+
 # pyright: reportInvalidTypeForm=false
+
+def get_interpolation_mode(context: bpy.types.Context, rig_unit_type: Optional[RigUnitType] = None) -> str:
+    """Determine interpolation mode for a track based on user settings and rig unit type.
+    
+    Args:
+        context: Blender context to access scene properties
+        rig_unit_type: Optional RigUnitType to check against exclusion list
+        
+    Returns:
+        Interpolation mode: 'BEZIER' or 'LINEAR'
+    """
+
+    # Default to LINEAR if context access fails
+    interpolation_mode = 'LINEAR'
+    force_linear_csv = ''
+    
+    try:
+        props = getattr(context.scene, 'mtar_properties', None)
+        if props is not None and getattr(props, 'import_props', None) is not None:
+            interpolation_mode = getattr(props.import_props, 'interpolation_mode', 'LINEAR')
+            force_linear_csv = getattr(props.import_props, 'interpolation_force_linear_track_types', '')
+    except Exception:
+        return 'LINEAR'
+    
+    # Check if this rig unit type should force LINEAR
+    if rig_unit_type is not None and force_linear_csv:
+        forced_types = set(t.strip().upper() for t in force_linear_csv.split(',') if t.strip())
+        if rig_unit_type.name in forced_types:
+            return 'LINEAR'
+    
+    return interpolation_mode
+
 
 # Helper to add relative path support based on Blender version
 def _file_path_kwargs(**kwargs):
@@ -18,7 +54,6 @@ def _file_path_kwargs(**kwargs):
     if bpy.app.version >= (4, 5, 0):
         kwargs['options'] = {'PATH_SUPPORTS_BLEND_RELATIVE'}
     return kwargs
-
 
 # Helper: apply/show pose markers in all Dope Sheet / Action Editor areas
 def _apply_show_pose_markers_value(value: bool) -> None:
@@ -203,9 +238,21 @@ class MTAR_PG_ImportProperties(PropertyGroup):
         items=[
             ('BEZIER', "Bezier", "Smooth bezier interpolation"),
             ('LINEAR', "Linear", "Linear interpolation"),
-            ('CONSTANT', "Constant", "Constant (step) interpolation"),
         ],
         default='BEZIER'
+    )
+
+    interpolation_force_linear_track_types: StringProperty(
+        name="Force Linear on Track Types",
+        description=(
+            "Comma-separated list of track types that will always use LINEAR interpolation mode.\n"
+            "Available types: ROOT, ORIENTATION, TWO_BONE, LOCAL_ORIENTATION, LOCAL_TRANSFORM,\n"
+            "THREE_BONE_LIKE_TWO_BONE, TRANSFORM, ARM, LOCAL_TRANSFORM_SRT, ANIMAL_LEG,\n"
+            "MULTI_LOCAL_ORIENTATION, TWO_BONE_TRANS\n"
+            "Example: ROOT,TWO_BONE,TRANSFORM"
+        ),
+        default="ROOT",
+        maxlen=256
     )
     
     use_verbose_naming: BoolProperty(

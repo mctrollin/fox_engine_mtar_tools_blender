@@ -4,10 +4,10 @@ Blender operators for MTAR export functionality.
 import os
 import traceback
 from typing import Set, List
+from collections import defaultdict
 
 import bpy
-from bpy.types import Operator, Context, Event
-from bpy.props import StringProperty
+from bpy.types import Operator, Context
 
 from .py_utilities.utilities_logging import Debug
 from .py_foxwrap.foxwrap_misc_export import TrackSegmentBoneMapping
@@ -16,8 +16,10 @@ from .py_foxwrap.foxwrap_metadata import iter_track_properties
 from .mtar_exporter import export_mtar, find_layout_track_action
 
 
-def build_track_segment_bone_mapping_from_file(mapping_filepath: str, layout_action: bpy.types.Action, 
-                                              armature: bpy.types.Object) -> tuple[TrackSegmentBoneMapping, List[str]]:
+def build_track_segment_bone_mapping_from_file(mapping_filepath: str,
+                                               layout_action: bpy.types.Action,
+                                               armature: bpy.types.Object
+                                              ) -> tuple[TrackSegmentBoneMapping, List[str]]:
     """Build TrackSegmentBoneMapping from mapping file and layout action.
     
     Args:
@@ -28,7 +30,6 @@ def build_track_segment_bone_mapping_from_file(mapping_filepath: str, layout_act
     Returns:
         Tuple of (TrackSegmentBoneMapping, missing_bones_list)
     """
-    from collections import defaultdict
     
     Debug.log(f"Loading bone mapping from: {mapping_filepath}")
     mapping_data = parse_track_mapping_file(mapping_filepath)
@@ -145,7 +146,9 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
                 
                 # Build track mapping using utility function
                 track_segment_bone_mapping, missing_bones = build_track_segment_bone_mapping_from_file(
-                    mapping_filepath_abs, layout_action, export_props.armature
+                    mapping_filepath=mapping_filepath_abs,
+                    layout_action=layout_action,
+                    armature=export_props.armature
                 )
                 
                 if missing_bones:

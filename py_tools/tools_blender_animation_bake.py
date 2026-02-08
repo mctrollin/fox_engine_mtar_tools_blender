@@ -11,8 +11,16 @@ import bpy
 from ..py_utilities.utilities_logging import Debug
 from ..py_utilities.utilities_blender_animation import (
     assign_action_to_datablock, remove_action_from_datablock, action_has_fcurves,
-    iter_action_fcurves, ensure_action_fcurve, remove_action_fcurve, is_relevant_strip
+    iter_action_fcurves, ensure_action_fcurve, remove_action_fcurve, is_relevant_strip,
+    find_layout_track_action
 )
+
+from ..py_fox.fox_frig_types import RigUnitType
+
+from ..py_foxwrap.foxwrap_metadata import extract_fox_bone_to_rig_unit_type_mapping
+from ..py_foxwrap.foxwrap_mapping import TrackMappingData
+
+from ..blender_properties import get_interpolation_mode
 
 
 def get_bones_with_keyframes(action: bpy.types.Action) -> Set[str]:
@@ -370,7 +378,8 @@ def bake_armature_action(rig_armature: bpy.types.Object,
                         new_action_suffix: str = "_baked",
                         nla_track: Optional[bpy.types.NlaTrack] = None,
                         source_armature: Optional[bpy.types.Object] = None,
-                        interpolation_mode: str = 'BEZIER') -> Dict[str, any]:
+                        interpolation_mode: str = 'LINEAR',
+                        track_mapping: Optional[TrackMappingData] = None) -> Dict[str, any]:
     """Bake animated bones in an armature action with visual transforms.
     
     This function bakes only bones that have keyframes, only on frames where
@@ -386,7 +395,8 @@ def bake_armature_action(rig_armature: bpy.types.Object,
         new_action_suffix: Suffix to add to new action name
         nla_track: NLA track to disable during baking (if provided)
         source_armature: Armature with animation data to bind constraints to (if different from armature being baked)
-        interpolation_mode: Interpolation mode to apply to all baked keyframes (BEZIER, LINEAR, CONSTANT)
+        interpolation_mode: Interpolation mode to apply to all baked keyframes (BEZIER, LINEAR)
+        track_mapping: Optional TrackMappingData for Blender->Fox bone name conversion
         
     Returns:
         Dictionary with results:
@@ -530,9 +540,9 @@ def bake_armature_action(rig_armature: bpy.types.Object,
     bpy.ops.object.mode_set(mode='POSE')
     bpy.ops.pose.select_all(action='DESELECT')
     
-    for bone_name in bones_with_keyframes:
-        if bone_name in rig_armature.pose.bones:
-            pose_bone = rig_armature.pose.bones[bone_name]
+    for blender_bone_name in bones_with_keyframes:
+        if blender_bone_name in rig_armature.pose.bones:
+            pose_bone = rig_armature.pose.bones[blender_bone_name]
             # Blender 5.0+ selects via pose bone, older versions via data bone
             if hasattr(pose_bone, "select"):
                 pose_bone.select = True
@@ -541,7 +551,7 @@ def bake_armature_action(rig_armature: bpy.types.Object,
             
             # Log status using whichever property is available
             select_status = getattr(pose_bone, "select", getattr(pose_bone.bone, "select", False))
-            Debug.log(f"  Selecting bone for baking: {bone_name} : {select_status}")
+            Debug.log(f"  Selecting bone for baking: {blender_bone_name} : {select_status}")
     
     try:
         Debug.log("  Starting bake operation...")
@@ -609,25 +619,70 @@ def bake_armature_action(rig_armature: bpy.types.Object,
         
         Debug.log(f"Successfully baked action '{action.name}' -> '{target_action.name}'")
         
-        # Set interpolation mode on all baked keyframes (after context restoration)
+        # Set interpolation mode on all baked keyframes using metadata
         Debug.log(f"  Setting interpolation mode to {interpolation_mode}...")
+        
+        # Find layout action and extract bone to rig unit type mapping
+        # Layout action is the single source of truth for rig unit types
+        layout_action = find_layout_track_action()
+        
+        # Create operator-level cache for layout type mapping
+        layout_type_cache: Dict[str, Dict[str, RigUnitType]] = {}
+        
+        if layout_action:
+            fox_bone_to_type = extract_fox_bone_to_rig_unit_type_mapping(layout_action, layout_type_cache)
+        else:
+            Debug.log_warning("  Warning: No layout action found - interpolation forcing will be skipped (using global interpolation_mode)")
+            fox_bone_to_type = {}
+        
         interpolation_count = 0
         for fcurve in iter_action_fcurves(target_action):
             data_path = fcurve.data_path
             fcurve_modified = False
+            
             # Only process pose bone fcurves
             if data_path.startswith('pose.bones["') or data_path.startswith("pose.bones['"):
+                # Extract bone name from data path
+                quote_char = '"' if '["' in data_path else "'"
+                try:
+                    start = data_path.index('[' + quote_char) + 2
+                    end = data_path.index(quote_char + ']', start)
+                    blender_bone_name = data_path[start:end]
+                except (ValueError, IndexError):
+                    # If extraction fails, fall back to global interpolation mode
+                    blender_bone_name = None
+                
+                # Convert Blender bone name to Fox base name (segment-aware lookup)
+                # Pass full data_path to infer segment index (rotation=0, location=1, scale=2)
+                # Layout action metadata uses base names ("RHand", not "RHand_0")
+                fox_base_name = None
+                if blender_bone_name and track_mapping:
+                    fox_base_name = track_mapping.get_fox_base_name_for_blender_bone(
+                        blender_bone_name,
+                        fcurve_data_path=data_path
+                    )
+                
+                # Look up rig unit type from layout metadata using Fox base name
+                rig_unit_type = None
+                if fox_base_name and fox_bone_to_type:
+                    rig_unit_type = fox_bone_to_type.get(fox_base_name)
+                
+                # Determine interpolation mode for this bone (falls back to global interpolation_mode if lookups fail)
+                fcurve_interpolation_mode = get_interpolation_mode(bpy.context, rig_unit_type)
+                
                 for keyframe in fcurve.keyframe_points:
-                    if keyframe.interpolation != interpolation_mode:
-                        keyframe.interpolation = interpolation_mode
+                    if keyframe.interpolation != fcurve_interpolation_mode:
+                        keyframe.interpolation = fcurve_interpolation_mode
                         # Set handle types to AUTO for bezier interpolation
-                        if interpolation_mode == 'BEZIER':
+                        if fcurve_interpolation_mode == 'BEZIER':
                             keyframe.handle_left_type = 'AUTO'
                             keyframe.handle_right_type = 'AUTO'
                         fcurve_modified = True
                         interpolation_count += 1
+            
             if fcurve_modified:
                 fcurve.update()
+        
         if interpolation_count > 0:
             Debug.log(f"  Set interpolation on {interpolation_count} keyframes")
         
@@ -673,12 +728,13 @@ def bake_armature_action(rig_armature: bpy.types.Object,
 
 
 def bake_armature_nla_strips(rig_armature: bpy.types.Object,
-                             remove_constraints: bool = True,
-                             new_action_suffix: str = "_baked",
-                             only_unmuted: bool = True,
-                             source_armature: Optional[bpy.types.Object] = None,
                              create_new_action: bool = False,
-                             interpolation_mode: str = 'BEZIER') -> Dict[str, any]:
+                             new_action_suffix: str = "_baked",
+                             source_armature: Optional[bpy.types.Object] = None,
+                             remove_constraints: bool = True,
+                             interpolation_mode: str = 'LINEAR',
+                             track_mapping: Optional[TrackMappingData] = None
+                             ) -> Dict[str, any]:
     """Bake all NLA strips in an armature, creating new actions for each.
     
     This function iterates through all NLA strips and bakes each one into
@@ -688,10 +744,10 @@ def bake_armature_nla_strips(rig_armature: bpy.types.Object,
         armature: Armature object to bake
         remove_constraints: Whether to remove bone constraints after baking all strips
         new_action_suffix: Suffix to add to new action names
-        only_unmuted: If True, only bake unmuted strips
         source_armature: Armature with animation data to bind constraints to (if different from armature being baked)
         create_new_action: If True, creates new actions instead of overriding existing ones
-        interpolation_mode: Interpolation mode to apply to all baked keyframes (BEZIER, LINEAR, CONSTANT)
+        interpolation_mode: Interpolation mode to apply to all baked keyframes (BEZIER, LINEAR)
+        track_mapping: Optional TrackMappingData for Blender->Fox bone name conversion
         
     Returns:
         Dictionary with results:
@@ -759,14 +815,15 @@ def bake_armature_nla_strips(rig_armature: bpy.types.Object,
         try:
             # Bake the action
             bake_result = bake_armature_action(
-                rig_armature,
-                action,
-                remove_constraints=False,  # We'll handle this once at the end
+                rig_armature=rig_armature,
+                action=action,
                 create_new_action=create_new_action,
                 new_action_suffix=new_action_suffix,
                 nla_track=track,
                 source_armature=source_armature,
-                interpolation_mode=interpolation_mode
+                remove_constraints=False,  # We'll handle this once at the end
+                interpolation_mode=interpolation_mode,
+                track_mapping=track_mapping
             )
             
             if bake_result['success']:
@@ -819,7 +876,3 @@ def bake_armature_nla_strips(rig_armature: bpy.types.Object,
         'constraints_removed': constraints_removed,
         'message': message
     }
-
-
-
-

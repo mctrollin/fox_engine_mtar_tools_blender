@@ -476,13 +476,13 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                             if custom_rig.animation_data and custom_rig.animation_data.nla_tracks:
                                 Debug.log("Baking NLA strips...")
                                 bake_result: Dict[str, Any] = bake_armature_nla_strips(
-                                    custom_rig, 
-                                    remove_constraints=True,
-                                    new_action_suffix="_baked",
-                                    only_unmuted=True,
-                                    source_armature=imported_armature,
+                                    rig_armature=custom_rig,
                                     create_new_action=not import_props.delete_import_armature,
-                                    interpolation_mode=import_props.interpolation_mode
+                                    new_action_suffix="_baked",
+                                    source_armature=imported_armature,
+                                    remove_constraints=True,
+                                    interpolation_mode=import_props.interpolation_mode,
+                                    track_mapping=mapping_data
                                 )
                                 
                                 handle_bake_result(bake_result, custom_rig, imported_armature, props, self)
@@ -491,13 +491,14 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                             elif custom_rig.animation_data and custom_rig.animation_data.action:
                                 Debug.log("Baking active action...")
                                 bake_result = bake_armature_action(
-                                    custom_rig, 
-                                    custom_rig.animation_data.action, 
+                                    rig_armature=custom_rig,
+                                    action=custom_rig.animation_data.action,
                                     remove_constraints=True,
                                     create_new_action=True,
                                     new_action_suffix="_baked",
                                     source_armature=imported_armature,
-                                    interpolation_mode=import_props.interpolation_mode
+                                    interpolation_mode=import_props.interpolation_mode,
+                                    track_mapping=mapping_data
                                 )
                                 
                                 handle_bake_result(bake_result, custom_rig, imported_armature, props, self)

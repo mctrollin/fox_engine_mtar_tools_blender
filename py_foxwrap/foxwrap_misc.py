@@ -210,7 +210,7 @@ class TrackDataBlobWrapper:
     
     Uses TrackDataBlob to store the actual keyframe data and segment type.
     """
-    data_blob: 'TrackDataBlob'
+    data_blob: TrackDataBlob
 
     name: str
     segment_index: int

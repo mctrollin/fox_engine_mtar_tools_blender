@@ -10,7 +10,7 @@ from ..py_utilities.utilities_logging import Debug
 
 from ..py_fox.fox_gani_types import TrackUnitFlags, EvpHeader
 
-from .foxwrap_metadata import parse_action_track_metadata, TrackMetaData, parse_track_property_key, merge_track_metadata
+from .foxwrap_metadata import TrackMetaData, merge_track_metadata
 from .foxwrap_misc import Tracks, TrackUnitWrapper
 from .foxwrap_gani_writer import Gani2Writer
 from .foxwrap_mapping import BoneParameters

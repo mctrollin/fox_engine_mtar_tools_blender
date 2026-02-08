@@ -9,6 +9,26 @@ import bpy
 
 from .utilities_logging import Debug
 
+# Layout Action Utilities #########################################################
+
+def find_layout_track_action() -> Optional[bpy.types.Action]:
+    """Find the layout track action in the scene.
+    
+    Searches for an action with a name containing '.layout.'.
+        
+    Returns:
+        Layout track action if found, None otherwise
+    """
+    # Search in all actions
+    for action in bpy.data.actions:
+        # Check for layout track naming pattern
+        if '.layout.' in action.name.lower():
+            Debug.log(f"  Found layout track action: '{action.name}'")
+            return action
+    
+    Debug.log_warning("  Warning: No layout track action found")
+    return None
+
 
 # FCurve Cache Utilities #########################################################
 
@@ -81,7 +101,7 @@ class FCurveCache:
         self._cache = cache_dict if cache_dict else {}
     
     @classmethod
-    def build(cls, action: 'bpy.types.Action') -> 'FCurveCache':
+    def build(cls, action: bpy.types.Action) -> 'FCurveCache':
         """Build a cache of fcurves indexed by bone name and property name.
         
         Args:
@@ -169,7 +189,7 @@ class FCurveCache:
 
 
 
-def configure_action(action: 'bpy.types.Action',
+def configure_action(action: bpy.types.Action,
                      frame_start: int = 0,
                      frame_end: int = 0,
                      use_fake_user: bool = True,
@@ -198,7 +218,7 @@ def configure_action(action: 'bpy.types.Action',
 
 # Action slot handling for Blender 4.4+ #########################################
 
-def assign_action_to_datablock(datablock: 'bpy.types.ID', action: 'bpy.types.Action', slot_name: Optional[str] = None) -> None:
+def assign_action_to_datablock(datablock: bpy.types.ID, action: bpy.types.Action, slot_name: Optional[str] = None) -> None:
     """Assign an Action to a datablock and ensure a slot is selected on Blender >= 4.4.
 
     If `slot_name` is not provided, a default mapping is used:
@@ -258,7 +278,7 @@ def assign_action_to_datablock(datablock: 'bpy.types.ID', action: 'bpy.types.Act
         raise
 
 
-def remove_action_from_datablock(datablock: 'bpy.types.ID') -> None:
+def remove_action_from_datablock(datablock: bpy.types.ID) -> None:
     """Remove the active action from a datablock and clear action slot information.
 
     Args:
@@ -295,7 +315,7 @@ def remove_action_from_datablock(datablock: 'bpy.types.ID') -> None:
         Debug.log_warning(f"Failed to remove action from datablock '{getattr(datablock, 'name', '<unknown>')}': {e}")
 
 
-def get_action_slot(action: 'bpy.types.Action', slot_name: Optional[str] = None) -> 'bpy.types.ActionSlot':
+def get_action_slot(action: bpy.types.Action, slot_name: Optional[str] = None) -> bpy.types.ActionSlot:
     """Return or create an Action slot.
 
     If `slot_name` is provided, this will look for a slot whose `name` or
@@ -389,7 +409,7 @@ def get_all_fcurves_from_action(action):
     return fcurves
 
 
-def action_has_fcurves(action: 'bpy.types.Action') -> bool:
+def action_has_fcurves(action: bpy.types.Action) -> bool:
     """Return True if the Action has or can manage fcurves in this Blender API.
 
     This handles both the older API where `action.fcurves` exists and the
@@ -515,13 +535,13 @@ def iter_channelbags(owner) -> Iterator:
                 yield ch
 
 
-def iter_action_fcurves(action: 'bpy.types.Action') -> Iterator['bpy.types.FCurve']:
+def iter_action_fcurves(action: bpy.types.Action) -> Iterator['bpy.types.FCurve']:
     """ Return an iterator over all F-Curves in an Action. 
     Uses Python's built-in iter() on the list returned by get_all_fcurves_from_action(). """ 
     return iter(get_all_fcurves_from_action(action))
 
 
-def find_action_fcurve(action: 'bpy.types.Action', data_path: str, index: int, slot_name: Optional[str] = None):
+def find_action_fcurve(action: bpy.types.Action, data_path: str, index: int, slot_name: Optional[str] = None):
     """Find an existing fcurve on `action` matching `data_path` and `index`.
 
     Returns the FCurve if found, otherwise None.
@@ -593,7 +613,7 @@ def find_action_fcurve(action: 'bpy.types.Action', data_path: str, index: int, s
     return None
 
 
-def ensure_action_fcurve(action: 'bpy.types.Action', data_path: str, index: int, datablock=None, action_group_name: Optional[str] = None, slot_name: Optional[str] = None):
+def ensure_action_fcurve(action: bpy.types.Action, data_path: str, index: int, datablock=None, action_group_name: Optional[str] = None, slot_name: Optional[str] = None):
     """Return an existing FCurve or create one in a version-safe way.
 
     If creation is not supported on the current API, returns None.
@@ -738,7 +758,7 @@ def ensure_action_fcurve(action: 'bpy.types.Action', data_path: str, index: int,
     return None
 
 
-def remove_action_fcurve(action: 'bpy.types.Action', fcurve) -> None:
+def remove_action_fcurve(action: bpy.types.Action, fcurve) -> None:
     """Remove an FCurve from an action in a version-safe manner."""
     if action is None or fcurve is None:
         return
@@ -780,7 +800,7 @@ def remove_action_fcurve(action: 'bpy.types.Action', fcurve) -> None:
     # Best-effort else: nothing to do
 
 
-def add_dummy_keyframes_to_action(action: 'bpy.types.Action') -> None:
+def add_dummy_keyframes_to_action(action: bpy.types.Action) -> None:
     """Add dummy location keyframes at frames -100 and -50 to the layout track action.
     
     This creates a baseline reference that prevents the action from being empty

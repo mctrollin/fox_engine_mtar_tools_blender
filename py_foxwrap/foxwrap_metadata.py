@@ -219,6 +219,96 @@ def read_track_header_properties_from_action(action: Optional[bpy.types.Action])
     return result
 
 
+# Track Metadata Parsing Helpers #############################################################
+
+def _parse_segment_codes(segment_codes_str: str) -> List[SegmentType]:
+    """Parse comma-separated segment codes into SegmentType list.
+    
+    Recognized codes: q (QUAT), qd (QUAT_DIFF), v (VECTOR3), vd (VECTOR_DIFF), f (FLOAT)
+    
+    Args:
+        segment_codes_str: Comma-separated segment codes (e.g., 'q,v,q')
+        
+    Returns:
+        List of SegmentType enums
+    """
+    segment_types = []
+    segment_codes = [code.strip() for code in segment_codes_str.split(',') if code.strip()]
+    
+    for code in segment_codes:
+        if code == 'q':
+            segment_types.append(SegmentType.QUAT)
+        elif code == 'qd':
+            segment_types.append(SegmentType.QUAT_DIFF)
+        elif code == 'v':
+            segment_types.append(SegmentType.VECTOR3)
+        elif code == 'vd':
+            segment_types.append(SegmentType.VECTOR_DIFF)
+        elif code == 'f':
+            segment_types.append(SegmentType.FLOAT)
+        else:
+            Debug.log_warning(f"Unknown segment code '{code}', ignoring")
+    
+    return segment_types
+
+
+def _parse_component_bits(bits_str: str) -> List[int]:
+    """Parse comma-separated component bit sizes into int list.
+    
+    Args:
+        bits_str: Comma-separated bit sizes (e.g., '14,14,14') or single value ('14')
+        
+    Returns:
+        List of component bit sizes
+    """
+    component_bit_sizes = []
+    
+    if ',' in bits_str:
+        # Multi-segment: parse each value
+        for bs_str in bits_str.split(','):
+            bs_str = bs_str.strip()
+            if bs_str:
+                try:
+                    component_bit_sizes.append(int(bs_str))
+                except ValueError:
+                    component_bit_sizes.append(0)
+    else:
+        # Single value: parse once
+        try:
+            component_bit_sizes.append(int(bits_str))
+        except ValueError:
+            pass
+    
+    return component_bit_sizes
+
+
+def _parse_flags(flags_str: str) -> Tuple[List[str], Optional[int]]:
+    """Parse comma-separated flags into flag list and unit_flags integer.
+    
+    Args:
+        flags_str: Comma-separated flag names (e.g., 'IS_STATIC,UNKNOWN_0') or 'NONE'
+        
+    Returns:
+        Tuple of (flags_list, unit_flags_int)
+    """
+    if flags_str == 'NONE':
+        return ([], 0)
+    
+    flags_list = [f.strip() for f in flags_str.split(',') if f.strip()]
+    
+    # Convert to unit_flags integer
+    flag_enums = []
+    for name in flags_list:
+        try:
+            flag_enums.append(TrackUnitFlags[name])
+        except KeyError:
+            Debug.log_warning(f"Unknown flag name '{name}'")
+    
+    unit_flags = TrackUnitFlags.track_unit_flags_to_int(flag_enums) if flag_enums else None
+    
+    return (flags_list, unit_flags)
+
+
 def get_segments_for_track_type(track_type: str, count: Optional[int] = None) -> List[dict]:
     """Get the standard segment structure for a given track type.
 
@@ -267,129 +357,320 @@ def get_segments_for_track_type(track_type: str, count: Optional[int] = None) ->
     return type_segments.get(track_type, [])
 
 
+def parse_track_metadata_generic(metadata_str: str) -> Optional[dict]:
+    """Unified parser for @track metadata in all formats.
+    
+    Handles three format variants:
+    1. Mapping file: @track <name> : type=<type> ; [count=<n>] ; [flags=<flags>] ; [bits=<bits>]
+    2. Action: @track <name> : type=<type> ; [flags=<flags>] ; [bits=<bits>]
+    3. Layout: @track <name> : segments=<codes> ; [flags=<flags>] ; [hash=<hash>] ; [type=<type>] ; [bits=<bits>] ; [count=<n>]
+    
+    Auto-detects which parameters are present:
+    - Explicit segments= takes priority
+    - Falls back to type-derived segments when segments= not present
+    - Handles MULTI_LOCAL_ORIENTATION count parameter
+    
+    Args:
+        metadata_str: Full @track directive string
+        
+    Returns:
+        Dictionary with standardized keys:
+        - track_name: str
+        - segment_types: List[SegmentType]
+        - component_bit_sizes: List[int] (optional)
+        - flags_list: List[str] (optional)
+        - unit_flags: int (optional)
+        - name_hash: int (optional)
+        - rig_unit_type: str (optional)
+        - count: int (optional)
+    """
+    if not isinstance(metadata_str, str):
+        return None
+    
+    metadata_str = metadata_str.strip()
+    if not metadata_str.startswith('@track'):
+        return None
+    
+    # Split by colon to separate track name from parameters
+    rest = metadata_str[len('@track'):].strip()
+    if ':' not in rest:
+        return None
+    
+    parts = rest.split(':', 1)
+    track_name = parts[0].strip()
+    if not track_name:
+        return None
+    
+    params_str = parts[1].strip()
+    
+    # Initialize result dict with all possible fields
+    result = {
+        'track_name': track_name,
+        'segment_types': [],
+        'component_bit_sizes': None,
+        'flags_list': None,
+        'unit_flags': None,
+        'name_hash': None,
+        'rig_unit_type': None,
+        'count': None
+    }
+    
+    # Parse all parameters
+    segments_str = None
+    type_str = None
+    bits_str = None
+    flags_str = None
+    hash_str = None
+    count_str = None
+    
+    for param in params_str.split(';'):
+        param = param.strip()
+        if not param or '=' not in param:
+            continue
+        
+        key, value = param.split('=', 1)
+        key = key.strip()
+        value = value.strip()
+        
+        if key == 'segments':
+            segments_str = value
+        elif key == 'type':
+            type_str = value
+        elif key == 'bits':
+            bits_str = value
+        elif key == 'flags':
+            flags_str = value
+        elif key == 'hash':
+            hash_str = value
+        elif key == 'count':
+            count_str = value
+    
+    # Parse segments (explicit or type-derived)
+    if segments_str:
+        # Explicit segments= parameter (layout format)
+        result['segment_types'] = _parse_segment_codes(segments_str)
+    elif type_str:
+        # Derive segments from type (mapping file / action format)
+        try:
+            count_value = int(count_str) if count_str else None
+            segment_defs = get_segments_for_track_type(type_str, count_value)
+            
+            # Convert segment definitions to SegmentType enums
+            for seg_def in segment_defs:
+                seg_data_type = seg_def.get('data_type', '')
+                if seg_data_type == 'quat':
+                    result['segment_types'].append(SegmentType.QUAT)
+                elif seg_data_type == 'quatdiff':
+                    result['segment_types'].append(SegmentType.QUAT_DIFF)
+                elif seg_data_type == 'vec3':
+                    result['segment_types'].append(SegmentType.VECTOR3)
+                elif seg_data_type == 'vec3diff':
+                    result['segment_types'].append(SegmentType.VECTOR_DIFF)
+                elif seg_data_type == 'float':
+                    result['segment_types'].append(SegmentType.FLOAT)
+        except Exception as e:
+            Debug.log_warning(f"Could not derive segments from type '{type_str}': {e}")
+            return None
+    
+    # Note: segment_types may be empty for action metadata that only contains overrides (bits, flags)
+    # This is valid - the caller can decide if segments are required for their use case
+    
+    # Parse component bits
+    if bits_str:
+        result['component_bit_sizes'] = _parse_component_bits(bits_str)
+    
+    # Parse flags
+    if flags_str:
+        flags_list, unit_flags = _parse_flags(flags_str)
+        result['flags_list'] = flags_list if flags_list else None
+        result['unit_flags'] = unit_flags
+    
+    # Parse hash
+    if hash_str:
+        try:
+            result['name_hash'] = int(hash_str)
+        except ValueError:
+            Debug.log_warning(f"Invalid hash value '{hash_str}'")
+    
+    # Store type string
+    if type_str:
+        result['rig_unit_type'] = type_str
+    
+    # Store count
+    if count_str:
+        try:
+            result['count'] = int(count_str)
+        except ValueError:
+            Debug.log_warning(f"Invalid count value '{count_str}'")
+    
+    return result
+
+
 def parse_track_metadata(line: str) -> Optional[dict]:
-    """Parse track metadata from @track directive.
+    """Parse track metadata from @track directive (mapping file format).
 
     Format: @track <name> : type=<rig_type> ; [count=<n>] ; [flags=<flags>] ; [bits=<bit_sizes>]
     
     Note: 'bits' is legacy and represents a default compression level. In actual MTAR files,
     each segment has its own component_bit_size stored separately.
+    
+    Uses the unified parse_track_metadata_generic() parser internally.
 
     Returns:
         Dictionary with track metadata or None if not a track directive
     """
-    line = line.strip()
-    if not line.startswith('@track'):
+    # Use unified parser
+    parsed = parse_track_metadata_generic(line)
+    if not parsed:
         return None
-
-    rest = line[6:].strip()
-    if ':' not in rest:
+    
+    # Mapping files MUST define track structure (require segments)
+    if not parsed['segment_types']:
         return None
-
-    colon_parts = rest.split(':', 1)
-    track_name = colon_parts[0].strip()
-    if not track_name:
-        return None
-
+    
+    # Convert to expected return format
     metadata = {
-        'name': track_name,
+        'name': parsed['track_name'],
         'segments': [],
-        'flags': [],
-        'type': None,
-        'bits': 16,
-        'count': None
+        'flags': parsed['flags_list'] if parsed['flags_list'] else [],
+        'type': parsed['rig_unit_type'],
+        'bits': parsed['component_bit_sizes'][0] if parsed['component_bit_sizes'] else 16,
+        'count': parsed['count']
     }
-
-    params_str = colon_parts[1].strip()
-    for param in params_str.split(';'):
-        param = param.strip()
-        if not param or '=' not in param:
-            continue
-        key, value = param.split('=', 1)
-        key = key.strip()
-        value = value.strip()
-
-        if key == 'type':
-            metadata['type'] = value
-        elif key == 'count':
-            try:
-                metadata['count'] = int(value)
-            except ValueError:
-                metadata['count'] = None
-        elif key == 'flags':
-            metadata['flags'] = [f.strip() for f in value.split(',')]
-        elif key == 'bits':
-            try:
-                bits = int(value)
-                if bits not in [12, 14, 16, 18, 20, 22, 24]:
-                    bits = 16
-                metadata['bits'] = bits
-            except ValueError:
-                metadata['bits'] = 16
-
-    if metadata['type']:
-        try:
-            metadata['segments'] = get_segments_for_track_type(metadata['type'], metadata['count'])
-        except ValueError:
-            return None
-
-    if not metadata['segments']:
-        return None
-
+    
+    # Convert SegmentType enums to segment definition dicts
+    for seg_type in parsed['segment_types']:
+        if seg_type == SegmentType.QUAT:
+            metadata['segments'].append({'type': 'rotation', 'data_type': 'quat'})
+        elif seg_type == SegmentType.QUAT_DIFF:
+            metadata['segments'].append({'type': 'rotation', 'data_type': 'quatdiff'})
+        elif seg_type == SegmentType.VECTOR3:
+            metadata['segments'].append({'type': 'position', 'data_type': 'vec3'})
+        elif seg_type == SegmentType.VECTOR_DIFF:
+            metadata['segments'].append({'type': 'position', 'data_type': 'vec3diff'})
+        elif seg_type == SegmentType.FLOAT:
+            metadata['segments'].append({'type': 'float', 'data_type': 'float'})
+    
     return metadata
+
+
+def parse_track_type_from_metadata(metadata_str: str) -> Optional[RigUnitType]:
+    """Extract only the RigUnitType from @track metadata string.
+    
+    Lightweight parser that extracts only 'type=VALUE' attribute without
+    parsing segments, flags, or other metadata. Optimized for performance.
+    
+    Args:
+        metadata_str: Metadata string in format '@track BoneName : type=ROOT ; bits=14'
+        
+    Returns:
+        RigUnitType enum if type attribute found and valid, None otherwise
+    """
+    if not metadata_str or not isinstance(metadata_str, str):
+        return None
+    
+    # Split by ':' to separate bone name from attributes
+    parts = metadata_str.split(':', 1)
+    if len(parts) < 2:
+        return None
+    
+    # Parse attributes section (type=ROOT ; bits=14)
+    attributes_part = parts[1]
+    
+    # Split by ';' to get individual attributes
+    for attr in attributes_part.split(';'):
+        attr = attr.strip()
+        if not attr or '=' not in attr:
+            continue
+        
+        # Split by '=' to get key=value
+        attr_key, attr_value = attr.split('=', 1)
+        attr_key = attr_key.strip()
+        attr_value = attr_value.strip()
+        
+        if attr_key == 'type':
+            # Parse RigUnitType from string
+            return RigUnitType.parse_from_string(attr_value)
+    
+    return None
+
+
+def extract_fox_bone_to_rig_unit_type_mapping(layout_action: bpy.types.Action, 
+                                          cache: Optional[Dict[str, Dict[str, RigUnitType]]] = None
+                                          ) -> Dict[str, RigUnitType]:
+    """Extract fox bone name to RigUnitType mapping from layout action metadata.
+    
+    Parses track metadata stored in layout action custom properties (format: '@track FoxBoneName : type=ROOT ; bits=14')
+    to build a mapping of box bone names to their rig unit types. Layout action is the authoritative source for
+    rig unit types in the MTAR structure.
+    
+    Args:
+        layout_action: Layout track action containing track structure metadata (required)
+        cache: Optional cache dict to avoid re-parsing. Keyed by action name. Managed at operator level.
+        
+    Returns:
+        Dictionary mapping fox bone name to RigUnitType (excludes bones with unparseable types)
+    """
+    # Check cache first if provided
+    if cache is not None and layout_action.name in cache:
+        return cache[layout_action.name]
+    
+    bone_to_type: Dict[str, RigUnitType] = {}
+    
+    if not layout_action or not layout_action.keys():
+        # Store empty result in cache if provided
+        if cache is not None:
+            cache[layout_action.name] = bone_to_type
+        return bone_to_type
+    
+    # Parse all track metadata properties (auto-filters by 'track_' prefix)
+    for _, fox_track_name, metadata_str in iter_track_properties(layout_action):
+        try:
+            if not isinstance(metadata_str, str) or not metadata_str.startswith('@track'):
+                continue
+            
+            # Parse rig unit type using lightweight parser
+            rig_unit_type = parse_track_type_from_metadata(metadata_str)
+            
+            if rig_unit_type is None:
+                Debug.log_warning(f"Could not parse rig unit type from metadata: {metadata_str}")
+                continue  # Skip unparseable types - do not add to dict
+            
+            # Store mapping (only if type was successfully parsed)
+            bone_to_type[fox_track_name] = rig_unit_type
+            
+        except Exception as e:
+            Debug.log_warning(f"Failed to parse track metadata for '{fox_track_name}': {e}")
+            continue
+    
+    # Store result in cache if provided
+    if cache is not None:
+        cache[layout_action.name] = bone_to_type
+    
+    return bone_to_type
 
 
 def parse_action_track_metadata(metadata_value: str) -> Optional[dict]:
     """Parse @track metadata stored on actions (GANI file properties).
 
-    Supports both scalar & comma-separated `bits=`.
+    Format: @track <name> : type=<type> ; [flags=<flags>] ; [bits=<bits>]
+    
+    Uses the unified parse_track_metadata_generic() parser internally.
+    
+    Returns:
+        Dictionary with 'track_name', 'component_bit_sizes', 'flags', 'type' keys
     """
-    if not isinstance(metadata_value, str):
+    # Use unified parser
+    parsed = parse_track_metadata_generic(metadata_value)
+    if not parsed:
         return None
-    s = metadata_value.strip()
-    if not s.startswith('@track'):
-        return None
-    rest = s[len('@track'):].strip()
-    if ':' not in rest:
-        return None
-    parts = rest.split(':', 1)
-    track_name = parts[0].strip()
-    params_str = parts[1].strip()
-
-    component_bit_sizes: List[int] = []
-    flags_list: List[str] = []
-    rig_type = None
-    for param in params_str.split(';'):
-        param = param.strip()
-        if not param or '=' not in param:
-            continue
-        key, value = param.split('=', 1)
-        key = key.strip()
-        value = value.strip()
-        if key == 'bits' and value:
-            if ',' in value:
-                for bs in [b.strip() for b in value.split(',') if b.strip()]:
-                    try:
-                        component_bit_sizes.append(int(bs))
-                    except ValueError:
-                        component_bit_sizes.append(0)
-            else:
-                try:
-                    component_bit_sizes = [int(value)]
-                except ValueError:
-                    component_bit_sizes = []
-        elif key == 'flags' and value:
-            if value == 'NONE':
-                flags_list = []
-            else:
-                flags_list = [f.strip() for f in value.split(',') if f.strip()]
-        elif key == 'type' and value:
-            rig_type = value
+    
+    # Convert to expected return format
     return {
-        'track_name': track_name,
-        'component_bit_sizes': component_bit_sizes,
-        'flags': flags_list,
-        'type': rig_type,
+        'track_name': parsed['track_name'],
+        'component_bit_sizes': parsed['component_bit_sizes'] if parsed['component_bit_sizes'] else [],
+        'flags': parsed['flags_list'] if parsed['flags_list'] else [],
+        'type': parsed['rig_unit_type'],
     }
 
 
@@ -531,7 +812,9 @@ class TrackMetaData:
         across all animations in the MTAR file.
         
         Property key format: track_<padded_idx>_<fox_track_name>
-        Property value format: @track <name> : segments=<segments> ; flags=<flags>
+        Property value format: @track <name> : segments=<segments> ; flags=<flags> ; hash=<hash> ; type=<type> ; bits=<bits> ; count=<n>
+
+        This function now uses the unified parse_track_metadata_generic() parser.
         
         Args:
             layout_action: The layout action containing track structure metadata
@@ -547,7 +830,7 @@ class TrackMetaData:
         for key in layout_action.keys():
             parsed = parse_track_property_key(key)
             if parsed:
-                track_idx, track_name = parsed
+                _, track_name = parsed
                 if track_name == fox_track_name:
                     property_key = key
                     metadata_str = layout_action[key]
@@ -556,137 +839,40 @@ class TrackMetaData:
         if metadata_str is None:
             return None
         
-        # Parse @track format: @track <name> : segments=<segments> ; flags=<flags>
+        # Validate format
         if not isinstance(metadata_str, str) or not metadata_str.startswith('@track'):
             Debug.log_warning(f"      Warning: Custom property '{property_key}' is not in @track format")
             return None
         
-        # Split by colon to separate track name from parameters
-        parts = metadata_str.split(':', 1)
-        if len(parts) < 2:
+        # Use unified parser
+        parsed = parse_track_metadata_generic(metadata_str)
+        if not parsed:
+            Debug.log_warning(f"      Warning: Failed to parse metadata for track '{fox_track_name}'")
             return None
         
-        # Extract track name from @track directive
-        track_name_from_metadata = parts[0].replace('@track', '').strip()
-        params_str = parts[1].strip()
-        
-        # Parse parameters (segments, bits, flags, hash, type)
-        segment_types = []
-        component_bit_sizes = []
-        flags_value = None
-        name_hash = 0
+        # Parse RigUnitType enum if type was provided
         rig_unit_type = None
+        if parsed['rig_unit_type']:
+            rig_unit_type = RigUnitType.parse_from_string(parsed['rig_unit_type'])
+            if rig_unit_type is None:
+                Debug.log_warning(f"      Warning: Unknown rig unit type '{parsed['rig_unit_type']}' in track '{fox_track_name}'")
         
-        for param in params_str.split(';'):
-            param = param.strip()
-            if '=' in param:
-                key, value = param.split('=', 1)
-                key = key.strip()
-                value = value.strip()
-                
-                if key == 'segments' and value:
-                    # Parse segment type codes: q, qd, v, vd, f
-                    segment_codes = [code.strip() for code in value.split(',') if code.strip()]
-                    for code in segment_codes:
-                        if code == 'q':
-                            segment_types.append(SegmentType.QUAT)
-                        elif code == 'qd':
-                            segment_types.append(SegmentType.QUAT_DIFF)
-                        elif code == 'v':
-                            segment_types.append(SegmentType.VECTOR3)
-                        elif code == 'vd':
-                            segment_types.append(SegmentType.VECTOR_DIFF)
-                        elif code == 'f':
-                            segment_types.append(SegmentType.FLOAT)
-                        else:
-                            Debug.log_warning(f"      Warning: Unknown segment code '{code}' in track '{fox_track_name}'")
+        # Create TrackMetaData from parsed values
+        name_hash = parsed['name_hash']
+        if name_hash is None:
+            # Generate hash from track name if not provided
+            name_hash = StrCode32.from_string(parsed['track_name']).to_int()
         
-                elif key == 'bits' and value:
-                    # Parse component bit sizes
-                    bit_size_strs = [bs.strip() for bs in value.split(',') if bs.strip()]
-                    for bs_str in bit_size_strs:
-                        try:
-                            component_bit_sizes.append(int(bs_str))
-                        except ValueError:
-                            Debug.log_warning(f"      Warning: Invalid bit size '{bs_str}' in track '{fox_track_name}'")
-                            component_bit_sizes.append(0)
-        
-                elif key == 'flags' and value:
-                    # Convert flag names to enum values, then to integer
-                    flag_names = [name.strip() for name in value.split(',') if name.strip()]
-                    flag_enums = []
-                    for name in flag_names:
-                        try:
-                            flag_enums.append(TrackUnitFlags[name])
-                        except KeyError:
-                            Debug.log_warning(f"      Warning: Unknown flag name '{name}' in track '{fox_track_name}'")
-                    
-                    if flag_enums:
-                        flags_value = TrackUnitFlags.track_unit_flags_to_int(flag_enums)
-        
-                elif key == 'hash' and value:
-                    # Parse track name hash (StrCode32)
-                    try:
-                        name_hash = int(value)
-                    except ValueError:
-                        Debug.log_warning(f"      Warning: Invalid hash value '{value}' in track '{fox_track_name}'")
-        
-                elif key == 'type' and value:
-                    # Parse rig unit type
-                    rig_unit_type = RigUnitType.parse_from_string(value)
-                    if rig_unit_type is None:
-                        Debug.log_warning(f"      Warning: Unknown rig unit type '{value}' in track '{fox_track_name}'")
-        
-        # Return TrackMetaData object if we have all required data
-        if segment_types and flags_value is not None:
-            metadata = TrackMetaData(
-                track_name=track_name_from_metadata,
-                segment_types=segment_types,
-                unit_flags=flags_value,
-                name_hash=name_hash,
-                component_bit_sizes=component_bit_sizes if component_bit_sizes else None,
-                rig_unit_type=rig_unit_type
-            )
-            Debug.log(f"      Retrieved layout metadata for '{fox_track_name}': {len(segment_types)} segments, flags={flags_value}, hash={name_hash}, bits={component_bit_sizes}")
-            return metadata
-        
-        # If layout-style parsing failed, try action-style parsing as a fallback
-        # This handles the case where actions store per-track overrides with '@track' format
-        try:
-            params_parsed_action = parse_action_track_metadata(metadata_str)
-        except Exception:
-            params_parsed_action = None
+        return TrackMetaData(
+            track_name=parsed['track_name'],
+            name_hash=name_hash,
+            segment_types=parsed['segment_types'],
+            component_bit_sizes=parsed['component_bit_sizes'],
+            unit_flags=parsed['unit_flags'],
+            flags_list=parsed['flags_list'],
+            rig_unit_type=rig_unit_type
+        )
 
-        if params_parsed_action:
-            track_name_from_action = params_parsed_action.get('track_name', fox_track_name)
-            component_bit_sizes_action = params_parsed_action.get('component_bit_sizes')
-            flags_list_action = params_parsed_action.get('flags') or []
-            rig_type_action = params_parsed_action.get('type')
-
-            unit_flags_action = None
-            if flags_list_action:
-                flag_enums_action = []
-                for name in flags_list_action:
-                    try:
-                        flag_enums_action.append(TrackUnitFlags[name])
-                    except KeyError:
-                        Debug.log_warning(f"      Warning: Unknown flag name '{name}' in track '{fox_track_name}'")
-                if flag_enums_action:
-                    unit_flags_action = TrackUnitFlags.track_unit_flags_to_int(flag_enums_action)
-
-            tm = TrackMetaData(
-                track_name=track_name_from_action,
-                name_hash=StrCode32.from_string(track_name_from_action).to_int() if track_name_from_action else None,
-                segment_types=[],
-                component_bit_sizes=component_bit_sizes_action if component_bit_sizes_action else None,
-                unit_flags=unit_flags_action,
-                flags_list=flags_list_action if flags_list_action else None,
-                rig_unit_type=rig_type_action
-            )
-            return tm
-
-        return None
-    
     @staticmethod
     def from_fcurves(bone_name: str, action: bpy.types.Action) -> Optional['TrackMetaData']:
         """Build minimal TrackMetaData by analyzing fcurves when no metadata is available.
@@ -833,12 +1019,12 @@ class TrackMetaData:
             # Create TrackMetaData
             track_meta: TrackMetaData = TrackMetaData(
                 track_name=track_name,
-                name_hash=None,  # Not stored in GANI tracks
+                name_hash=None, # Not stored in GANI tracks but layout track
                 segment_types=segment_types,
                 component_bit_sizes=bit_sizes,
                 unit_flags=unit_flags,
-                flags_list=None,
-                rig_unit_type=None  # Not directly available
+                flags_list=None, # Not stored in GANI tracks but layout track
+                rig_unit_type=None # Not stored in GANI tracks but layout track
             )
             
             track_metadata_list.append(track_meta)

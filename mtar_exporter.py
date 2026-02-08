@@ -25,7 +25,7 @@ from .py_utilities.utilities_transforms import (
     TransformsCache
 )
 from .py_utilities.utilities_blender_animation import (
-    FCurveCache, action_has_fcurves, iter_action_fcurves, is_relevant_strip
+    FCurveCache, action_has_fcurves, iter_action_fcurves, is_relevant_strip, find_layout_track_action
 )
 
 from .py_foxwrap.foxwrap_motionevent import read_motion_events_from_action
@@ -65,24 +65,6 @@ def get_highest_bit_size_for_segment(segment_type: SegmentType) -> int:
 
 
 # Layout and MetaData #############################################################
-
-def find_layout_track_action() -> Optional[bpy.types.Action]:
-    """Find the layout track action in the scene.
-    
-    Searches for an action with a name containing '.layout.'.
-        
-    Returns:
-        Layout track action if found, None otherwise
-    """
-    # Search in all actions
-    for action in bpy.data.actions:
-        # Check for layout track naming pattern
-        if '.layout.' in action.name.lower():
-            Debug.log(f"  Found layout track action: '{action.name}'")
-            return action
-    
-    Debug.log_warning("  Warning: No layout track action found")
-    return None
 
 def build_layout_track_from_metadata(track_segment_bone_mapping: TrackSegmentBoneMapping, 
                                      metadata_dict: Dict[str, TrackMetaData],
@@ -726,16 +708,17 @@ def export_location_segment(armature: bpy.types.Object, blender_bone_name: str,
     return keyframes
 
 
-def export_gani_track_from_action(armature: bpy.types.Object, 
+def export_gani_track_from_action(armature: bpy.types.Object,
+                                  action: bpy.types.Action,
                                   track_idx: int,
-                                  track_segment_bone_mapping: TrackSegmentBoneMapping,
                                   frame_start: int,
                                   frame_end: int,
-                                  action: bpy.types.Action,
                                   layout_metadata: Optional[TrackMetaData],
-                                  fcurve_cache: Optional[FCurveCache] = None,
+                                  track_segment_bone_mapping: TrackSegmentBoneMapping,
                                   force_highest_bit_encoding: bool = False,
-                                  transform_cache: Optional[TransformsCache] = None) -> 'TrackUnitWrapper':
+                                  fcurve_cache: Optional[FCurveCache] = None,
+                                  transform_cache: Optional[TransformsCache] = None
+                                  ) -> TrackUnitWrapper:
     """Export a GaniTrack (all segments for one track).
     
     This is the export counterpart to import_gani_track().
@@ -1027,14 +1010,14 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
             
             gani_track = export_gani_track_from_action(
                 armature,
+                action,
                 track_idx,
-                track_segment_bone_mapping,
                 frame_start,
                 frame_end,
-                action,
                 layout_metadata,
-                fcurve_cache,
+                track_segment_bone_mapping,
                 force_highest_bit_encoding,
+                fcurve_cache,
                 transform_cache
             )
             
@@ -1323,8 +1306,12 @@ def collect_motion_point_actions(motion_points_armature: bpy.types.Object, use_n
 
 # MTAR export #############################################################
 
-def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bpy.types.Object] = None,
-                track_segment_bone_mapping: Optional[TrackSegmentBoneMapping] = None, use_nla: bool = True) -> Dict[str, str]:
+def export_mtar(context: bpy.types.Context,
+                filepath: str,
+                armature: Optional[bpy.types.Object] = None,
+                track_segment_bone_mapping: Optional[TrackSegmentBoneMapping] = None,
+                use_nla: bool = True
+                ) -> Dict[str, str]:
     """Export Blender animation data to MTAR format.
     
     Args:
@@ -1475,6 +1462,7 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
     motion_points_armature = export_props.motion_points_armature
     
     motion_point_actions_data: List[ExportActionData] = []
+    motion_points_list: Optional[MotionPointList2] = None
     
     if motion_points_armature:
         Debug.log(f"Found motion points armature: {motion_points_armature.name}")
@@ -1537,8 +1525,10 @@ def export_mtar(context: bpy.types.Context, filepath: str, armature: Optional[bp
         Debug.start_timer(f"4.{action_idx}.1 Main Animation Tracks")
 
         gani_tracks: List[TrackUnitWrapper] = export_gani_tracks_from_action(
-            armature, action_data,
-            track_segment_bone_mapping, metadata_dict,
+            armature,
+            action_data,
+            track_segment_bone_mapping,
+            metadata_dict,
             force_highest_bit_encoding
         )
 

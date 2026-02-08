@@ -5,20 +5,25 @@ from typing import Optional, List, Dict, Union, Tuple
 import bpy
 from mathutils import Quaternion, Vector
 
-import time
 from .py_utilities.utilities_logging import Debug
 from .py_utilities.utilities_rig_hash import unhash_rig_type
 from .py_utilities.utilities_transforms import (
-    calculate_directional_location, 
-    prepare_rotation_offset_quats, 
-    apply_rotation_transforms, 
+    calculate_directional_location,
+    prepare_rotation_offset_quats,
+    apply_rotation_transforms,
     fox_to_blender_vector,
     apply_rest_pose_correction_local
 )
-from .py_utilities.utilities_blender_animation import add_dummy_keyframes_to_action, configure_action, remove_action_from_datablock, ensure_action_fcurve, iter_action_fcurves
+from .py_utilities.utilities_blender_animation import (
+    add_dummy_keyframes_to_action,
+    configure_action,
+    remove_action_from_datablock,
+    ensure_action_fcurve,
+    iter_action_fcurves
+)
 from .py_utilities.utilities_naming import format_action_name, format_strip_name
 
-from .py_foxwrap.foxwrap_metadata import store_track_header_properties_on_action, TrackMetaData, make_track_property_key
+from .py_foxwrap.foxwrap_metadata import TrackMetaData, store_track_header_properties_on_action, make_track_property_key
 from .py_foxwrap.foxwrap_misc import TrackUnitWrapper, TrackDataBlobWrapper, Tracks
 from .py_foxwrap.foxwrap_motionevent import store_motion_events_on_action
 from .py_foxwrap.foxwrap_mtar_reader import MtarReader
@@ -29,6 +34,7 @@ from .py_fox.fox_gani_types import SegmentType, TrackUnitFlags, TrackHeader, Tra
 from .py_fox.fox_frig_types import RigUnitType, FrigFile
 from .py_fox.fox_misc_types import StrCode32
 
+from .blender_properties import get_interpolation_mode
 
 FPS_59_94: float = 59.94
 
@@ -214,7 +220,6 @@ def apply_track_transformations(all_gani_tracks: List[List[TrackUnitWrapper]], t
                         mapping_data: BoneParameters = track_mapping[old_name]
                         apply_track_mapping_transformation(track_blob, mapping_data, old_name)
 
-
 def extract_rest_pose_from_custom_rig(all_gani_tracks: List[List[TrackUnitWrapper]], custom_rig: Optional[bpy.types.Object]) -> None:
     """Extract rest pose rotations from custom rig and merge with existing transformations.
     
@@ -285,13 +290,19 @@ def extract_rest_pose_from_custom_rig(all_gani_tracks: List[List[TrackUnitWrappe
 
 # Animation #############################################################
 
-def import_keyframes_track(context: bpy.types.Context, action: bpy.types.Action, keyframes_track: TrackDataBlobWrapper) -> int:
+def import_keyframes_track(
+    context: bpy.types.Context, 
+    action: bpy.types.Action, 
+    keyframes_track: TrackDataBlobWrapper,
+    rig_unit_type: Optional[RigUnitType] = None
+) -> int:
     """Import a single track data blob into a Blender action.
     
     Args:
         context: Blender context (used to access import properties like ik_up_distance)
         action: Blender action to add keyframes to
         keyframes_track: TrackDataBlobWrapper object containing animation data
+        rig_unit_type: Optional RigUnitType from FRIG (used to apply per-track-type interpolation rules)
         
     Returns:
         Maximum frame number encountered in this track
@@ -300,14 +311,8 @@ def import_keyframes_track(context: bpy.types.Context, action: bpy.types.Action,
     
     Debug.log(f"  - Import Track '{keyframes_track.name}' ({keyframes_track.data_blob.type.name}): {len(keyframes_track.data_blob.keyframes)} keyframe(s)")
 
-    # Determine preferred interpolation from import properties (fall back to BEZIER)
-    interpolation_mode: str = 'BEZIER'
-    try:
-        props = getattr(context.scene, 'mtar_properties', None)
-        if props is not None and getattr(props, 'import_props', None) is not None:
-            interpolation_mode = getattr(props.import_props, 'interpolation_mode', interpolation_mode)
-    except Exception:
-        pass
+    # Determine interpolation mode based on rig unit type and user settings
+    interpolation_mode = get_interpolation_mode(context, rig_unit_type)
     
     # Get or create FCurve group for this handle (Blender <5.0)
     # Ensure group_name is always a string (keyframes_track.name can be an integer hash)
@@ -420,7 +425,7 @@ def import_keyframes_track(context: bpy.types.Context, action: bpy.types.Action,
                         # offset_r is already applied via rotation_offset_quats above
                         # This is the correct behavior for world space
                         pass
-                    Debug.log(f"    Applied world space transformation (space_r)")
+                    Debug.log("    Applied world space transformation (space_r)")
                     
                 elif keyframes_track.map_r_rest_pose:
                     # Local space track - apply similarity transformation
@@ -500,7 +505,7 @@ def import_gani_track(context: bpy.types.Context, action: bpy.types.Action, gani
     
     # Process each keyframes track (segment) in the GaniTrack
     for keyframes_track in gani_track.segments_track_data:
-        track_max_frame: int = import_keyframes_track(context, action, keyframes_track)
+        track_max_frame: int = import_keyframes_track(context, action, keyframes_track, gani_track.rig_unit_type)
         max_frame = max(max_frame, track_max_frame)
     
     return max_frame

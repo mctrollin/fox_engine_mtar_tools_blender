@@ -117,6 +117,10 @@ class TrackMappingData:
         self.fox_to_blender: Dict[str, BoneParameters] = {}  # fox_name -> BoneParameters
         self.track_metadata: Dict[str, dict] = {}  # track_name -> metadata
         self.fox_to_blender_names: Dict[str, str] = {}  # fox_name -> blender_name
+        self.blender_to_fox_names: Dict[str, str] = {}  # blender_name -> fox_name (reverse mapping)
+        self.blender_segment_to_fox_base: Dict[Tuple[str, int], str] = {}  # (blender_name, segment_idx) -> fox_base_name (NO COLLISIONS)
+        self.blender_to_fox_base_names: Dict[str, str] = {}  # blender_name -> fox_base_name (fallback for single-segment)
+        self.fox_base_to_blender_names: Dict[str, List[str]] = {}  # fox_base_name -> [blender_names] (one-to-many)
     
     def add_bone_mapping(self, fox_name: str, blender_name: str, mapping_dict: dict) -> None:
         """Add a bone mapping entry.
@@ -132,6 +136,37 @@ class TrackMappingData:
         
         # Store simple name mapping
         self.fox_to_blender_names[fox_name] = blender_name
+        
+        # Parse segment info from fox_name
+        base_fox_name, segment_idx = self._parse_segment_suffix(fox_name)
+        
+        # Build reverse mapping (Blender -> Fox) - full fox name with suffix
+        # Last wins, but no warning (multi-segment to same bone is expected)
+        self.blender_to_fox_names[blender_name] = fox_name
+        
+        # Build segment-specific reverse mapping - NO COLLISIONS
+        # Key includes segment index, so different segments have unique keys
+        segment_key = (blender_name, segment_idx)
+        if segment_key in self.blender_segment_to_fox_base:
+            existing_base = self.blender_segment_to_fox_base[segment_key]
+            if existing_base != base_fox_name:
+                Debug.log_warning(
+                    f"Multi-track collision: Blender bone '{blender_name}' segment {segment_idx} "
+                    f"maps to Fox tracks '{existing_base}' and '{base_fox_name}'. "
+                    f"Using '{base_fox_name}'."
+                )
+        self.blender_segment_to_fox_base[segment_key] = base_fox_name
+        
+        # Build simple reverse mapping (fallback for single-segment tracks or backward compat)
+        # Only store for single-segment tracks (segment_idx == -1) to avoid collisions
+        if segment_idx == -1 and blender_name not in self.blender_to_fox_base_names:
+            self.blender_to_fox_base_names[blender_name] = base_fox_name
+        
+        # Build forward base name mapping (Fox base -> Blender bones, one-to-many)
+        if base_fox_name not in self.fox_base_to_blender_names:
+            self.fox_base_to_blender_names[base_fox_name] = []
+        if blender_name not in self.fox_base_to_blender_names[base_fox_name]:
+            self.fox_base_to_blender_names[base_fox_name].append(blender_name)
     
     def add_track_metadata(self, track_name: str, metadata: dict) -> None:
         """Add track metadata entry.
@@ -141,6 +176,120 @@ class TrackMappingData:
             metadata: Metadata dictionary with segments, flags, type, etc.
         """
         self.track_metadata[track_name] = metadata
+    
+    def get_fox_base_name_for_blender_bone(
+        self,
+        blender_name: str,
+        fcurve_data_path: Optional[str] = None
+    ) -> Optional[str]:
+        """Get Fox base track name for Blender bone with segment-aware lookup.
+        
+        Primary method for baking workflow. Uses F-curve data path to determine
+        segment index, avoiding collisions when multiple segments map to same bone.
+        
+        Args:
+            blender_name: Blender bone name (e.g., "hand_ik.R")
+            fcurve_data_path: Optional F-curve data path for segment inference
+                             (e.g., 'pose.bones["hand_ik.R"].rotation_quaternion')
+            
+        Returns:
+            Fox base track name without segment suffix (e.g., "RHand"), or None if not found
+        
+        Example:
+            >>> # Segment-aware lookup (preferred for multi-segment tracks)
+            >>> mapping.get_fox_base_name_for_blender_bone(
+            ...     "hand_ik.R", 
+            ...     'pose.bones["hand_ik.R"].rotation_quaternion'
+            ... )
+            "RHand"  # From RHand_0 (rotation segment)
+            
+            >>> # Simple lookup (fallback for single-segment tracks)
+            >>> mapping.get_fox_base_name_for_blender_bone("head")
+            "Head"  # Works if only one segment maps to this bone
+        """
+        if fcurve_data_path:
+            # Segment-specific lookup using F-curve property type
+            segment_idx = self._infer_segment_from_fcurve(fcurve_data_path)
+            segment_key = (blender_name, segment_idx)
+            result = self.blender_segment_to_fox_base.get(segment_key)
+            if result:
+                return result
+        
+        # Fallback to simple lookup (for single-segment tracks or backward compat)
+        return self.blender_to_fox_base_names.get(blender_name)
+    
+    def get_blender_bones_for_fox_base(self, fox_base_name: str) -> List[str]:
+        """Get all Blender bones mapped from a Fox base track.
+        
+        Args:
+            fox_base_name: Fox base track name without segment suffix (e.g., "RHand")
+            
+        Returns:
+            List of Blender bone names mapped from this Fox track (may be empty)
+        
+        Example:
+            >>> mapping.get_blender_bones_for_fox_base("RHand")
+            ["hand_ik.R"]  # Even if mapping has RHand_0, RHand_1 -> same bone
+        """
+        return self.fox_base_to_blender_names.get(fox_base_name, [])
+    
+    @staticmethod
+    def _infer_segment_from_fcurve(data_path: str) -> int:
+        """Infer segment index from F-curve data path property type.
+        
+        Uses standard Fox Engine convention:
+        - Segment 0: Rotation (rotation_quaternion, rotation_euler, rotation_axis_angle)
+        - Segment 1: Location (location)
+        - Segment 2: Scale (scale)
+        
+        This works for most track types (TRANSFORM, ARM, TWO_BONE, etc.).
+        Note: ROOT type uses differential encoding (qd, vd) but still follows this order.
+        
+        Args:
+            data_path: F-curve data path (e.g., 'pose.bones["hand_ik.R"].rotation_quaternion')
+            
+        Returns:
+            Segment index (0, 1, or 2)
+        
+        Example:
+            >>> _infer_segment_from_fcurve('pose.bones["bone"].rotation_quaternion')
+            0
+            >>> _infer_segment_from_fcurve('pose.bones["bone"].location')
+            1
+            >>> _infer_segment_from_fcurve('pose.bones["bone"].scale')
+            2
+        """
+        data_path_lower = data_path.lower()
+        if "rotation" in data_path_lower:
+            return 0
+        elif "location" in data_path_lower:
+            return 1
+        elif "scale" in data_path_lower:
+            return 2
+        # Default to rotation for unknown properties
+        return 0
+    
+    @staticmethod
+    def _parse_segment_suffix(fox_name: str) -> Tuple[str, int]:
+        """Parse segment suffix from Fox bone name.
+        
+        Multi-segment tracks use naming convention: BaseName_0, BaseName_1, etc.
+        Single-segment tracks have no suffix and use segment index -1.
+        
+        Args:
+            fox_name: Fox bone name (e.g., "RHand_0", "RHand_1", "Head")
+            
+        Returns:
+            Tuple of (base_name, segment_index)
+            - "RHand_0" -> ("RHand", 0) - rotation segment of multi-segment track
+            - "RHand_1" -> ("RHand", 1) - location segment of multi-segment track
+            - "Head" -> ("Head", -1) - single-segment track (no collision with segment 0)
+        """
+        if '_' in fox_name:
+            parts = fox_name.rsplit('_', 1)
+            if len(parts) == 2 and parts[1].isdigit():
+                return (parts[0], int(parts[1]))
+        return (fox_name, -1)
     
     def __len__(self) -> int:
         """Return number of bone mappings."""
