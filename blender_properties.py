@@ -239,7 +239,7 @@ class MTAR_PG_ImportProperties(PropertyGroup):
             ('BEZIER', "Bezier", "Smooth bezier interpolation"),
             ('LINEAR', "Linear", "Linear interpolation"),
         ],
-        default='BEZIER'
+        default='LINEAR'
     )
 
     interpolation_force_linear_track_types: StringProperty(

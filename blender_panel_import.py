@@ -177,7 +177,7 @@ class MTAR_PT_ImportPanel(Panel):
             interpolation_icon = {
                 'BEZIER': 'IPO_BEZIER',
                 'LINEAR': 'IPO_LINEAR',
-            }.get(import_props.interpolation_mode, 'IPO_BEZIER')
+            }.get(import_props.interpolation_mode, 'IPO_LINEAR')
             row.prop(import_props, 'interpolation_mode', text='', icon=interpolation_icon)
             
             if import_props.interpolation_mode != 'LINEAR':
