@@ -1268,8 +1268,8 @@ def collect_motion_point_actions(motion_points_armature: bpy.types.Object, use_n
 
                 action_data = ExportActionData(
                     action=strip.action,
-                    frame_start=int(strip.action_frame_start),
-                    frame_end=int(strip.action_frame_end),
+                    frame_start=int(strip.frame_start),
+                    frame_end=int(strip.frame_end),
                     source=f"NLA strip '{strip.name}' on track '{track.name}'"
                 )
                 actions.append(action_data)

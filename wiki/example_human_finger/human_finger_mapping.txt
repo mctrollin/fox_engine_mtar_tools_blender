@@ -58,15 +58,15 @@ RLeg_1 : thigh_ik_target.R      ; space_ik=custom,torso_root ; as_ik_up=thigh_pa
 
 # Track 13 (q)
 @track RFoot : type=ORIENTATION
-RFoot : foot_ik.R       ; space_r=custom,torso_root
+RFoot : foot_ik.R               ; space_r=custom,torso_root
 
 # Track 14 (q)
 @track LToe : type=LOCAL_ORIENTATION
-LToe : toe_ik.L
+LToe : toe.L
 
 # Track 15 (q)
 @track RToe : type=LOCAL_ORIENTATION
-RToe : toe_ik.R
+RToe : toe.R
 
 # Track 16 (q * 16)
 @track LFingers : type=MULTI_LOCAL_ORIENTATION ; count=16
