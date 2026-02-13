@@ -56,10 +56,17 @@ class SegmentKeyframeData:
 class AnimKeyframe:
     """A time-stamped keyframe for a segment.
 
-    `value` is a SegmentKeyframeData instance containing the decoded components.
+    ``frame_count`` stores the **relative frame delta** from the previous keyframe,
+    matching the Fox Engine binary format (8-bit unsigned, range 0-255).
+    First keyframe always has frame_count=0 (implicit start).
+    
+    Consumers that need absolute frame numbers must accumulate deltas:
+    ``current_frame += keyframe.frame_count``
+
+    ``data`` is a SegmentKeyframeData instance containing the decoded components.
     """
     frame_count: int
-    '''Defines the relative frame position from the previous frame.'''
+    '''Relative frame delta from the previous keyframe (0 for the first keyframe).'''
 
     data: SegmentKeyframeData
 
@@ -89,37 +96,43 @@ class AnimKeyframe:
             List of AnimKeyframe objects containing the keyframe data
         """
         keyframes = []
-        current_frame = 0
+        accumulated_frame = 0  # Tracks absolute position for loop termination only
         is_static = (unit_flags & TrackUnitFlags.IS_STATIC) != 0
         
         # Rotations (Quaternions)
         if segment_type in [SegmentType.QUAT, SegmentType.QUAT_DIFF]:
             bit_pos = data_offset * 8  # Convert byte offset to bit offset
             quat, bit_pos = read_unaligned_quaternion(file_data, bit_pos, component_bit_size)
-            keyframes.append(AnimKeyframe(frame=current_frame, value=quat))
+            keyframes.append(AnimKeyframe(frame=0, value=quat))  # First keyframe: delta=0
             
             if not is_static:
-                while current_frame < frame_count:
+                while accumulated_frame < frame_count:
                     frame_delta, bit_pos = read_unaligned_bits(file_data, bit_pos, 8)
-                    current_frame += frame_delta
+                    accumulated_frame += frame_delta
+                    if frame_delta < 1:
+                        Debug.log_warning(f"Import: Invalid frame_delta {frame_delta} at accumulated frame {accumulated_frame} (segment={segment_type})")
+                    elif frame_delta > 255:
+                        Debug.log_warning(f"Import: frame_delta {frame_delta} exceeds 8-bit range at accumulated frame {accumulated_frame} (segment={segment_type})")
                     quat, bit_pos = read_unaligned_quaternion(file_data, bit_pos, component_bit_size)
-                    keyframes.append(AnimKeyframe(frame=current_frame, value=quat))
+                    keyframes.append(AnimKeyframe(frame=frame_delta, value=quat))  # Store delta directly
         
         # 3D Vectors (Positions, etc.)
         elif segment_type in [SegmentType.VECTOR3, SegmentType.VECTOR_DIFF]:
             offset = data_offset
             vec, offset = read_vector3(file_data, offset, component_bit_size)
-            keyframes.append(AnimKeyframe(frame=current_frame, value=vec))
+            keyframes.append(AnimKeyframe(frame=0, value=vec))  # First keyframe: delta=0
             
             if not is_static:
-                while current_frame < frame_count:
+                while accumulated_frame < frame_count:
                     frame_delta = file_data[offset]
                     offset += 1
-                    current_frame += frame_delta
+                    accumulated_frame += frame_delta
+                    if frame_delta < 1:
+                        Debug.log_warning(f"Import: Invalid frame_delta {frame_delta} at accumulated frame {accumulated_frame} (segment={segment_type})")
                     vec, offset = read_vector3(file_data, offset, component_bit_size)
                     if abs(vec[0]) > 100 or abs(vec[1]) > 100 or abs(vec[2]) > 100:
                         Debug.log_error(f"Vector segment ({segment_type}) too big ({vec})")
-                    keyframes.append(AnimKeyframe(frame=current_frame, value=vec))
+                    keyframes.append(AnimKeyframe(frame=frame_delta, value=vec))  # Store delta directly
         
         # Floats (Single values)
         elif segment_type == SegmentType.FLOAT:
@@ -128,46 +141,52 @@ class AnimKeyframe:
                 value, offset = read_anim_half(file_data, offset)
             else:  # component_bit_size == 32
                 value, offset = read_float(file_data, offset)
-            keyframes.append(AnimKeyframe(frame=current_frame, value=[value]))
+            keyframes.append(AnimKeyframe(frame=0, value=[value]))  # First keyframe: delta=0
             
             if not is_static:
-                while current_frame < frame_count:
+                while accumulated_frame < frame_count:
                     frame_delta = file_data[offset]
                     offset += 1
-                    current_frame += frame_delta
+                    accumulated_frame += frame_delta
+                    if frame_delta < 1:
+                        Debug.log_warning(f"Import: Invalid frame_delta {frame_delta} at accumulated frame {accumulated_frame} (segment={segment_type})")
                     if component_bit_size == 16:
                         value, offset = read_anim_half(file_data, offset)
                     else:  # component_bit_size == 32
                         value, offset = read_float(file_data, offset)
-                    keyframes.append(AnimKeyframe(frame=current_frame, value=[value]))
+                    keyframes.append(AnimKeyframe(frame=frame_delta, value=[value]))  # Store delta directly
         
         # 2D Vectors
         elif segment_type == SegmentType.VECTOR2:
             offset = data_offset
             vec, offset = read_vector2(file_data, offset, component_bit_size)
-            keyframes.append(AnimKeyframe(frame=current_frame, value=vec))
+            keyframes.append(AnimKeyframe(frame=0, value=vec))  # First keyframe: delta=0
             
             if not is_static:
-                while current_frame < frame_count:
+                while accumulated_frame < frame_count:
                     frame_delta = file_data[offset]
                     offset += 1
-                    current_frame += frame_delta
+                    accumulated_frame += frame_delta
+                    if frame_delta < 1:
+                        Debug.log_warning(f"Import: Invalid frame_delta {frame_delta} at accumulated frame {accumulated_frame} (segment={segment_type})")
                     vec, offset = read_vector2(file_data, offset, component_bit_size)
-                    keyframes.append(AnimKeyframe(frame=current_frame, value=vec))
+                    keyframes.append(AnimKeyframe(frame=frame_delta, value=vec))  # Store delta directly
         
         # 4D Vectors
         elif segment_type == SegmentType.VECTOR4:
             offset = data_offset
             vec, offset = read_vector4(file_data, offset, component_bit_size)
-            keyframes.append(AnimKeyframe(frame=current_frame, value=vec))
+            keyframes.append(AnimKeyframe(frame=0, value=vec))  # First keyframe: delta=0
             
             if not is_static:
-                while current_frame < frame_count:
+                while accumulated_frame < frame_count:
                     frame_delta = file_data[offset]
                     offset += 1
-                    current_frame += frame_delta
+                    accumulated_frame += frame_delta
+                    if frame_delta < 1:
+                        Debug.log_warning(f"Import: Invalid frame_delta {frame_delta} at accumulated frame {accumulated_frame} (segment={segment_type})")
                     vec, offset = read_vector4(file_data, offset, component_bit_size)
-                    keyframes.append(AnimKeyframe(frame=current_frame, value=vec))
+                    keyframes.append(AnimKeyframe(frame=frame_delta, value=vec))  # Store delta directly
         
         else:
             raise ValueError(f"Unsupported segment type: {segment_type}")
@@ -207,15 +226,16 @@ class AnimKeyframe:
             # Write subsequent keyframes if this is not a static track
             if has_frames and len(keyframes) > 1:
                 for i in range(1, len(keyframes)):
-                    # Calculate frame delta
-                    frame_delta = keyframes[i].frame_count - keyframes[i-1].frame_count
+                    # frame_count is already the relative delta from previous keyframe
+                    frame_delta = keyframes[i].frame_count
                     
-                    # Validate: frame_delta must be at least 1
+                    # Validate: delta must be 1-255 (8-bit unsigned, non-zero)
                     if frame_delta < 1:
-                        Debug.log_warning(f"  Warning: Invalid frame_delta {frame_delta} between keyframes {i-1} and {i}")
-                        Debug.log(f"  Keyframe {i-1}: frame_count={keyframes[i-1].frame_count}")
-                        Debug.log(f"  Keyframe {i}: frame_count={keyframes[i].frame_count}")
-                        frame_delta = 1  # Clamp to minimum value
+                        Debug.log_warning(f"Export: Invalid frame_delta {frame_delta} at keyframe {i} (type={track_type}). Clamping to 1.")
+                        frame_delta = 1
+                    elif frame_delta > 255:
+                        Debug.log_warning(f"Export: frame_delta {frame_delta} exceeds 8-bit range at keyframe {i} (type={track_type}). Clamping to 255.")
+                        frame_delta = 255
                     
                     # Write frame delta (8 bits)
                     bit_pos = write_unaligned_bits(buffer, bit_pos, frame_delta, 8)
@@ -245,15 +265,16 @@ class AnimKeyframe:
             # Write subsequent keyframes if this is not a static track
             if has_frames and len(keyframes) > 1:
                 for i in range(1, len(keyframes)):
-                    # Calculate frame delta
-                    frame_delta = keyframes[i].frame_count - keyframes[i-1].frame_count
+                    # frame_count is already the relative delta from previous keyframe
+                    frame_delta = keyframes[i].frame_count
                     
-                    # Validate: frame_delta must be at least 1
+                    # Validate: delta must be 1-255 (8-bit unsigned, non-zero)
                     if frame_delta < 1:
-                        Debug.log_warning(f"  Warning: Invalid frame_delta {frame_delta} between keyframes {i-1} and {i}")
-                        Debug.log(f"  Keyframe {i-1}: frame_count={keyframes[i-1].frame_count}")
-                        Debug.log(f"  Keyframe {i}: frame_count={keyframes[i].frame_count}")
-                        frame_delta = 1  # Clamp to minimum value
+                        Debug.log_warning(f"Export: Invalid frame_delta {frame_delta} at keyframe {i} (type={track_type}). Clamping to 1.")
+                        frame_delta = 1
+                    elif frame_delta > 255:
+                        Debug.log_warning(f"Export: frame_delta {frame_delta} exceeds 8-bit range at keyframe {i} (type={track_type}). Clamping to 255.")
+                        frame_delta = 255
                     
                     # Write frame delta (1 byte)
                     buffer.write(bytes([frame_delta & 0xFF]))
@@ -281,15 +302,16 @@ class AnimKeyframe:
             # Write subsequent keyframes if this is not a static track
             if has_frames and len(keyframes) > 1:
                 for i in range(1, len(keyframes)):
-                    # Calculate frame delta
-                    frame_delta = keyframes[i].frame_count - keyframes[i-1].frame_count
+                    # frame_count is already the relative delta from previous keyframe
+                    frame_delta = keyframes[i].frame_count
                     
-                    # Validate: frame_delta must be at least 1
+                    # Validate: delta must be 1-255 (8-bit unsigned, non-zero)
                     if frame_delta < 1:
-                        Debug.log_warning(f"  Warning: Invalid frame_delta {frame_delta} between keyframes {i-1} and {i}")
-                        Debug.log(f"  Keyframe {i-1}: frame_count={keyframes[i-1].frame_count}")
-                        Debug.log(f"  Keyframe {i}: frame_count={keyframes[i].frame_count}")
-                        frame_delta = 1  # Clamp to minimum value
+                        Debug.log_warning(f"Export: Invalid frame_delta {frame_delta} at keyframe {i} (type={track_type}). Clamping to 1.")
+                        frame_delta = 1
+                    elif frame_delta > 255:
+                        Debug.log_warning(f"Export: frame_delta {frame_delta} exceeds 8-bit range at keyframe {i} (type={track_type}). Clamping to 255.")
+                        frame_delta = 255
                     
                     # Write frame delta (1 byte)
                     buffer.write(bytes([frame_delta & 0xFF]))
@@ -317,15 +339,16 @@ class AnimKeyframe:
             # Write subsequent keyframes if this is not a static track
             if has_frames and len(keyframes) > 1:
                 for i in range(1, len(keyframes)):
-                    # Calculate frame delta
-                    frame_delta = keyframes[i].frame_count - keyframes[i-1].frame_count
+                    # frame_count is already the relative delta from previous keyframe
+                    frame_delta = keyframes[i].frame_count
                     
-                    # Validate: frame_delta must be at least 1
+                    # Validate: delta must be 1-255 (8-bit unsigned, non-zero)
                     if frame_delta < 1:
-                        Debug.log_warning(f"  Warning: Invalid frame_delta {frame_delta} between keyframes {i-1} and {i}")
-                        Debug.log(f"  Keyframe {i-1}: frame_count={keyframes[i-1].frame_count}")
-                        Debug.log(f"  Keyframe {i}: frame_count={keyframes[i].frame_count}")
-                        frame_delta = 1  # Clamp to minimum value
+                        Debug.log_warning(f"Export: Invalid frame_delta {frame_delta} at keyframe {i} (type={track_type}). Clamping to 1.")
+                        frame_delta = 1
+                    elif frame_delta > 255:
+                        Debug.log_warning(f"Export: frame_delta {frame_delta} exceeds 8-bit range at keyframe {i} (type={track_type}). Clamping to 255.")
+                        frame_delta = 255
                     
                     # Write frame delta (1 byte)
                     buffer.write(bytes([frame_delta & 0xFF]))
@@ -350,15 +373,16 @@ class AnimKeyframe:
             # Write subsequent keyframes if this is not a static track
             if has_frames and len(keyframes) > 1:
                 for i in range(1, len(keyframes)):
-                    # Calculate frame delta
-                    frame_delta = keyframes[i].frame_count - keyframes[i-1].frame_count
+                    # frame_count is already the relative delta from previous keyframe
+                    frame_delta = keyframes[i].frame_count
                     
-                    # Validate: frame_delta must be at least 1
+                    # Validate: delta must be 1-255 (8-bit unsigned, non-zero)
                     if frame_delta < 1:
-                        Debug.log_warning(f"  Warning: Invalid frame_delta {frame_delta} between keyframes {i-1} and {i}")
-                        Debug.log(f"  Keyframe {i-1}: frame_count={keyframes[i-1].frame_count}")
-                        Debug.log(f"  Keyframe {i}: frame_count={keyframes[i].frame_count}")
-                        frame_delta = 1  # Clamp to minimum value
+                        Debug.log_warning(f"Export: Invalid frame_delta {frame_delta} at keyframe {i} (type={track_type}). Clamping to 1.")
+                        frame_delta = 1
+                    elif frame_delta > 255:
+                        Debug.log_warning(f"Export: frame_delta {frame_delta} exceeds 8-bit range at keyframe {i} (type={track_type}). Clamping to 255.")
+                        frame_delta = 255
                     
                     # Write frame delta (1 byte)
                     buffer.write(bytes([frame_delta & 0xFF]))

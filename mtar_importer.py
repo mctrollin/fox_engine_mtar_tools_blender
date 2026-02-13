@@ -349,7 +349,9 @@ def import_keyframes_track(
             
             # Pre-convert all quaternions and calculate directional locations
             converted_locations = []
+            absolute_frame = 0  # Accumulate relative deltas into absolute frame numbers
             for keyframe in keyframes_track.data_blob.keyframes:
+                absolute_frame += keyframe.frame_count  # frame_count is a relative delta
                 # Apply all rotation transformations (offset first for as_ik_up)
                 quat = apply_rotation_transforms(
                     keyframe.data.value,  # Fox quaternion [x, y, z, w]
@@ -376,8 +378,8 @@ def import_keyframes_track(
                     distance=distance
                 )
                 
-                converted_locations.append((keyframe.frame_count, target_location))
-                max_frame = max(max_frame, keyframe.frame_count)
+                converted_locations.append((absolute_frame, target_location))
+                max_frame = max(max_frame, absolute_frame)
             
             # Create location curves
             for i in range(3):  # XYZ location
@@ -405,7 +407,9 @@ def import_keyframes_track(
         else:
             # Pre-convert all quaternions to avoid recalculation for each component
             converted_quaternions = []
+            absolute_frame = 0  # Accumulate relative deltas into absolute frame numbers
             for keyframe in keyframes_track.data_blob.keyframes:
+                absolute_frame += keyframe.frame_count  # frame_count is a relative delta
                 # Apply all rotation transformations (offset last for regular rotation)
                 quat = apply_rotation_transforms(
                     keyframe.data.value,  # Fox quaternion [x, y, z, w]
@@ -431,8 +435,8 @@ def import_keyframes_track(
                     euler = keyframes_track.map_r_rest_pose['euler']
                     Debug.log(f"    Applied local space rest pose correction: ({euler[0]}, {euler[1]}, {euler[2]})")
                 
-                converted_quaternions.append((keyframe.frame_count, quat))
-                max_frame = max(max_frame, keyframe.frame_count)
+                converted_quaternions.append((absolute_frame, quat))
+                max_frame = max(max_frame, absolute_frame)
             
             # Create quaternion rotation curves (WXYZ)
             for i in range(4):  # WXYZ quaternion components
@@ -458,6 +462,16 @@ def import_keyframes_track(
             Debug.log(f"    Added quaternion rotation keyframes (frames 0-{max_frame})")
 
     elif keyframes_track.data_blob.type in [SegmentType.VECTOR3, SegmentType.VECTOR_DIFF]:
+        # Pre-convert all vectors and accumulate absolute frames
+        # (must happen outside the component loop since we iterate keyframes 3 times for XYZ)
+        converted_vectors = []
+        absolute_frame = 0  # Accumulate relative deltas into absolute frame numbers
+        for keyframe in keyframes_track.data_blob.keyframes:
+            absolute_frame += keyframe.frame_count  # frame_count is a relative delta
+            blender_vec: List[float] = fox_to_blender_vector(keyframe.data.value)
+            converted_vectors.append((absolute_frame, blender_vec))
+            max_frame = max(max_frame, absolute_frame)
+        
         # Create location curves
         for i in range(3):  # XYZ location
             try:
@@ -472,15 +486,9 @@ def import_keyframes_track(
                 Debug.log_warning(f"Could not create fcurve '{data_path_str}[{i}]' on action '{getattr(action, 'name', '<unknown>')}': {e}")
                 continue
 
-            for keyframe in keyframes_track.data_blob.keyframes:
-                # Convert from Fox Engine coordinate system to Blender
-                blender_vec: List[float] = fox_to_blender_vector(keyframe.data.value)
-
-                # Add keyframe
-                kf_point: bpy.types.Keyframe = fcurve.keyframe_points.insert(keyframe.frame_count, blender_vec[i])
+            for abs_frame, blender_vec in converted_vectors:
+                kf_point: bpy.types.Keyframe = fcurve.keyframe_points.insert(abs_frame, blender_vec[i])
                 kf_point.interpolation = 'LINEAR'  # Always LINEAR - decimation creates bezier later
-                
-                max_frame = max(max_frame, keyframe.frame_count)
         
         Debug.log(f"    Added location keyframes (frames 0-{max_frame})")
     

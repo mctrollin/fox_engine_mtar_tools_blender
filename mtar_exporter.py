@@ -617,6 +617,7 @@ def export_rotation_segment(armature: bpy.types.Object, blender_bone_name: str,
                                               space_bone, rig_unit_type, transform_cache)
     
     # Unified frame loop for both as_ik_up and normal rotation
+    prev_frame = frame_start  # Track previous frame for relative delta computation
     for frame in export_frames:
         # Set frame explicitly for performance (if no cache present)
         if not transform_cache:
@@ -643,8 +644,20 @@ def export_rotation_segment(armature: bpy.types.Object, blender_bone_name: str,
         # Convert to Fox Engine coordinate system
         fox_quat_final = blender_to_fox_quaternion(fox_quat)
         
-        # Create keyframe
-        frame_delta = frame - frame_start if not is_static else 0
+        # Create keyframe with relative frame delta from previous frame
+        if is_static:
+            frame_delta = 0
+        elif not keyframes:
+            frame_delta = 0  # First keyframe is always delta=0
+        else:
+            frame_delta = frame - prev_frame
+            if frame_delta < 1:
+                Debug.log_warning(f"Export rotation: Invalid frame_delta {frame_delta} at frame {frame} for bone '{blender_bone_name}'. Clamping to 1.")
+                frame_delta = 1
+            elif frame_delta > 255:
+                Debug.log_warning(f"Export rotation: frame_delta {frame_delta} exceeds 8-bit range at frame {frame} for bone '{blender_bone_name}'. Clamping to 255.")
+                frame_delta = 255
+        prev_frame = frame
         keyframe = AnimKeyframe(frame=frame_delta, value=fox_quat_final)
         keyframes.append(keyframe)
     
@@ -677,6 +690,7 @@ def export_location_segment(armature: bpy.types.Object, blender_bone_name: str,
     use_world_space = RigUnitType.is_world_space_unit_type(rig_unit_type)
     
     # For regular location: read and convert per frame
+    prev_frame = frame_start  # Track previous frame for relative delta computation
     for frame in export_frames:
         # Set frame explicitly for performance (if no cache present)
         if not transform_cache:
@@ -705,8 +719,20 @@ def export_location_segment(armature: bpy.types.Object, blender_bone_name: str,
         # Convert to Fox Engine coordinate system
         fox_location = blender_to_fox_vector(blender_location)
         
-        # Create keyframe
-        frame_delta = frame - frame_start if not is_static else 0
+        # Create keyframe with relative frame delta from previous frame
+        if is_static:
+            frame_delta = 0
+        elif not keyframes:
+            frame_delta = 0  # First keyframe is always delta=0
+        else:
+            frame_delta = frame - prev_frame
+            if frame_delta < 1:
+                Debug.log_warning(f"Export location: Invalid frame_delta {frame_delta} at frame {frame} for bone '{blender_bone_name}'. Clamping to 1.")
+                frame_delta = 1
+            elif frame_delta > 255:
+                Debug.log_warning(f"Export location: frame_delta {frame_delta} exceeds 8-bit range at frame {frame} for bone '{blender_bone_name}'. Clamping to 255.")
+                frame_delta = 255
+        prev_frame = frame
         keyframe = AnimKeyframe(frame=frame_delta, value=fox_location)
         keyframes.append(keyframe)
     
