@@ -172,17 +172,7 @@ class MTAR_PT_ImportPanel(Panel):
             adv_box.alert = True
             adv_box.prop(import_props, "ik_up_distance", text="IK Up Distance", icon='DRIVER_DISTANCE')
         
-            # Interpolation mode (advanced setting) — per-import property
-            row = adv_box.row()
-            interpolation_icon = {
-                'BEZIER': 'IPO_BEZIER',
-                'LINEAR': 'IPO_LINEAR',
-            }.get(import_props.interpolation_mode, 'IPO_LINEAR')
-            row.prop(import_props, 'interpolation_mode', text='', icon=interpolation_icon)
-            
-            if import_props.interpolation_mode != 'LINEAR':
-                # Force linear interpolation on specific track types
-                row.prop(import_props, 'interpolation_force_linear_track_types', text='', icon='FILTER')
+           
 
         # Bake after import checkbox (only shown if advanced settings enabled and custom rig is specified)
         if settings_props.show_advanced_settings and import_props.custom_rig:
@@ -192,7 +182,16 @@ class MTAR_PT_ImportPanel(Panel):
 
             # Delete imported armature option is an advanced, dependent setting
             if import_props.bake_after_import:
+                 # FCurve decimation settings (advanced setting) — per-import property
+                row = adv_box.row()
+                row.prop(import_props, 'import_decimate_error', text='Decimate Error', icon='IPO_BEZIER')
+                
+                # Decimation track type filter (only shown if decimation error > 0)
+                if import_props.import_decimate_error > 0:
+                    row.prop(import_props, 'interpolation_force_linear_track_types', text='', icon='FILTER')
+
                 draw_bool_prop_checkbox_icon(adv_box, import_props, "delete_import_armature")
+
 
         # Import button
         box_button = layout.box()

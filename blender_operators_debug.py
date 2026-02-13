@@ -15,10 +15,16 @@ from .py_utilities.utilities_transforms import get_world_space_transform, get_lo
 from .py_utilities.utilities_logging import Debug
 from .py_utilities.utilities_debug import create_or_update_dummy_object
 from .py_utilities.utilities_blender_animation import assign_action_to_datablock, remove_action_from_datablock
-from .py_tools.tools_blender_animation_bake import bake_armature_action, bake_armature_nla_strips, remove_bone_constraints, get_bones_with_keyframes
+# Import bake helpers from tools module (keep top-level to prevent import loops)
+from .py_tools.tools_blender_animation_bake import (
+    bake_armature_action,
+    bake_armature_nla_strips,
+    remove_bone_constraints,
+    get_bones_with_keyframes,
+    bake_and_optimize_action,
+    clear_armature_transforms,
+)
 from .py_tools.tools_hash_generator import hash_filename_all_modes
-
-from .blender_operators_import import clear_armature_transforms
 
 # Transform Debug Operators ##################################################################
 
@@ -372,24 +378,25 @@ class MTAR_OT_DebugRunBake(Operator):
                             Debug.report_and_log(self, 'WARNING', "No source armature NLA tracks to mute for prepare")
                             return {'CANCELLED'}
                     else:
-                        # Full bake using existing utility
+                        # Full bake using unified utility (bake + optional decimation/cleanup)
                         Debug.log("Debug: Baking NLA strips on target armature")
-                        bake_result = bake_armature_nla_strips(
+                        bake_result = bake_and_optimize_action(
                             rig_armature=target_armature,
+                            source_armature=source_arm,
                             create_new_action=True,
                             new_action_suffix="_baked",
-                            source_armature=source_arm,
                             remove_constraints=True,
+                            delete_import_armature=False,
+                            decimate_error=0.01,  # Debug UI does not apply import-decimate by default
+                            force_linear_types='',
+                            layout_action=None,
                         )
+
                         if bake_result.get('success'):
-                            Debug.report_and_log(self, 'INFO', f"Debug bake completed: {bake_result.get('message')}")
+                            Debug.report_and_log(self, 'INFO', f"Debug bake completed: {bake_result.get('message')} (post-processed: decimated={bake_result.get('fcurves_decimated', 0)})")
                         else:
                             Debug.report_and_log(self, 'WARNING', f"Debug bake failed: {bake_result.get('message')}")
-                        # Clear transforms
-                        if clear_armature_transforms(target_armature):
-                            Debug.report_and_log(self, 'INFO', "Cleared transforms from target armature after bake")
-                        else:
-                            Debug.report_and_log(self, 'WARNING', "Could not clear transforms from target armature")
+
                         Debug.update_progress(100, "Bake complete")
                         return {'FINISHED'}
                 else:
@@ -452,6 +459,32 @@ class MTAR_OT_DebugRunBake(Operator):
                             strip.action = bake_result.get('action')
                             baked_actions.append(bake_result.get('action'))
                             success_count += 1
+
+                            # Run post-bake decimation/cleanup for this baked action using scene settings
+                            try:
+                                decimate_err = 0.0
+                                clean_thresh = 0.0
+                                if hasattr(context.scene, 'mtar_properties'):
+                                    ip = getattr(context.scene.mtar_properties, 'import_props', None)
+                                    ep = getattr(context.scene.mtar_properties, 'export_props', None)
+                                    if ip is not None:
+                                        decimate_err = getattr(ip, 'import_decimate_error', 0.0)
+                                    if ep is not None:
+                                        clean_thresh = getattr(ep, 'export_clean_threshold', 0.0)
+
+                                # Decimate via process_import_fcurves (operates on armature level)
+                                if decimate_err > 0.0:
+                                    from .py_utilities.utilities_fcurve_processing import process_import_fcurves
+                                    layout_action = find_layout_track_action()
+                                    dec_res = process_import_fcurves(
+                                        armature=target_armature,
+                                        decimate_error=decimate_err,
+                                        force_linear_types=(ip.interpolation_force_linear_track_types if ip else ''),
+                                        layout_action=layout_action
+                                    )
+                                    Debug.log(f"  Post-bake decimation: decimated={dec_res.get('fcurves_decimated', 0)}")
+                            except Exception as opt_e:
+                                Debug.log_warning(f"Post-bake optimize failed for '{strip.name}': {opt_e}")
                         else:
                             Debug.log_warning(f"Failed to bake strip '{strip.name}': {bake_result.get('message')}")
 
@@ -492,16 +525,19 @@ class MTAR_OT_DebugRunBake(Operator):
 
             elif target_armature.animation_data and target_armature.animation_data.action:
                 Debug.log("Debug: Baking active action on target armature")
-                bake_result = bake_armature_action(
+                bake_result = bake_and_optimize_action(
                     rig_armature=target_armature,
-                    action=target_armature.animation_data.action,
-                    remove_constraints=True,
+                    source_armature=source_arm,
                     create_new_action=True,
-                    new_action_suffix="_baked"
+                    new_action_suffix="_baked",
+                    remove_constraints=True,
+                    decimate_error=0.0,
+                    force_linear_types='',
+                    layout_action=None,
                 )
-                
+
                 if bake_result.get('success'):
-                    Debug.report_and_log(self, 'INFO', f"Debug bake completed: {bake_result.get('message')}")
+                    Debug.report_and_log(self, 'INFO', f"Debug bake completed: {bake_result.get('message')} (post-processed: decimated={bake_result.get('fcurves_decimated', 0)})")
                 else:
                     Debug.report_and_log(self, 'WARNING', f"Debug bake failed: {bake_result.get('message')}")
 
@@ -654,4 +690,35 @@ class MTAR_OT_ClearHashGeneratorResults(Operator):
         return {'FINISHED'}
 
 
-
+class MTAR_OT_DebugSetupGraphContext(Operator):
+    """Setup graph editor context for manual decimation testing."""
+    bl_idname = "mtar.debug_setup_graph_context"
+    bl_label = "Setup Graph Context"
+    bl_description = "Setup graph editor with action and armature for manual operator testing"
+    
+    def execute(self, context: Context) -> set:
+        """Execute the setup."""
+        from .py_utilities.utilities_fcurve_processing import debug_setup_graph_context_for_manual_test
+        
+        props = context.scene.mtar_debug_transform_properties
+        
+        # Validate inputs
+        if not props.debug_armature:
+            Debug.report_and_log(self, 'ERROR', "No target armature selected")
+            return {'FINISHED'}
+        
+        # Get the action from the armature
+        armature = props.debug_armature
+        if not armature.animation_data or not armature.animation_data.action:
+            Debug.report_and_log(self, 'ERROR', f"Armature '{armature.name}' has no active action")
+            return {'FINISHED'}
+        
+        action = armature.animation_data.action
+        
+        # Call the debug setup function
+        debug_setup_graph_context_for_manual_test(armature.name, action.name)
+        
+        Debug.report_and_log(self, 'INFO', f"Graph context setup complete for '{armature.name}' / '{action.name}'")
+        Debug.report_and_log(self, 'INFO', "Check console for diagnostics. Try: bpy.ops.graph.decimate(mode='ERROR', error=0.01)")
+        
+        return {'FINISHED'}

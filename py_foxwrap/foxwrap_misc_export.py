@@ -6,6 +6,8 @@ import io
 import copy
 from typing import Optional, List, Dict, Tuple
 
+import bpy
+
 from ..py_utilities.utilities_logging import Debug
 
 from ..py_fox.fox_gani_types import TrackUnitFlags, EvpHeader
@@ -30,11 +32,13 @@ class ExportActionData:
         frame_end: Last frame to export (inclusive)
         name: Display name for the exported animation
         source: Description of where this action came from (NLA strip, active action, etc.)
+        export_clean_threshold: Threshold for FCurve cleaning (0 = disabled)
     """
-    action: 'bpy.types.Action'
+    action: bpy.types.Action
     frame_start: int
     frame_end: int
     source: str
+    export_clean_threshold: float = 0.0
     
     def to_string(self) -> str:
         """Get a formatted string representation of this export action."""
@@ -52,7 +56,7 @@ class GaniTracksData:
         source: Description of where this animation came from (NLA track/strip, active action, etc.)
     """
     gani_tracks: List[TrackUnitWrapper]
-    action: Optional['bpy.types.Action'] = None
+    action: Optional[bpy.types.Action] = None
     source: Optional[str] = None
 
 
@@ -65,7 +69,7 @@ class GaniMotionPointsData:
         action: Blender action containing motion point-specific metadata
     """
     motion_point_tracks: List[TrackUnitWrapper]
-    action: Optional['bpy.types.Action'] = None
+    action: Optional[bpy.types.Action] = None
 
 
 @dataclass
@@ -77,7 +81,7 @@ class GaniMotionEventsData:
         action: Optional reference to the action (for reading markers)
     """
     motion_events: 'EvpHeader'
-    action: Optional['bpy.types.Action'] = None
+    action: Optional[bpy.types.Action] = None
 
 
 @dataclass
@@ -445,7 +449,7 @@ def find_motion_point_action_for_gani(gani_name: str, by_gani_index: Dict[int, E
 
 
 def create_synthetic_mapping(armature: 'bpy.types.Object', 
-                            action: 'bpy.types.Action',
+                            action: bpy.types.Action,
                             layout_metadata_dict: Optional[Dict[str, TrackMetaData]]) -> Tuple[TrackSegmentBoneMapping, Dict[str, TrackMetaData]]:
     """Create synthetic track mapping from armature bones when no mapping is provided.
     

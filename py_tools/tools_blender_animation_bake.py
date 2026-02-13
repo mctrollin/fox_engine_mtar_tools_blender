@@ -4,23 +4,16 @@ Armature baking utilities for Metal Gear Solid V animation tools.
 Provides functionality to bake animated bones with visual transforms,
 preserving keyframe timing while applying constraints.
 """
-from typing import Set, Dict, Optional
+from typing import Set, Dict, Optional, List, Any
 
 import bpy
 
 from ..py_utilities.utilities_logging import Debug
 from ..py_utilities.utilities_blender_animation import (
-    assign_action_to_datablock, remove_action_from_datablock, action_has_fcurves,
-    iter_action_fcurves, ensure_action_fcurve, remove_action_fcurve, is_relevant_strip,
-    find_layout_track_action
+    MTAR_ARMATURE_SLOT_NAME, assign_action_to_datablock, remove_action_from_datablock, action_has_fcurves,
+    iter_action_fcurves, ensure_action_fcurve, remove_action_fcurve, is_relevant_strip
 )
-
-from ..py_fox.fox_frig_types import RigUnitType
-
-from ..py_foxwrap.foxwrap_metadata import extract_fox_bone_to_rig_unit_type_mapping
-from ..py_foxwrap.foxwrap_mapping import TrackMappingData
-
-from ..blender_properties import get_interpolation_mode
+from ..py_utilities.utilities_fcurve_processing import process_import_fcurves
 
 
 def get_bones_with_keyframes(action: bpy.types.Action) -> Set[str]:
@@ -225,7 +218,7 @@ def copy_action_animation_data(source_action: bpy.types.Action,
                 index=fcurve.array_index,
                 datablock=datablock,
                 action_group_name=(fcurve.group.name if fcurve.group else None),
-                slot_name='mtar_import_armature'
+                slot_name=MTAR_ARMATURE_SLOT_NAME
             )
         except Exception as e:
             Debug.log_warning(f"Could not create target fcurve '{fcurve.data_path}[{fcurve.array_index}]' on action '{getattr(target_action, 'name', '<unknown>')}': {e}")
@@ -377,16 +370,14 @@ def bake_armature_action(rig_armature: bpy.types.Object,
                         create_new_action: bool = False,
                         new_action_suffix: str = "_baked",
                         nla_track: Optional[bpy.types.NlaTrack] = None,
-                        source_armature: Optional[bpy.types.Object] = None,
-                        interpolation_mode: str = 'LINEAR',
-                        track_mapping: Optional[TrackMappingData] = None) -> Dict[str, any]:
+                        source_armature: Optional[bpy.types.Object] = None) -> Dict[str, any]:
     """Bake animated bones in an armature action with visual transforms.
-    
+
     This function bakes only bones that have keyframes, only on frames where
     keyframes exist, using visual transforms (post-constraint evaluation).
     The existing action is overridden with baked keyframes, or a new action
     is created if create_new_action is True.
-    
+
     Args:
         rig_armature: Armature object to bake
         action: Action to bake (if None, uses active action)
@@ -395,8 +386,6 @@ def bake_armature_action(rig_armature: bpy.types.Object,
         new_action_suffix: Suffix to add to new action name
         nla_track: NLA track to disable during baking (if provided)
         source_armature: Armature with animation data to bind constraints to (if different from armature being baked)
-        interpolation_mode: Interpolation mode to apply to all baked keyframes (BEZIER, LINEAR)
-        track_mapping: Optional TrackMappingData for Blender->Fox bone name conversion
         
     Returns:
         Dictionary with results:
@@ -431,6 +420,37 @@ def bake_armature_action(rig_armature: bpy.types.Object,
     
     target_action = action
     
+    # Call the actual implementation
+    return _continue_bake_armature_action_implementation(
+        rig_armature=rig_armature,
+        action=action,
+        target_action=target_action,
+        remove_constraints=remove_constraints,
+        create_new_action=create_new_action,
+        new_action_suffix=new_action_suffix,
+        nla_track=nla_track,
+        source_armature=source_armature
+    )
+
+
+# ---- Continuation of bake_armature_action implementation ----
+# (This section continues the actual function body)
+
+def _continue_bake_armature_action_implementation(
+    rig_armature: bpy.types.Object,
+    action: bpy.types.Action,
+    target_action: bpy.types.Action,
+    remove_constraints: bool,
+    create_new_action: bool,
+    new_action_suffix: str,
+    nla_track: Optional[bpy.types.NlaTrack],
+    source_armature: Optional[bpy.types.Object]
+) -> Dict[str, Any]:
+    """Internal continuation of bake_armature_action logic.
+    
+    This contains the actual baking implementation that was split during refactoring.
+    Should be called from bake_armature_action after initial setup.
+    """
     # Create new action if requested
     if create_new_action:
         new_action_name = f"{action.name}{new_action_suffix}"
@@ -619,64 +639,19 @@ def bake_armature_action(rig_armature: bpy.types.Object,
         
         Debug.log(f"Successfully baked action '{action.name}' -> '{target_action.name}'")
         
-        # Set interpolation mode on all baked keyframes using metadata
-        Debug.log(f"  Setting interpolation mode to {interpolation_mode}...")
-        
-        # Find layout action and extract bone to rig unit type mapping
-        # Layout action is the single source of truth for rig unit types
-        layout_action = find_layout_track_action()
-        
-        # Create operator-level cache for layout type mapping
-        layout_type_cache: Dict[str, Dict[str, RigUnitType]] = {}
-        
-        if layout_action:
-            fox_bone_to_type = extract_fox_bone_to_rig_unit_type_mapping(layout_action, layout_type_cache)
-        else:
-            Debug.log_warning("  Warning: No layout action found - interpolation forcing will be skipped (using global interpolation_mode)")
-            fox_bone_to_type = {}
+        # Set all baked keyframes to LINEAR interpolation
+        # (Decimation will convert to bezier later if enabled in import settings)
+        Debug.log("  Setting interpolation mode to LINEAR...")
         
         interpolation_count = 0
         for fcurve in iter_action_fcurves(target_action):
-            data_path = fcurve.data_path
             fcurve_modified = False
             
             # Only process pose bone fcurves
-            if data_path.startswith('pose.bones["') or data_path.startswith("pose.bones['"):
-                # Extract bone name from data path
-                quote_char = '"' if '["' in data_path else "'"
-                try:
-                    start = data_path.index('[' + quote_char) + 2
-                    end = data_path.index(quote_char + ']', start)
-                    blender_bone_name = data_path[start:end]
-                except (ValueError, IndexError):
-                    # If extraction fails, fall back to global interpolation mode
-                    blender_bone_name = None
-                
-                # Convert Blender bone name to Fox base name (segment-aware lookup)
-                # Pass full data_path to infer segment index (rotation=0, location=1, scale=2)
-                # Layout action metadata uses base names ("RHand", not "RHand_0")
-                fox_base_name = None
-                if blender_bone_name and track_mapping:
-                    fox_base_name = track_mapping.get_fox_base_name_for_blender_bone(
-                        blender_bone_name,
-                        fcurve_data_path=data_path
-                    )
-                
-                # Look up rig unit type from layout metadata using Fox base name
-                rig_unit_type = None
-                if fox_base_name and fox_bone_to_type:
-                    rig_unit_type = fox_bone_to_type.get(fox_base_name)
-                
-                # Determine interpolation mode for this bone (falls back to global interpolation_mode if lookups fail)
-                fcurve_interpolation_mode = get_interpolation_mode(bpy.context, rig_unit_type)
-                
+            if fcurve.data_path.startswith('pose.bones["') or fcurve.data_path.startswith("pose.bones['"):
                 for keyframe in fcurve.keyframe_points:
-                    if keyframe.interpolation != fcurve_interpolation_mode:
-                        keyframe.interpolation = fcurve_interpolation_mode
-                        # Set handle types to AUTO for bezier interpolation
-                        if fcurve_interpolation_mode == 'BEZIER':
-                            keyframe.handle_left_type = 'AUTO'
-                            keyframe.handle_right_type = 'AUTO'
+                    if keyframe.interpolation != 'LINEAR':
+                        keyframe.interpolation = 'LINEAR'
                         fcurve_modified = True
                         interpolation_count += 1
             
@@ -731,9 +706,7 @@ def bake_armature_nla_strips(rig_armature: bpy.types.Object,
                              create_new_action: bool = False,
                              new_action_suffix: str = "_baked",
                              source_armature: Optional[bpy.types.Object] = None,
-                             remove_constraints: bool = True,
-                             interpolation_mode: str = 'LINEAR',
-                             track_mapping: Optional[TrackMappingData] = None
+                             remove_constraints: bool = True
                              ) -> Dict[str, any]:
     """Bake all NLA strips in an armature, creating new actions for each.
     
@@ -746,8 +719,6 @@ def bake_armature_nla_strips(rig_armature: bpy.types.Object,
         new_action_suffix: Suffix to add to new action names
         source_armature: Armature with animation data to bind constraints to (if different from armature being baked)
         create_new_action: If True, creates new actions instead of overriding existing ones
-        interpolation_mode: Interpolation mode to apply to all baked keyframes (BEZIER, LINEAR)
-        track_mapping: Optional TrackMappingData for Blender->Fox bone name conversion
         
     Returns:
         Dictionary with results:
@@ -821,9 +792,7 @@ def bake_armature_nla_strips(rig_armature: bpy.types.Object,
                 new_action_suffix=new_action_suffix,
                 nla_track=track,
                 source_armature=source_armature,
-                remove_constraints=False,  # We'll handle this once at the end
-                interpolation_mode=interpolation_mode,
-                track_mapping=track_mapping
+                remove_constraints=False  # We'll handle this once at the end
             )
             
             if bake_result['success']:
@@ -876,3 +845,179 @@ def bake_armature_nla_strips(rig_armature: bpy.types.Object,
         'constraints_removed': constraints_removed,
         'message': message
     }
+
+
+# ---- Helper functions moved from blender_operators_import.py ----
+
+def clear_armature_transforms(armature: bpy.types.Object) -> bool:
+    """Clear all pose transforms from an armature (utility moved here).
+
+    Copied from former location in blender_operators_import.py so that
+    bake/cleanup helpers live in the same module and avoid circular imports.
+    """
+    try:
+        # Make sure the armature is selected and in the scene
+        for obj in bpy.context.scene.objects:
+            obj.select_set(False)
+        armature.select_set(True)
+        bpy.context.view_layer.objects.active = armature
+        
+        # Enter pose mode
+        bpy.ops.object.mode_set(mode='POSE')
+        
+        # Select all bones
+        bpy.ops.pose.select_all(action='SELECT')
+        
+        # Clear all transforms
+        bpy.ops.pose.transforms_clear()
+        
+        # Return to object mode
+        bpy.ops.object.mode_set(mode='OBJECT')
+        
+        return True
+    except Exception as e:  # noqa: E722
+        Debug.log_warning(f"Failed to clear transforms from armature: {e}")
+        return False
+
+
+def delete_imported_armature(imported_armature: Optional[bpy.types.Object], 
+                            custom_rig: Optional[bpy.types.Object] = None) -> bool:
+    """Delete an imported armature after bake if requested (utility moved here).
+
+    Copied from former location in blender_operators_import.py to keep bake helpers
+    together and avoid import cycles.
+    """
+    if not imported_armature or imported_armature == custom_rig:
+        return True
+    
+    try:
+        Debug.log(f"Deleting imported armature: {imported_armature.name}")
+        for col in list(imported_armature.users_collection):
+            col.objects.unlink(imported_armature)
+        bpy.data.objects.remove(imported_armature, do_unlink=True)
+        return True
+    except Exception as e:  # noqa: E722
+        Debug.log_warning(f"Failed to delete imported armature: {e}")
+        return False
+
+
+def _handle_bake_result(bake_result: dict,
+                        custom_rig: bpy.types.Object,
+                        imported_armature: Optional[bpy.types.Object],
+                        delete_import_armature: bool = False,
+                        operator: Optional[object] = None) -> None:
+    """Internal helper to report and clean up after a bake operation.
+
+    This replaces the previous `handle_bake_result` and lives inside the bake
+    tool module so import operators can delegate cleanup without circular deps.
+    """
+    failed_strips: Optional[List[str]] = bake_result.get('failed_strips') if isinstance(bake_result, dict) else None
+
+    # Prefer to report using the passed operator if available
+    reporter = operator if operator is not None else None
+
+    if bake_result.get('success'):
+        Debug.report_and_log(reporter, 'INFO', f"Bake completed: {bake_result.get('message')}")
+        if failed_strips:
+            Debug.report_and_log(reporter, 'WARNING', f"{len(failed_strips)} strip(s) failed to bake: {', '.join(failed_strips)}")
+
+        # Clear transforms from custom rig after successful bake
+        if clear_armature_transforms(custom_rig):
+            Debug.report_and_log(reporter, 'INFO', "Cleared transforms from custom rig")
+        else:
+            Debug.report_and_log(reporter, 'WARNING', "Could not clear transforms from custom rig")
+
+        # Delete imported armature if requested
+        if delete_import_armature:
+            if delete_imported_armature(imported_armature, custom_rig):
+                Debug.report_and_log(reporter, 'INFO', "Deleted imported armature after bake")
+            else:
+                Debug.report_and_log(reporter, 'WARNING', "Could not delete imported armature")
+    else:
+        Debug.report_and_log(reporter, 'WARNING', f"Bake failed: {bake_result.get('message')}")
+
+
+def bake_and_optimize_action(
+    rig_armature: bpy.types.Object,
+    source_armature: Optional[bpy.types.Object] = None,
+    create_new_action: bool = False,
+    new_action_suffix: str = "_baked",
+    remove_constraints: bool = True,
+    delete_import_armature: bool = False,
+    decimate_error: float = 0.0,
+    force_linear_types: str = '',
+    layout_action: Optional[bpy.types.Action] = None,
+) -> Dict[str, Any]:
+    """High-level helper: bake rig armature (NLA or active action), then run
+    post-bake optimizations (decimation). Returns a bake_result-like dict.
+
+    This consolidates the bake + decimate behavior so callers (import, debug)
+    use the same implementation and avoid duplication.
+    """
+    result: Dict[str, Any] = {
+        'success': False,
+        'message': '',
+        'actions_created': [],
+        'fcurves_decimated': 0,
+        'failed_strips': []
+    }
+
+    try:
+        # Prefer NLA strips when present
+        if rig_armature.animation_data and rig_armature.animation_data.nla_tracks:
+            bake_res = bake_armature_nla_strips(
+                rig_armature=rig_armature,
+                create_new_action=create_new_action,
+                new_action_suffix=new_action_suffix,
+                source_armature=source_armature,
+                remove_constraints=remove_constraints
+            )
+            result.update({
+                'success': bake_res.get('success', False),
+                'message': bake_res.get('message', ''),
+                'actions_created': bake_res.get('actions_created', []),
+                'failed_strips': bake_res.get('failed_strips', [])
+            })
+        elif rig_armature.animation_data and rig_armature.animation_data.action:
+            bake_res = bake_armature_action(
+                rig_armature=rig_armature,
+                action=rig_armature.animation_data.action,
+                remove_constraints=remove_constraints,
+                create_new_action=create_new_action,
+                new_action_suffix=new_action_suffix,
+                source_armature=source_armature
+            )
+            result.update({
+                'success': bake_res.get('success', False),
+                'message': bake_res.get('message', ''),
+                'actions_created': [bake_res.get('action')] if bake_res.get('action') else []
+            })
+        else:
+            result['success'] = False
+            result['message'] = 'No NLA tracks or active action to bake'
+            return result
+
+        # Run decimation if requested (operate on armature so process_import_fcurves
+        # will find NLA-created actions and/or active action)
+        if decimate_error > 0.0:
+            try:
+                dec_res = process_import_fcurves(
+                    armature=rig_armature,
+                    decimate_error=decimate_error,
+                    force_linear_types=force_linear_types,
+                    layout_action=layout_action
+                )
+                result['fcurves_decimated'] = dec_res.get('fcurves_decimated', 0)
+            except Exception as e:
+                Debug.log_warning(f"Decimation after bake failed: {e}")
+
+        # Call internal handler to perform post-bake cleanup/reporting
+        _handle_bake_result(result, rig_armature, source_armature, delete_import_armature, None)
+
+        return result
+
+    except Exception as e:
+        Debug.log_warning(f"bake_and_optimize_action failed: {e}")
+        result['success'] = False
+        result['message'] = str(e)
+        return result

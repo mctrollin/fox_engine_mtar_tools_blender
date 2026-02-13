@@ -13,6 +13,7 @@ from bpy.types import Operator, Context
 from .py_utilities.utilities_logging import Debug
 from .py_utilities.utilities_rig_hash import unhash_rig_type
 from .py_utilities.utilities_parsing import parse_index_selection
+from .py_utilities.utilities_blender_animation import find_layout_track_action
 
 from .py_fox.fox_mtar_types import MtarHeader
 from .py_fox.fox_frig_types import FrigFile, RigUnitDef
@@ -23,105 +24,12 @@ from .py_foxwrap.foxwrap_metadata import get_segments_for_track_type
 from .py_foxwrap.foxwrap_mtar_reader import MtarReader
 
 from .mtar_importer import import_mtar
-from .py_tools.tools_blender_animation_bake import bake_armature_action, bake_armature_nla_strips
+# NOTE: import top-level to avoid runtime import cycles; tools_blender_animation_bake
+# contains bake + cleanup helpers used by import/debug operators.
+from .py_tools.tools_blender_animation_bake import bake_and_optimize_action
 
 
-def clear_armature_transforms(armature: bpy.types.Object) -> bool:
-    """Clear all pose transforms from an armature.
-    
-    Args:
-        armature: Armature object to clear transforms from
-        
-    Returns:
-        True if successful, False otherwise
-    """
-    try:
-        # Make sure the armature is selected and in the scene
-        for obj in bpy.context.scene.objects:
-            obj.select_set(False)
-        armature.select_set(True)
-        bpy.context.view_layer.objects.active = armature
-        
-        # Enter pose mode
-        bpy.ops.object.mode_set(mode='POSE')
-        
-        # Select all bones
-        bpy.ops.pose.select_all(action='SELECT')
-        
-        # Clear all transforms
-        bpy.ops.pose.transforms_clear()
-        
-        # Return to object mode
-        bpy.ops.object.mode_set(mode='OBJECT')
-        
-        return True
-    except Exception as e:  # noqa: E722
-        Debug.log_warning(f"Failed to clear transforms from armature: {e}")
-        return False
 
-
-def delete_imported_armature(imported_armature: Optional[bpy.types.Object], 
-                            custom_rig: Optional[bpy.types.Object] = None) -> bool:
-    """Delete an imported armature after bake if requested.
-    
-    Args:
-        imported_armature: Armature to delete
-        custom_rig: custom rig (if same as imported, skip deletion)
-        
-    Returns:
-        True if deletion successful or not needed, False if failed
-    """
-    if not imported_armature or imported_armature == custom_rig:
-        return True
-    
-    try:
-        Debug.log(f"Deleting imported armature: {imported_armature.name}")
-        for col in list(imported_armature.users_collection):
-            col.objects.unlink(imported_armature)
-        bpy.data.objects.remove(imported_armature, do_unlink=True)
-        return True
-    except Exception as e:  # noqa: E722
-        Debug.log_warning(f"Failed to delete imported armature: {e}")
-        return False
-
-
-def handle_bake_result(bake_result: dict, custom_rig: bpy.types.Object, 
-                      imported_armature: Optional[bpy.types.Object],
-                      props: bpy.types.Scene, operator: Operator) -> None:
-    """Handle post-bake cleanup and reporting for both NLA and action bakes.
-    
-    Args:
-        bake_result: Result dict from bake function with 'success', 'message' keys
-        custom_rig: Target armature that was baked
-        imported_armature: Optional imported armature to delete after bake
-        props: Scene properties with delete_import_armature flag
-        operator: Operator instance for reporting
-    """
-    # Extract failed_strips from bake_result if present (NLA bakes)
-    failed_strips: Optional[List[str]] = bake_result.get('failed_strips') if isinstance(bake_result, dict) else None
-
-    if bake_result['success']:
-        Debug.report_and_log(operator, 'INFO', f"Bake completed: {bake_result['message']}")
-        
-        # Report failed strips if any (for NLA bakes)
-        if failed_strips:
-            Debug.report_and_log(operator, 'WARNING', f"{len(failed_strips)} strip(s) failed to bake: {', '.join(failed_strips)}")
-        
-        # Clear transforms from custom rig after successful bake
-        if clear_armature_transforms(custom_rig):
-            Debug.report_and_log(operator, 'INFO', "Cleared transforms from custom rig")
-        else:
-            Debug.report_and_log(operator, 'WARNING', "Could not clear transforms from custom rig")
-        
-        # Delete imported armature if requested
-        import_props = props.import_props
-        if import_props.delete_import_armature:
-            if delete_imported_armature(imported_armature, custom_rig):
-                Debug.report_and_log(operator, 'INFO', "Deleted imported armature after bake")
-            else:
-                Debug.report_and_log(operator, 'WARNING', "Could not delete imported armature")
-    else:
-        Debug.report_and_log(operator, 'WARNING', f"Bake failed: {bake_result['message']}")
 
 class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
     """Generate a barebone track mapping file from FRIG skeleton structure and MTAR animation data."""
@@ -464,49 +372,35 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                 if result == {'FINISHED'}:
                     Debug.report_and_log(self, 'INFO', "MTAR animation imported successfully")
                     
-                    # Bake custom rig if requested
+                    # Bake custom rig if requested + decimation
                     if import_props.bake_after_import and custom_rig:
                         Debug.log("\n========= STARTING BAKE OPERATION =========\n")
                         Debug.update_progress(75, "Baking...")
 
-                        # Time the bake operation separately
+                        # Time the bake operation separately and run post-bake optimization via shared utility
                         Debug.start_timer("Bake Operation")
                         try:
-                            # Check if custom rig has NLA tracks (common after import)
-                            if custom_rig.animation_data and custom_rig.animation_data.nla_tracks:
-                                Debug.log("Baking NLA strips...")
-                                bake_result: Dict[str, Any] = bake_armature_nla_strips(
-                                    rig_armature=custom_rig,
-                                    create_new_action=not import_props.delete_import_armature,
-                                    new_action_suffix="_baked",
-                                    source_armature=imported_armature,
-                                    remove_constraints=True,
-                                    interpolation_mode=import_props.interpolation_mode,
-                                    track_mapping=mapping_data
-                                )
-                                
-                                handle_bake_result(bake_result, custom_rig, imported_armature, props, self)
-                            
-                            # Fall back to baking active action if no NLA tracks
-                            elif custom_rig.animation_data and custom_rig.animation_data.action:
-                                Debug.log("Baking active action...")
-                                bake_result = bake_armature_action(
-                                    rig_armature=custom_rig,
-                                    action=custom_rig.animation_data.action,
-                                    remove_constraints=True,
-                                    create_new_action=True,
-                                    new_action_suffix="_baked",
-                                    source_armature=imported_armature,
-                                    interpolation_mode=import_props.interpolation_mode,
-                                    track_mapping=mapping_data
-                                )
-                                
-                                handle_bake_result(bake_result, custom_rig, imported_armature, props, self)
+                            # Delegate bake + optional decimation/cleanup to shared utility in tools_blender_animation_bake
+                            layout_action = find_layout_track_action()
+                            bake_result = bake_and_optimize_action(
+                                rig_armature=custom_rig,
+                                source_armature=imported_armature,
+                                create_new_action=not import_props.delete_import_armature,
+                                new_action_suffix="_baked",
+                                remove_constraints=True,
+                                delete_import_armature=import_props.delete_import_armature,
+                                decimate_error=import_props.import_decimate_error,
+                                force_linear_types=import_props.interpolation_force_linear_track_types,
+                                layout_action=layout_action,
+                            )
+
+                            # Report outcome (the utility already performs cleanup/logging)
+                            if bake_result.get('success'):
+                                Debug.log(f"Bake completed: {bake_result.get('message')}")
+                                Debug.log(f"  Decimated {bake_result.get('fcurves_decimated', 0)} FCurves")
                             else:
-                                Debug.report_and_log(self, 'WARNING', "custom rig has no NLA tracks or active action to bake")
-                            
-                            Debug.log("\n========= Finished BAKE OPERATION =========\n")
-                        
+                                Debug.report_and_log(self, 'WARNING', f"Bake failed: {bake_result.get('message')}")
+
                         except Exception as e:
                             Debug.report_and_log(self, 'ERROR', f"Failed to bake custom rig: {str(e)}")
                             traceback.print_exc()

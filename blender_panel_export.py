@@ -73,7 +73,14 @@ class MTAR_PT_ExportPanel(Panel):
         if settings_props.show_advanced_settings:
             adv_box = box_export.box()
             adv_box.alert = True
-            
+
+            # FCurve cleaning threshold (advanced setting)
+            adv_box.prop(export_props, 'export_clean_threshold', text='Clean Threshold', icon='IPO_LINEAR')
+
+            # Force highest bit encoding option
+            row2 = adv_box.row()
+            draw_bool_prop_checkbox_icon(row2, export_props, "force_highest_bit_encoding")
+
             # Custom path hash export option
             row_path_hash = adv_box.box()
             draw_bool_prop_checkbox_icon(row_path_hash, export_props, "custom_path_hashes")
@@ -87,13 +94,8 @@ class MTAR_PT_ExportPanel(Panel):
                     warn_box.label(text="Configure 'Hash Generator Executable' in MTAR Settings → Show Advanced Settings")
 
             # Export info file option
-            row = adv_box.row()
-            draw_bool_prop_checkbox_icon(row, export_props, "info_file")
+            draw_bool_prop_checkbox_icon(row_path_hash, export_props, "info_file")
 
-            # Force highest bit encoding option
-            row2 = adv_box.row()
-            draw_bool_prop_checkbox_icon(row2, export_props, "force_highest_bit_encoding")
-        
         # Export button
         box_button = layout.box()
         col = box_button.column()

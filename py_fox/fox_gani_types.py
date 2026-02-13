@@ -59,6 +59,8 @@ class AnimKeyframe:
     `value` is a SegmentKeyframeData instance containing the decoded components.
     """
     frame_count: int
+    '''Defines the relative frame position from the previous frame.'''
+
     data: SegmentKeyframeData
 
     def __init__(self, frame: int, value: any):
@@ -116,7 +118,7 @@ class AnimKeyframe:
                     current_frame += frame_delta
                     vec, offset = read_vector3(file_data, offset, component_bit_size)
                     if abs(vec[0]) > 100 or abs(vec[1]) > 100 or abs(vec[2]) > 100:
-                        Debug.log_error("too big")
+                        Debug.log_error(f"Vector segment ({segment_type}) too big ({vec})")
                     keyframes.append(AnimKeyframe(frame=current_frame, value=vec))
         
         # Floats (Single values)

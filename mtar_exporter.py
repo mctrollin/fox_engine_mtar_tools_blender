@@ -27,6 +27,7 @@ from .py_utilities.utilities_transforms import (
 from .py_utilities.utilities_blender_animation import (
     FCurveCache, action_has_fcurves, iter_action_fcurves, is_relevant_strip, find_layout_track_action
 )
+from .py_utilities.utilities_fcurve_processing import process_export_fcurves
 
 from .py_foxwrap.foxwrap_motionevent import read_motion_events_from_action
 from .py_foxwrap.foxwrap_metadata import parse_action_track_metadata, read_track_header_properties_from_action
@@ -272,12 +273,15 @@ def extract_rest_pose_correction_mapping_from_armature(track_segment_bone_mappin
 
 # Animation #############################################################
 
-def collect_actions_for_export_from_armature(armature: bpy.types.Object, use_nla: bool = True) -> List[ExportActionData]:
+def collect_actions_for_export_from_armature(armature: bpy.types.Object, 
+                                            use_nla: bool = True,
+                                            export_clean_threshold: float = 0.0) -> List[ExportActionData]:
     """Collect actions to export based on NLA tracks or active action.
     
     Args:
         armature: Armature object
         use_nla: If True, check NLA tracks first; if False, use only active action
+        export_clean_threshold: Threshold for FCurve cleaning (0 = disabled)
         
     Returns:
         List of ExportActionData objects containing action export information
@@ -318,7 +322,8 @@ def collect_actions_for_export_from_armature(armature: bpy.types.Object, use_nla
                     action=strip.action,
                     frame_start=frame_start,
                     frame_end=frame_end,
-                    source=source
+                    source=source,
+                    export_clean_threshold=export_clean_threshold
                 )
                 
                 actions_to_export.append(export_action)
@@ -350,7 +355,8 @@ def collect_actions_for_export_from_armature(armature: bpy.types.Object, use_nla
                     action=action,
                     frame_start=frame_start,
                     frame_end=frame_end,
-                    source='Active Action'
+                    source='Active Action',
+                    export_clean_threshold=export_clean_threshold
                 )
                 
                 actions_to_export.append(export_action)
@@ -964,10 +970,42 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
     try:
         gani_tracks = []
         
+        # Process FCurves for export (bake non-linear, clean redundant keyframes)
+        # This may create a modified copy of the action if non-linear fcurves are found
+        processed_action = action
+        if action and action_data.export_clean_threshold > 0:
+            clean_threshold = action_data.export_clean_threshold
+            Debug.log(f"    Processing FCurves for export (clean_threshold={clean_threshold})...")
+            try:
+                # Temporarily assign action to armature for processing
+                original_action = armature.animation_data.action if armature.animation_data else None
+                if not armature.animation_data:
+                    armature.animation_data_create()
+                armature.animation_data.action = action
+                
+                export_result = process_export_fcurves(
+                    armature=armature,
+                    clean_threshold=clean_threshold
+                )
+                
+                processed_action = export_result['action']
+                
+                Debug.log(f"      Non-linear FCurves baked: {export_result['fcurves_baked']}")
+                Debug.log(f"      FCurves cleaned: {export_result['fcurves_cleaned']}")
+                Debug.log(f"      Already linear FCurves: {export_result['fcurves_already_linear']}")
+                
+                # Restore original action on armature
+                if original_action is not None:
+                    armature.animation_data.action = original_action
+                
+            except Exception as e:
+                Debug.log_warning(f"    Warning: Failed to process export FCurves: {str(e)}")
+                processed_action = action
+        
         # Build fcurve cache once for this action (major performance optimization)
         # This eliminates 20-100× redundancy from scanning action.fcurves for every bone
         Debug.start_timer("build_fcurve_cache")
-        fcurve_cache = FCurveCache.build(action) if action else None
+        fcurve_cache = FCurveCache.build(processed_action) if processed_action else None
         Debug.stop_timer("build_fcurve_cache")
         
         if fcurve_cache and not fcurve_cache.is_empty():
@@ -1027,6 +1065,13 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
         return gani_tracks
 
     finally:
+        # Clean up temporary export action if one was created
+        if processed_action is not None and processed_action != action:
+            try:
+                bpy.data.actions.remove(processed_action)
+            except (ReferenceError, RuntimeError):
+                pass  # Action may already be removed
+        
         # Restore original action and NLA state
         if armature.animation_data:
             # Restore tweak mode if it was active
@@ -1428,7 +1473,11 @@ def export_mtar(context: bpy.types.Context,
         )
     
     # Collect actions to export
-    actions_to_export = collect_actions_for_export_from_armature(armature, use_nla)
+    actions_to_export = collect_actions_for_export_from_armature(
+        armature, 
+        use_nla,
+        export_clean_threshold=export_props.export_clean_threshold
+    )
     
     if not actions_to_export:
         Debug.log_error("  Error: No actions found to export")

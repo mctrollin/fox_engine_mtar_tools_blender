@@ -3,11 +3,15 @@
 This module contains helper functions for manipulating Blender actions,
 FCurves, keyframes, and other animation-related structures.
 """
-from typing import Optional, Dict, List, Iterator
+from typing import Optional, Dict, List, Iterator, Set
 
 import bpy
 
 from .utilities_logging import Debug
+
+# Global constants
+MTAR_ARMATURE_SLOT_NAME = 'mtar_import_armature'
+MTAR_OBJECT_SLOT_NAME = 'mtar_import_object'
 
 # Layout Action Utilities #########################################################
 
@@ -222,8 +226,8 @@ def assign_action_to_datablock(datablock: bpy.types.ID, action: bpy.types.Action
     """Assign an Action to a datablock and ensure a slot is selected on Blender >= 4.4.
 
     If `slot_name` is not provided, a default mapping is used:
-      - ARMATURE -> "mtar_import_armature"
-      - otherwise -> "mtar_import_object"
+      - ARMATURE -> MTAR_ARMATURE_SLOT_NAME
+      - otherwise -> MTAR_OBJECT_SLOT_NAME
 
     Args:
         datablock: Any ID datablock that supports animation_data (e.g. an Object/Armature)
@@ -252,7 +256,7 @@ def assign_action_to_datablock(datablock: bpy.types.ID, action: bpy.types.Action
     # Decide slot name if none provided
     if slot_name is None:
         dtype = getattr(datablock, 'type', None)
-        slot_name = 'mtar_import_armature' if dtype == 'ARMATURE' else 'mtar_import_object'
+        slot_name = MTAR_ARMATURE_SLOT_NAME if dtype == 'ARMATURE' else MTAR_OBJECT_SLOT_NAME
 
     try:
         slot = get_action_slot(action, slot_name)
@@ -272,7 +276,7 @@ def assign_action_to_datablock(datablock: bpy.types.ID, action: bpy.types.Action
             action.slots.active = slot
         except Exception as e:
             Debug.log_warning(f"Could not set active slot on action '{getattr(action, 'name', '<unknown>')}': {e}")
-        Debug.log(f"  Assigned action '{action.name}' to datablock '{getattr(datablock, 'name', '<unknown>')}' using slot '{getattr(slot, 'name', '<unknown>')}'")
+        Debug.log(f"  Assigned action '{action.name}' to datablock '{getattr(datablock, 'name', '<unknown>')}' using slot '{getattr(slot, 'name_display', '<unknown>')}'")
     except Exception as e:
         Debug.log_warning(f"Failed to set action slot for '{getattr(datablock, 'name', '<unknown>')}': {e}")
         raise
@@ -822,7 +826,7 @@ def add_dummy_keyframes_to_action(action: bpy.types.Action) -> None:
 
     # Create FCurve(s) for each component (X, Y, Z)
     for component_idx, value in enumerate(values):
-        fcurve = ensure_action_fcurve(action, data_path=data_path, index=component_idx, action_group_name=group_name, slot_name='mtar_import_armature')
+        fcurve = ensure_action_fcurve(action, data_path=data_path, index=component_idx, action_group_name=group_name, slot_name=MTAR_ARMATURE_SLOT_NAME)
         # Add keyframes at frames -100 and -50
         keyframe_start = fcurve.keyframe_points.insert(frame=-100.0, value=value)
         keyframe_start.interpolation = 'LINEAR'
@@ -830,3 +834,49 @@ def add_dummy_keyframes_to_action(action: bpy.types.Action) -> None:
         keyframe_end.interpolation = 'LINEAR'
     
     Debug.log("    Added dummy location keyframes at frames -100 and -50: (0.0, 0.0, 0.0)")
+
+
+# #########################################
+
+def get_fcurves_for_bones(action: bpy.types.Action, bone_names: Set[str]) -> List[bpy.types.FCurve]:
+    """Get all fcurves for specific bones in an action.
+    
+    Args:
+        action: Action to search
+        bone_names: Set of bone names to filter by
+        
+    Returns:
+        List of fcurves that belong to the specified bones
+    """
+    if not action or not action_has_fcurves(action):
+        return []
+    
+    fcurves: List[bpy.types.FCurve] = []
+    for fcurve in iter_action_fcurves(action):
+        # Check if data_path references one of the target bones
+        # Example: 'pose.bones["BoneName"].location'
+        if 'pose.bones[' in fcurve.data_path:
+            for bone_name in bone_names:
+                if f'pose.bones["{bone_name}"]' in fcurve.data_path:
+                    fcurves.append(fcurve)
+                    break
+    
+    return fcurves
+
+def is_fcurve_linear(fcurve: bpy.types.FCurve) -> bool:
+    """Check if an fcurve uses only LINEAR interpolation.
+    
+    Args:
+        fcurve: FCurve to check
+        
+    Returns:
+        True if all keyframes use LINEAR interpolation, False otherwise
+    """
+    if not fcurve.keyframe_points:
+        return True
+    
+    for keyframe in fcurve.keyframe_points:
+        if keyframe.interpolation != 'LINEAR':
+            return False
+    
+    return True

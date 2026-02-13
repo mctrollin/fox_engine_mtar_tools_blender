@@ -15,6 +15,7 @@ from .py_utilities.utilities_transforms import (
     apply_rest_pose_correction_local
 )
 from .py_utilities.utilities_blender_animation import (
+    MTAR_ARMATURE_SLOT_NAME,
     add_dummy_keyframes_to_action,
     configure_action,
     remove_action_from_datablock,
@@ -33,8 +34,6 @@ from .py_fox.fox_mtar_types import MotionPointList2, MtarTableList2, MtarHeader
 from .py_fox.fox_gani_types import SegmentType, TrackUnitFlags, TrackHeader, TrackMiniHeader, EvpHeader
 from .py_fox.fox_frig_types import RigUnitType, FrigFile
 from .py_fox.fox_misc_types import StrCode32
-
-from .blender_properties import get_interpolation_mode
 
 FPS_59_94: float = 59.94
 
@@ -302,7 +301,7 @@ def import_keyframes_track(
         context: Blender context (used to access import properties like ik_up_distance)
         action: Blender action to add keyframes to
         keyframes_track: TrackDataBlobWrapper object containing animation data
-        rig_unit_type: Optional RigUnitType from FRIG (used to apply per-track-type interpolation rules)
+        rig_unit_type: Optional RigUnitType from FRIG (reserved for future per-track-type handling)
         
     Returns:
         Maximum frame number encountered in this track
@@ -311,8 +310,7 @@ def import_keyframes_track(
     
     Debug.log(f"  - Import Track '{keyframes_track.name}' ({keyframes_track.data_blob.type.name}): {len(keyframes_track.data_blob.keyframes)} keyframe(s)")
 
-    # Determine interpolation mode based on rig unit type and user settings
-    interpolation_mode = get_interpolation_mode(context, rig_unit_type)
+    # Always use LINEAR interpolation - decimation will create bezier curves later if enabled
     
     # Get or create FCurve group for this handle (Blender <5.0)
     # Ensure group_name is always a string (keyframes_track.name can be an integer hash)
@@ -389,7 +387,7 @@ def import_keyframes_track(
                         data_path=f'pose.bones["{keyframes_track.name}"].location',
                         index=i,
                         action_group_name=group_name,
-                        slot_name='mtar_import_armature'
+                        slot_name=MTAR_ARMATURE_SLOT_NAME
                     )
                 except Exception as e:
                     data_path_str = f'pose.bones["{keyframes_track.name}"].location'
@@ -399,7 +397,7 @@ def import_keyframes_track(
                 # Add keyframes from pre-converted locations
                 for frame_count, target_location in converted_locations:
                     kf_point: bpy.types.Keyframe = fcurve.keyframe_points.insert(frame_count, target_location[i])
-                    kf_point.interpolation = interpolation_mode
+                    kf_point.interpolation = 'LINEAR'  # Always LINEAR - decimation creates bezier later
             
             Debug.log(f"    Added directional location keyframes (frames 0-{max_frame})")
         
@@ -444,7 +442,7 @@ def import_keyframes_track(
                         data_path=f'pose.bones["{keyframes_track.name}"].rotation_quaternion',
                         index=i,
                         action_group_name=group_name,
-                        slot_name='mtar_import_armature'
+                        slot_name=MTAR_ARMATURE_SLOT_NAME
                     )
                 except Exception as e:
                     data_path_str = f'pose.bones["{keyframes_track.name}"].rotation_quaternion'
@@ -455,7 +453,7 @@ def import_keyframes_track(
                 for frame_count, quat in converted_quaternions:
                     quat_component: float = quat[i]  # Quaternion indexing: 0=w, 1=x, 2=y, 3=z
                     kf_point: bpy.types.Keyframe = fcurve.keyframe_points.insert(frame_count, quat_component)
-                    kf_point.interpolation = interpolation_mode
+                    kf_point.interpolation = 'LINEAR'  # Always LINEAR - decimation creates bezier later
             
             Debug.log(f"    Added quaternion rotation keyframes (frames 0-{max_frame})")
 
@@ -480,7 +478,7 @@ def import_keyframes_track(
 
                 # Add keyframe
                 kf_point: bpy.types.Keyframe = fcurve.keyframe_points.insert(keyframe.frame_count, blender_vec[i])
-                kf_point.interpolation = interpolation_mode
+                kf_point.interpolation = 'LINEAR'  # Always LINEAR - decimation creates bezier later
                 
                 max_frame = max(max_frame, keyframe.frame_count)
         
