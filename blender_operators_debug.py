@@ -6,6 +6,8 @@ as well as interfacing with the external hash generator executable.
 """
 
 from typing import TYPE_CHECKING
+import math
+import re
 
 import bpy
 from bpy.types import Operator, Context
@@ -15,10 +17,10 @@ from .py_utilities.utilities_transforms import get_world_space_transform, get_lo
 from .py_utilities.utilities_logging import Debug
 from .py_utilities.utilities_debug import create_or_update_dummy_object
 from .py_utilities.utilities_blender_animation import assign_action_to_datablock, remove_action_from_datablock
+from .py_utilities.utilities_fcurve_processing import process_import_fcurves, debug_setup_graph_context_for_manual_test
 # Import bake helpers from tools module (keep top-level to prevent import loops)
 from .py_tools.tools_blender_animation_bake import (
     bake_armature_action,
-    bake_armature_nla_strips,
     remove_bone_constraints,
     get_bones_with_keyframes,
     bake_and_optimize_action,
@@ -227,7 +229,6 @@ class MTAR_OT_CreateTransformDummies(Operator):
             )
             
             # Create 12-sided circle mesh vertices/edges for world space
-            import math
             world_verts = []
             for i in range(12):
                 angle = (i / 12) * 2 * math.pi
@@ -356,7 +357,6 @@ class MTAR_OT_DebugRunBake(Operator):
                     for strip in track.strips:
                         if not strip.action:
                             continue
-                        import re
                         m = re.search(r"_(\d{3})\b", strip.name)
                         if m:
                             stripped_idx = int(m.group(1))
@@ -474,7 +474,6 @@ class MTAR_OT_DebugRunBake(Operator):
 
                                 # Decimate via process_import_fcurves (operates on armature level)
                                 if decimate_err > 0.0:
-                                    from .py_utilities.utilities_fcurve_processing import process_import_fcurves
                                     layout_action = find_layout_track_action()
                                     dec_res = process_import_fcurves(
                                         armature=target_armature,
@@ -698,7 +697,6 @@ class MTAR_OT_DebugSetupGraphContext(Operator):
     
     def execute(self, context: Context) -> set:
         """Execute the setup."""
-        from .py_utilities.utilities_fcurve_processing import debug_setup_graph_context_for_manual_test
         
         props = context.scene.mtar_debug_transform_properties
         

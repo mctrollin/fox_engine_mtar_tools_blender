@@ -8,6 +8,8 @@ import subprocess
 from typing import Dict, Tuple
 from pathlib import Path
 
+import bpy
+
 from ..py_utilities.utilities_logging import Debug
 
 
@@ -19,20 +21,14 @@ def resolve_executable_path(exe_path: str) -> Path:
     the current .blend file directory if provided.
     """
     # Prefer Blender's resolver when available (handles // paths)
-    try:
-        import bpy
-        # bpy.path.abspath will convert Blender's // paths to absolute paths
-        abs_path = bpy.path.abspath(exe_path)
-    except Exception:
-        # Fallback to expanding user and leave relative paths as-is
-        abs_path = Path(exe_path).expanduser()
+    # bpy.path.abspath will convert Blender's // paths to absolute paths
+    abs_path = bpy.path.abspath(exe_path)
 
     # If path is not absolute, attempt to resolve relative to blend file dir
     try:
         p = Path(abs_path)
         if not p.is_absolute():
             try:
-                import bpy
                 blend_fp = bpy.data.filepath
                 if blend_fp:
                     blend_dir = Path(blend_fp).parent
@@ -244,8 +240,6 @@ def hash_animation_name_from_blender_context(input_string: str) -> Tuple[bool, D
         - error: Error message if all conversions failed
     """
     try:
-        import bpy
-        
         # Get converter properties from the scene
         if not hasattr(bpy.data, 'scenes') or not bpy.context.scene:
             return False, {}, "No active Blender scene"

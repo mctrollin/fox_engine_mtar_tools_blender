@@ -5,14 +5,13 @@ This module handles the export of Blender animation data to MTAR format.
 """
 
 import math
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List
 from pathlib import Path
 
 import bpy
 from mathutils import Quaternion
 
 from .py_utilities.utilities_logging import Debug
-import time
 from .py_utilities.utilities_transforms import (
     reverse_directional_location, 
     apply_reverse_transforms, 
@@ -450,9 +449,14 @@ def get_bone_keyframe_numbers_from_action(action: bpy.types.Action, bone_name: s
                     if frame_start <= export_frame <= frame_end:
                         keyframe_frames.add(export_frame)
     
-    # If no keyframes found, export at least the first frame
-    if not keyframe_frames:
-        keyframe_frames.add(frame_start)
+    # Validate and add mandatory start frame
+    if frame_start not in keyframe_frames:
+        Debug.log_warning(f"No keyframe at frame_start {frame_start} for bone '{bone_name}' {segment_type}. Sampling from frame_start.")
+    keyframe_frames.add(frame_start)
+    
+    # Add end frame for animated tracks (static tracks have only start frame)
+    if len(keyframe_frames) > 1:
+        keyframe_frames.add(frame_end)
     
     return sorted(list(keyframe_frames))
 
@@ -732,6 +736,7 @@ def export_location_segment(armature: bpy.types.Object, blender_bone_name: str,
             elif frame_delta > 255:
                 Debug.log_warning(f"Export location: frame_delta {frame_delta} exceeds 8-bit range at frame {frame} for bone '{blender_bone_name}'. Clamping to 255.")
                 frame_delta = 255
+
         prev_frame = frame
         keyframe = AnimKeyframe(frame=frame_delta, value=fox_location)
         keyframes.append(keyframe)

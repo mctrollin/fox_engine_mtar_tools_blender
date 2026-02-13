@@ -26,11 +26,8 @@ def _apply_show_pose_markers_value(value: bool) -> None:
     This toggles the visual display of action pose markers in Dope Sheet / Action Editor
     areas so the user can control marker visibility from the add-on settings.
     """
-    try:
-        import bpy
-        wm = bpy.context.window_manager
-    except Exception:
-        return
+    
+    wm = bpy.context.window_manager
 
     for window in wm.windows:
         screen = window.screen

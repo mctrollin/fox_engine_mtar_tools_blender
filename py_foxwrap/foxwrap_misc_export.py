@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import io
 import copy
 from typing import Optional, List, Dict, Tuple
+import re
 
 import bpy
 
@@ -16,7 +17,6 @@ from .foxwrap_metadata import TrackMetaData, merge_track_metadata
 from .foxwrap_misc import Tracks, TrackUnitWrapper
 from .foxwrap_gani_writer import Gani2Writer
 from .foxwrap_mapping import BoneParameters
-import re
 
 
 @dataclass

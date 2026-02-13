@@ -15,7 +15,6 @@ only WARNING and ERROR are shown.
 import time
 from typing import Dict, Optional, List
 from enum import IntEnum
-
 from contextlib import contextmanager
 
 import bpy

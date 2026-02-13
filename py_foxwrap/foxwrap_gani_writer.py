@@ -13,6 +13,7 @@ from ..py_fox.fox_gani_types import (
     Gani2TrackData,
     TrackData,
     TrackMiniHeader,
+    AnimKeyframe
 )
 
 from .foxwrap_misc import TrackUnitWrapper, Tracks, TrackDataBlobWrapper
@@ -264,7 +265,6 @@ class Gani2Writer:
         Debug.log(f"          Segment {segment_idx}: type={track_data.td_type.name}, bits={component_bit_size}, frames={len(keyframes_track.data_blob.keyframes)}")
         
         # Write keyframes for this segment using AnimKeyframe.write_list_to_bytes
-        from ..py_fox.fox_gani_types import AnimKeyframe
         keyframes_blob_bytes: bytes = AnimKeyframe.write_list_to_bytes(
             keyframes_track.data_blob.keyframes,
             track_data.td_type,

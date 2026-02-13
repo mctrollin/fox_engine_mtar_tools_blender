@@ -5,7 +5,7 @@ This module handles writing MTAR (Motion Track Archive) files.
 Mirrors the structure of MtarReader for symmetry.
 """
 
-from typing import List, Optional, TYPE_CHECKING
+from typing import List, Optional
 import io
 
 import bpy

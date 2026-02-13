@@ -10,8 +10,14 @@ import bpy
 
 from ..py_utilities.utilities_logging import Debug
 from ..py_utilities.utilities_blender_animation import (
-    MTAR_ARMATURE_SLOT_NAME, assign_action_to_datablock, remove_action_from_datablock, action_has_fcurves,
-    iter_action_fcurves, ensure_action_fcurve, remove_action_fcurve, is_relevant_strip
+    MTAR_ARMATURE_SLOT_NAME,
+    assign_action_to_datablock,
+    remove_action_from_datablock,
+    action_has_fcurves,
+    iter_action_fcurves,
+    ensure_action_fcurve,
+    remove_action_fcurve,
+    is_relevant_strip
 )
 from ..py_utilities.utilities_fcurve_processing import process_import_fcurves
 

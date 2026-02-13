@@ -27,8 +27,7 @@ from .mtar_importer import import_mtar
 # NOTE: import top-level to avoid runtime import cycles; tools_blender_animation_bake
 # contains bake + cleanup helpers used by import/debug operators.
 from .py_tools.tools_blender_animation_bake import bake_and_optimize_action
-
-
+from .py_tools.tools_hash_generator import validate_executable_path
 
 
 class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
@@ -436,7 +435,6 @@ class MTAR_OT_ValidateHashGeneratorExe(Operator):
     
     def execute(self, context: Context) -> Set[str]:
         """Execute the validation."""
-        from .py_tools.tools_hash_generator import validate_executable_path
         
         # Read exe path from main scene properties (no fallback)
         scene: bpy.types.Scene = context.scene

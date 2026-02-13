@@ -1,6 +1,11 @@
 """Debug panel for testing map_r parameter generation and animation rotation mapping."""
 
+import math
+from math import radians
+
 import bpy
+from mathutils import Quaternion, Euler
+
 from .py_utilities.utilities_logging import Debug
 from .py_utilities.utilities_blender_armature import extract_rest_pose_rotation
 
@@ -169,7 +174,6 @@ class MTAR_OT_DebugAnalyzeMapR(bpy.types.Operator):
                 return {'FINISHED'}
             
             # Store rest pose rotation (convert from Euler object to degrees)
-            import math
             rest_euler_x = math.degrees(rest_pose_euler.x)
             rest_euler_y = math.degrees(rest_pose_euler.y)
             rest_euler_z = math.degrees(rest_pose_euler.z)
@@ -199,8 +203,7 @@ class MTAR_OT_DebugAnalyzeMapR(bpy.types.Operator):
             
             # Input quaternion is already in Blender format (after import)
             # So we just need to apply the Euler rotation, not convert from Fox
-            from mathutils import Quaternion, Euler
-            from math import radians
+            
             
             # Create Blender quaternion from input (w, x, y, z order in Blender)
             input_quat = Quaternion((test_quat_fox[3], test_quat_fox[0], test_quat_fox[1], test_quat_fox[2]))
@@ -216,7 +219,7 @@ class MTAR_OT_DebugAnalyzeMapR(bpy.types.Operator):
             props.test_keyframe_euler_y = test_euler_y
             props.test_keyframe_euler_z = test_euler_z
             Debug.log(f"  Test keyframe as Euler: x={test_euler_x:.2f}°, y={test_euler_y:.2f}°, z={test_euler_z:.2f}°")
-            Debug.log(f"  NOTE: This is the rotation from Fox import (on world-aligned bones)")
+            Debug.log("  NOTE: This is the rotation from Fox import (on world-aligned bones)")
             
             # Get target bone rest pose
             euler_rot = Euler((radians(rest_euler_x), radians(rest_euler_y), radians(rest_euler_z)), 'XYZ')
@@ -430,7 +433,6 @@ class MTAR_OT_DebugApplyInvertedRestPose(bpy.types.Operator):
             pose_bone = armature.pose.bones[bone_name]
             
             # Create inverted rest pose quaternion (inverse of extracted rest pose)
-            from mathutils import Quaternion
             rest_pose_quat = Quaternion((props.output_rest_pose_quat_w, props.output_rest_pose_quat_x, 
                                         props.output_rest_pose_quat_y, props.output_rest_pose_quat_z))
             
@@ -494,7 +496,6 @@ class MTAR_OT_DebugApplyMappedRotation(bpy.types.Operator):
             pose_bone = armature.pose.bones[bone_name]
             
             # Create quaternion from mapped rotation output
-            from mathutils import Quaternion
             mapped_quat = Quaternion((props.output_mapped_quat_w, props.output_mapped_quat_x, 
                                      props.output_mapped_quat_y, props.output_mapped_quat_z))
             

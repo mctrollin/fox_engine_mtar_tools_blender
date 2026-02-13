@@ -5,8 +5,7 @@ import os
 from typing import Optional
 
 import bpy
-from bpy.types import Panel, PropertyGroup, Context, UILayout, Object
-from bpy.props import StringProperty, PointerProperty, IntProperty
+from bpy.types import Panel, Context, UILayout
 
 from .py_foxwrap.foxwrap_mtar_reader import MtarReader
 from .py_utilities.utilities_parsing import parse_index_selection

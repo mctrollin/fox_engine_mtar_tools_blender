@@ -6,8 +6,9 @@ This module provides functions to optimize fcurves for import/export workflows:
 - Export: Bake and clean non-linear fcurves → optimized linear keyframes
 """
 from contextlib import contextmanager
-import bpy
 from typing import List, Set, Optional, Dict, Any
+
+import bpy
 
 from .utilities_logging import Debug
 from .utilities_blender_animation import (
