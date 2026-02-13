@@ -214,4 +214,5 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
             wm.progress_end()
             execution_props.operation_type = 'NONE'
             Debug.update_progress(0, "")
+            # Note: Animation state is restored by export_mtar() function
 

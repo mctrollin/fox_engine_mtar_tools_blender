@@ -1028,6 +1028,10 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
                 # Restore original action on armature
                 if original_action is not None:
                     armature.animation_data.action = original_action
+                else:
+                    # No former action - clear it explicitly
+                    if armature.animation_data:
+                        armature.animation_data.action = None
                 
             except Exception as e:
                 Debug.log_warning(f"    Warning: Failed to process export FCurves: {str(e)}")
@@ -1411,6 +1415,15 @@ def export_mtar(context: bpy.types.Context,
     # Get force_highest_bit_encoding once here to avoid multiple context accesses
     force_highest_bit_encoding = export_props.force_highest_bit_encoding
 
+    # Capture original animation state before any processing
+    original_armature_action = None
+    original_animation_data_exists = False
+    if armature.animation_data:
+        original_armature_action = armature.animation_data.action
+        original_animation_data_exists = True
+    else:
+        original_animation_data_exists = False
+
     Debug.log("\n=== MTAR Data Export Started ===")
     Debug.log(f"Export path: {filepath}\n")
     
@@ -1764,6 +1777,13 @@ def export_mtar(context: bpy.types.Context,
     
     Debug.stop_timer("6. Writing animation info file")
     
+    # Restore armature's original animation state before returning
+    if original_armature_action is not None:
+        armature.animation_data.action = original_armature_action
+    elif original_animation_data_exists and armature.animation_data:
+        # Animation data exists but had no action - clear it
+        armature.animation_data.action = None
+
     Debug.log("\n=== MTAR Data Export Complete ===")
     Debug.log(f"Exported {len(actions_to_export)} action(s) to {filepath}\n")
     Debug.stop_timer("MTAR Export")

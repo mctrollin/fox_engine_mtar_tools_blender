@@ -319,7 +319,7 @@ def remove_action_from_datablock(datablock: bpy.types.ID) -> None:
         Debug.log_warning(f"Failed to remove action from datablock '{getattr(datablock, 'name', '<unknown>')}': {e}")
 
 
-def get_action_slot(action: bpy.types.Action, slot_name: Optional[str] = None) -> bpy.types.ActionSlot:
+def get_action_slot(action: bpy.types.Action, slot_name: Optional[str] = None) -> 'bpy.types.ActionSlot':
     """Return or create an Action slot.
 
     If `slot_name` is provided, this will look for a slot whose `name` or

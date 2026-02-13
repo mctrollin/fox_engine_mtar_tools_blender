@@ -63,12 +63,10 @@ def switch_context(area_type: str, obj: Optional[bpy.types.Object] = None,
     try:
         # Set active object and action if provided (needed for graph operators)
         if obj is not None:
-            Debug.log(f"DEBUG switch_context: Setting active object to '{obj.name}'")
             bpy.context.view_layer.objects.active = obj
             
             # Switch to POSE mode for armatures (required for pose bone FCurves)
             if obj.type == 'ARMATURE' and bpy.context.mode != 'POSE':
-                Debug.log("DEBUG switch_context: Switching to POSE mode")
                 bpy.ops.object.mode_set(mode='POSE')
             
             if action is not None:
@@ -78,24 +76,19 @@ def switch_context(area_type: str, obj: Optional[bpy.types.Object] = None,
                     if hasattr(obj.animation_data, 'action_slot'):
                         former_slot = obj.animation_data.action_slot
                 
-                Debug.log(f"DEBUG switch_context: About to assign action '{action.name}' to obj '{obj.name}'")
                 # Assign action using the proper slot-aware helper (Blender 4.4+ compatible)
                 try:
                     assign_action_to_datablock(obj, action, slot_name=MTAR_ARMATURE_SLOT_NAME)
-                    Debug.log("DEBUG switch_context: Action assigned successfully")
                 except Exception as e:
                     # Fallback to direct assignment if slot helper fails
-                    Debug.log(f"Warning: Could not use slot-aware assignment: {e}")
+                    Debug.log_warning(f"Could not use slot-aware assignment: {e}")
                     if not obj.animation_data:
                         obj.animation_data_create()
                     obj.animation_data.action = action
-                    Debug.log("DEBUG switch_context: Action assigned via fallback")
                 
-                # Verify action is assigned
-                if obj.animation_data and obj.animation_data.action:
-                    Debug.log(f"DEBUG switch_context: Verified - obj.animation_data.action = '{obj.animation_data.action.name}'")
-                else:
-                    Debug.log("DEBUG switch_context: ERROR - No action assigned after assignment!")
+                # Verify action is assigned; warn if assignment failed
+                if not (obj.animation_data and obj.animation_data.action):
+                    Debug.log_warning(f"No action assigned to object '{obj.name}' after attempted assignment")
         
         # Configure graph editor space
         if area_type == 'GRAPH_EDITOR':
@@ -105,18 +98,13 @@ def switch_context(area_type: str, obj: Optional[bpy.types.Object] = None,
                 if hasattr(space, 'mode'):
                     former_mode = space.mode
                     space.mode = 'FCURVES'
-                    Debug.log("DEBUG switch_context: Set graph editor mode to FCURVES")
             
             except (AttributeError, RuntimeError) as e:
-                Debug.log(f"Warning: Failed to configure graph editor space: {e}")
+                Debug.log_warning(f"Failed to configure graph editor space: {e}")
         
-        Debug.log("DEBUG switch_context: About to enter temp_override context")
         with bpy.context.temp_override(window=window, area=target_area):
-            Debug.log("DEBUG switch_context: Inside temp_override - yielding control to caller")
             yield
-            Debug.log("DEBUG switch_context: Returned from yield - caller finished")
     finally:
-        Debug.log("DEBUG switch_context: Entered finally block - restoring state")
         # Restore object action and slot
         if obj is not None and action is not None:
             if obj.animation_data:
@@ -276,88 +264,41 @@ def decimate_fcurves(action: bpy.types.Action, error_threshold: float,
     if error_threshold <= 0.0 or not action or not action_has_fcurves(action):
         return 0
 
-    # Get all fcurves once (version-safe) for reuse in filtering and selection
+    # Get all fcurves once (version-safe)
     all_fcurves: List[bpy.types.FCurve] = list(iter_action_fcurves(action))
-    Debug.log(f"DEBUG decimate_fcurves: Total fcurves in action = {len(all_fcurves)}")
-    
-    # Filter fcurves by bone names if specified
+
+    # Decide which fcurves to process (filtered by bone if requested)
     if bone_filter:
-        Debug.log(f"DEBUG decimate_fcurves: Filtering by {len(bone_filter)} bones: {bone_filter}")
         fcurves_to_process = get_fcurves_for_bones(action, bone_filter)
-        Debug.log(f"DEBUG decimate_fcurves: After filter - fcurves_to_process = {len(fcurves_to_process)}")
     else:
-        Debug.log(f"DEBUG decimate_fcurves: No bone filter - using all {len(all_fcurves)} fcurves")
         fcurves_to_process = all_fcurves
-    
+
+    # Fallback if nothing to do
     if not fcurves_to_process:
         return 0
-    
-    # Build stable set of fcurve identifiers (data_path, array_index) for O(1) membership checks
-    # Using data_path + array_index is more stable than id() which can change in Blender
+
     process_keys: Set[tuple] = {(fc.data_path, fc.array_index) for fc in fcurves_to_process}
-    
+
     try:
-        Debug.log(f"DEBUG decimate_fcurves: About to enter switch_context for action '{action.name}' with obj '{obj.name if obj else None}'")
         with switch_context('GRAPH_EDITOR', obj=obj, action=action):
-            Debug.log("DEBUG decimate_fcurves: Inside switch_context")
-            
-            # Verify context
-            if obj and obj.animation_data:
-                current_action = obj.animation_data.action
-                Debug.log(f"DEBUG decimate_fcurves: Current obj.animation_data.action = '{current_action.name if current_action else 'NONE'}'")
-            else:
-                Debug.log("DEBUG decimate_fcurves: ERROR - obj has no animation_data!")
-            
             # Select only fcurves to process using stable (data_path, array_index) key
-            for fcurve in all_fcurves:
+            for fcurve in iter_action_fcurves(action):
                 fcurve.select = (fcurve.data_path, fcurve.array_index) in process_keys
-            
-            selected_count = len([fcurve for fcurve in all_fcurves if fcurve.select])
-            Debug.log(f"DEBUG decimate_fcurves: Selected {selected_count} fcurves, about to call operator")
-            
-            # === OPERATOR CONTEXT DIAGNOSTICS ===
-            Debug.log("=== OPERATOR CONTEXT DIAGNOSTICS ===")
-            Debug.log(f"Context area type: {bpy.context.area.type if bpy.context.area else 'NONE'}")
-            Debug.log(f"Context mode: {bpy.context.mode}")
-            Debug.log(f"Active object: {bpy.context.active_object.name if bpy.context.active_object else 'NONE'}")
-            Debug.log(f"Active object type: {bpy.context.active_object.type if bpy.context.active_object else 'NONE'}")
-            
-            if bpy.context.active_object and bpy.context.active_object.animation_data:
-                anim = bpy.context.active_object.animation_data
-                Debug.log(f"Active object has animation_data: YES")
-                Debug.log(f"  - action: {anim.action.name if anim.action else 'NONE'}")
-                Debug.log(f"  - action fcurves count: {len(list(iter_action_fcurves(anim.action))) if anim.action else 0}")
-                Debug.log(f"  - nla_tracks count: {len(anim.nla_tracks)}")
-            else:
-                Debug.log(f"Active object has animation_data: NO")
-            
-            # Check graph editor space
-            if bpy.context.area and bpy.context.area.type == 'GRAPH_EDITOR':
-                space = bpy.context.area.spaces.active
-                Debug.log(f"Graph editor space:")
-                Debug.log(f"  - mode: {space.mode if hasattr(space, 'mode') else 'N/A'}")
-                Debug.log(f"  - dopesheet source: {space.dopesheet.source if hasattr(space, 'dopesheet') else 'N/A'}")
-                if hasattr(space, 'dopesheet') and space.dopesheet.source:
-                    Debug.log(f"  - dopesheet source name: {space.dopesheet.source.name}")
-            
-            # Test operator poll
-            can_run = bpy.ops.graph.decimate.poll()
-            Debug.log(f"Operator poll result: {can_run}")
-            Debug.log("=== END DIAGNOSTICS ===")
+
+            selected_count = len([fcurve for fcurve in iter_action_fcurves(action) if fcurve.select])
+            Debug.log(f"Decimating {selected_count} fcurves")
 
             # Apply decimation
             bpy.ops.graph.decimate(mode='ERROR', remove_error_margin=error_threshold)
-            
-            Debug.log("DEBUG decimate_fcurves: Operator completed successfully")
-            
+
             # Deselect all fcurves for clean UI state
-            for fcurve in all_fcurves:
+            for fcurve in iter_action_fcurves(action):
                 fcurve.select = False
-            
+
             return len(fcurves_to_process)
-    
+
     except (RuntimeError, AttributeError) as e:
-        Debug.log(f"Warning: FCurve decimation failed: {e}")
+        Debug.log_warning(f"FCurve decimation failed: {e}")
         return 0
 
 
@@ -544,8 +485,7 @@ def process_import_fcurves(armature: bpy.types.Object,
                     bone_name = fcurve.data_path[start:end]
                     all_bone_names.add(bone_name)
         
-        Debug.log(f"DEBUG process_import_fcurves: Found {len(all_bone_names)} bones in action '{action.name}': {all_bone_names}")
-        Debug.log(f"DEBUG process_import_fcurves: force_linear_set = {force_linear_set}")
+        Debug.log(f"Found {len(all_bone_names)} bones in action '{action.name}'")
         
         # Filter bones based on rig unit types
         bones_to_decimate = set(all_bone_names)
@@ -558,8 +498,8 @@ def process_import_fcurves(armature: bpy.types.Object,
                     bones_to_skip.add(bone_name)
                     bones_to_decimate.discard(bone_name)
         
-        Debug.log(f"DEBUG process_import_fcurves: After filtering - bones_to_decimate = {len(bones_to_decimate)} bones: {bones_to_decimate}")
-        Debug.log(f"DEBUG process_import_fcurves: bones_to_skip = {len(bones_to_skip)} bones: {bones_to_skip}")
+        if bones_to_skip:
+            Debug.log(f"Skipping {len(bones_to_skip)} bone(s) due to force-linear filter")
         
         # Apply decimation to allowed bones
         decimated = decimate_fcurves(action, decimate_error, bones_to_decimate, obj=armature)
