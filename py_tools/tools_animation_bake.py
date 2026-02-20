@@ -17,7 +17,9 @@ from ..py_utilities.utilities_blender_animation import (
     iter_action_fcurves,
     ensure_action_fcurve,
     remove_action_fcurve,
-    is_relevant_strip
+    is_relevant_strip,
+    is_pose_bone_data_path,
+    extract_bone_name_from_data_path
 )
 from ..py_utilities.utilities_fcurve_processing import process_import_fcurves
 
@@ -40,14 +42,10 @@ def get_bones_with_keyframes(action: bpy.types.Action) -> Set[str]:
         data_path = fcurve.data_path
         
         # Check if this is a pose bone property
-        if data_path.startswith('pose.bones["') or data_path.startswith("pose.bones['"):
-            # Extract bone name from data_path
-            # Format: pose.bones["BoneName"].property or pose.bones['BoneName'].property
-            quote_char = '"' if '["' in data_path else "'"
-            start = data_path.index('[' + quote_char) + 2
-            end = data_path.index(quote_char + ']', start)
-            bone_name = data_path[start:end]
-            bones_with_keyframes.add(bone_name)
+        if is_pose_bone_data_path(data_path):
+            bone_name = extract_bone_name_from_data_path(data_path)
+            if bone_name:
+                bones_with_keyframes.add(bone_name)
     
     return bones_with_keyframes
 
@@ -72,13 +70,10 @@ def get_keyframe_frames(action: bpy.types.Action,
         data_path = fcurve.data_path
         
         # Check if this fcurve belongs to one of our bones
-        if data_path.startswith('pose.bones["') or data_path.startswith("pose.bones['"):
-            quote_char = '"' if '["' in data_path else "'"
-            start = data_path.index('[' + quote_char) + 2
-            end = data_path.index(quote_char + ']', start)
-            bone_name = data_path[start:end]
+        if is_pose_bone_data_path(data_path):
+            bone_name = extract_bone_name_from_data_path(data_path)
             
-            if bone_name in bone_names:
+            if bone_name and bone_name in bone_names:
                 # Add all keyframe frames from this fcurve
                 for keyframe in fcurve.keyframe_points:
                     keyframe_frames.add(int(keyframe.co[0]))
@@ -106,13 +101,10 @@ def get_keyframe_frames_per_fcurve(action: bpy.types.Action,
         data_path = fcurve.data_path
         
         # Check if this fcurve belongs to one of our bones
-        if data_path.startswith('pose.bones["') or data_path.startswith("pose.bones['"):
-            quote_char = '"' if '["' in data_path else "'"
-            start = data_path.index('[' + quote_char) + 2
-            end = data_path.index(quote_char + ']', start)
-            bone_name = data_path[start:end]
+        if is_pose_bone_data_path(data_path):
+            bone_name = extract_bone_name_from_data_path(data_path)
             
-            if bone_name in bone_names:
+            if bone_name and bone_name in bone_names:
                 # Create a unique key for this fcurve (data_path + array_index)
                 fcurve_key = f"{data_path}[{fcurve.array_index}]"
                 
@@ -150,7 +142,7 @@ def cleanup_baked_keyframes(action: bpy.types.Action,
     for fcurve in iter_action_fcurves(action):
         # Check if this fcurve belongs to a baked bone
         data_path = fcurve.data_path
-        if data_path.startswith('pose.bones["') or data_path.startswith("pose.bones['"):
+        if is_pose_bone_data_path(data_path):
             # Build fcurve key to look up original keyframes
             fcurve_key = f"{data_path}[{fcurve.array_index}]"
             
@@ -654,7 +646,7 @@ def _continue_bake_armature_action_implementation(
             fcurve_modified = False
             
             # Only process pose bone fcurves
-            if fcurve.data_path.startswith('pose.bones["') or fcurve.data_path.startswith("pose.bones['"):
+            if is_pose_bone_data_path(fcurve.data_path):
                 for keyframe in fcurve.keyframe_points:
                     if keyframe.interpolation != 'LINEAR':
                         keyframe.interpolation = 'LINEAR'

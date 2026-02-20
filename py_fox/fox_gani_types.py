@@ -213,6 +213,18 @@ class AnimKeyframe:
         
         has_frames = TrackUnitFlags.has_frames(unit_flags)
         
+        # Validate: non-static tracks MUST have at least 2 keyframes.
+        # The GANI binary format reads a do-while loop after the initial value
+        # when IS_STATIC is not set. With only 1 keyframe the loop has no data
+        # to read and the reader will parse garbage, corrupting the file.
+        if has_frames and len(keyframes) <= 1:
+            Debug.log_error(
+                f"Export: INVALID FILE - Non-static track (type={track_type}) has only "
+                f"{len(keyframes)} keyframe(s). The binary format requires animated "
+                f"keyframe data (frame deltas summing to FrameCount) when IS_STATIC is "
+                f"not set. This produces a corrupt MTAR. Check FCurve cleaning settings."
+            )
+        
         # Handle different track types
         if track_type in [SegmentType.QUAT, SegmentType.QUAT_DIFF]:
             # Write quaternion keyframes
@@ -234,7 +246,7 @@ class AnimKeyframe:
                         Debug.log_warning(f"Export: Invalid frame_delta {frame_delta} at keyframe {i} (type={track_type}). Clamping to 1.")
                         frame_delta = 1
                     elif frame_delta > 255:
-                        Debug.log_warning(f"Export: frame_delta {frame_delta} exceeds 8-bit range at keyframe {i} (type={track_type}). Clamping to 255.")
+                        Debug.log_error(f"Export: INVALID FILE - frame_delta {frame_delta} exceeds the 255-frame binary limit at keyframe {i} (type={track_type}). Delta clamped to 255 but this corrupts all subsequent keyframe timings. Reduce the export clean threshold.")
                         frame_delta = 255
                     
                     # Write frame delta (8 bits)
@@ -273,7 +285,7 @@ class AnimKeyframe:
                         Debug.log_warning(f"Export: Invalid frame_delta {frame_delta} at keyframe {i} (type={track_type}). Clamping to 1.")
                         frame_delta = 1
                     elif frame_delta > 255:
-                        Debug.log_warning(f"Export: frame_delta {frame_delta} exceeds 8-bit range at keyframe {i} (type={track_type}). Clamping to 255.")
+                        Debug.log_error(f"Export: INVALID FILE - frame_delta {frame_delta} exceeds the 255-frame binary limit at keyframe {i} (type={track_type}). Delta clamped to 255 but this corrupts all subsequent keyframe timings. Reduce the export clean threshold.")
                         frame_delta = 255
                     
                     # Write frame delta (1 byte)
@@ -310,7 +322,7 @@ class AnimKeyframe:
                         Debug.log_warning(f"Export: Invalid frame_delta {frame_delta} at keyframe {i} (type={track_type}). Clamping to 1.")
                         frame_delta = 1
                     elif frame_delta > 255:
-                        Debug.log_warning(f"Export: frame_delta {frame_delta} exceeds 8-bit range at keyframe {i} (type={track_type}). Clamping to 255.")
+                        Debug.log_error(f"Export: INVALID FILE - frame_delta {frame_delta} exceeds the 255-frame binary limit at keyframe {i} (type={track_type}). Delta clamped to 255 but this corrupts all subsequent keyframe timings. Reduce the export clean threshold.")
                         frame_delta = 255
                     
                     # Write frame delta (1 byte)
@@ -347,7 +359,7 @@ class AnimKeyframe:
                         Debug.log_warning(f"Export: Invalid frame_delta {frame_delta} at keyframe {i} (type={track_type}). Clamping to 1.")
                         frame_delta = 1
                     elif frame_delta > 255:
-                        Debug.log_warning(f"Export: frame_delta {frame_delta} exceeds 8-bit range at keyframe {i} (type={track_type}). Clamping to 255.")
+                        Debug.log_error(f"Export: INVALID FILE - frame_delta {frame_delta} exceeds the 255-frame binary limit at keyframe {i} (type={track_type}). Delta clamped to 255 but this corrupts all subsequent keyframe timings. Reduce the export clean threshold.")
                         frame_delta = 255
                     
                     # Write frame delta (1 byte)
@@ -381,7 +393,7 @@ class AnimKeyframe:
                         Debug.log_warning(f"Export: Invalid frame_delta {frame_delta} at keyframe {i} (type={track_type}). Clamping to 1.")
                         frame_delta = 1
                     elif frame_delta > 255:
-                        Debug.log_warning(f"Export: frame_delta {frame_delta} exceeds 8-bit range at keyframe {i} (type={track_type}). Clamping to 255.")
+                        Debug.log_error(f"Export: INVALID FILE - frame_delta {frame_delta} exceeds the 255-frame binary limit at keyframe {i} (type={track_type}). Delta clamped to 255 but this corrupts all subsequent keyframe timings. Reduce the export clean threshold.")
                         frame_delta = 255
                     
                     # Write frame delta (1 byte)
@@ -441,6 +453,8 @@ class TrackHeader:
     
     def write(self, bw: BinaryIO) -> None:
         """Write TrackHeader to binary stream."""
+        if self.frame_count <= 0:
+            Debug.log_warning(f"TrackHeader.write: frame_count is {self.frame_count} (expected > 0).")
         # Write base fields
         bw.write(struct.pack('<IIHBBII', 
             self.unit_count,
@@ -666,6 +680,8 @@ class TrackMiniHeader:
     
     def write(self, bw: BinaryIO) -> None:
         """Write TrackMiniHeader to binary stream."""
+        if self.frame_count <= 0:
+            Debug.log_warning(f"TrackMiniHeader.write: frame_count is {self.frame_count} (expected > 0).")
         # Write FrameCount (uint), Padding0 (ubyte), ParamCount (ubyte), Padding1 (ushort)
         bw.write(struct.pack('<IBBH', self.frame_count, 0, self.param_count, 0))
         

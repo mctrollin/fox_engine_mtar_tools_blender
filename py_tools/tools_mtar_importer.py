@@ -5,35 +5,36 @@ from typing import Optional, List, Dict, Union, Tuple
 import bpy
 from mathutils import Quaternion, Vector
 
-from .py_utilities.utilities_logging import Debug
-from .py_utilities.utilities_rig_hash import unhash_rig_type
-from .py_utilities.utilities_transforms import (
+from ..py_utilities.utilities_logging import Debug
+from ..py_utilities.utilities_rig_hash import unhash_rig_type
+from ..py_utilities.utilities_transforms import (
     calculate_directional_location,
     prepare_rotation_offset_quats,
     apply_rotation_transforms,
     fox_to_blender_vector,
     apply_rest_pose_correction_local
 )
-from .py_utilities.utilities_blender_animation import (
+from ..py_utilities.utilities_blender_animation import (
     MTAR_ARMATURE_SLOT_NAME,
     add_dummy_keyframes_to_action,
     configure_action,
     remove_action_from_datablock,
     ensure_action_fcurve,
-    iter_action_fcurves
+    iter_action_fcurves,
+    build_data_path_for_bone
 )
-from .py_utilities.utilities_naming import format_action_name, format_strip_name
+from ..py_utilities.utilities_naming import format_action_name, format_strip_name
 
-from .py_foxwrap.foxwrap_metadata import TrackMetaData, store_track_header_properties_on_action, make_track_property_key
-from .py_foxwrap.foxwrap_misc import TrackUnitWrapper, TrackDataBlobWrapper, Tracks
-from .py_foxwrap.foxwrap_motionevent import store_motion_events_on_action
-from .py_foxwrap.foxwrap_mtar_reader import MtarReader
-from .py_foxwrap.foxwrap_mapping import BoneParameters
+from ..py_foxwrap.foxwrap_metadata import TrackMetaData, store_track_header_properties_on_action, make_track_property_key
+from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper, TrackDataBlobWrapper, Tracks
+from ..py_foxwrap.foxwrap_motionevent import store_motion_events_on_action
+from ..py_foxwrap.foxwrap_mtar_reader import MtarReader
+from ..py_foxwrap.foxwrap_mapping import BoneParameters
 
-from .py_fox.fox_mtar_types import MotionPointList2, MtarTableList2, MtarHeader
-from .py_fox.fox_gani_types import SegmentType, TrackUnitFlags, TrackHeader, TrackMiniHeader, EvpHeader
-from .py_fox.fox_frig_types import RigUnitType, FrigFile
-from .py_fox.fox_misc_types import StrCode32
+from ..py_fox.fox_mtar_types import MotionPointList2, MtarTableList2, MtarHeader
+from ..py_fox.fox_gani_types import SegmentType, TrackUnitFlags, TrackHeader, TrackMiniHeader, EvpHeader
+from ..py_fox.fox_frig_types import RigUnitType, FrigFile
+from ..py_fox.fox_misc_types import StrCode32
 
 FPS_59_94: float = 59.94
 
@@ -384,15 +385,16 @@ def import_keyframes_track(
             # Create location curves
             for i in range(3):  # XYZ location
                 try:
+                    data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
                     fcurve: bpy.types.FCurve = ensure_action_fcurve(
                         action,
-                        data_path=f'pose.bones["{keyframes_track.name}"].location',
+                        data_path=data_path_str,
                         index=i,
                         action_group_name=group_name,
                         slot_name=MTAR_ARMATURE_SLOT_NAME
                     )
                 except Exception as e:
-                    data_path_str = f'pose.bones["{keyframes_track.name}"].location'
+                    data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
                     Debug.log_warning(f"Could not create fcurve '{data_path_str}[{i}]' on action '{getattr(action, 'name', '<unknown>')}': {e}")
                     continue
 
@@ -441,15 +443,16 @@ def import_keyframes_track(
             # Create quaternion rotation curves (WXYZ)
             for i in range(4):  # WXYZ quaternion components
                 try:
+                    data_path_str = build_data_path_for_bone(keyframes_track.name, 'rotation_quaternion')
                     fcurve: bpy.types.FCurve = ensure_action_fcurve(
                         action,
-                        data_path=f'pose.bones["{keyframes_track.name}"].rotation_quaternion',
+                        data_path=data_path_str,
                         index=i,
                         action_group_name=group_name,
                         slot_name=MTAR_ARMATURE_SLOT_NAME
                     )
                 except Exception as e:
-                    data_path_str = f'pose.bones["{keyframes_track.name}"].rotation_quaternion'
+                    data_path_str = build_data_path_for_bone(keyframes_track.name, 'rotation_quaternion')
                     Debug.log_warning(f"Could not create fcurve '{data_path_str}[{i}]' on action '{getattr(action, 'name', '<unknown>')}': {e}")
                     continue
 
@@ -475,14 +478,15 @@ def import_keyframes_track(
         # Create location curves
         for i in range(3):  # XYZ location
             try:
+                data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
                 fcurve: bpy.types.FCurve = ensure_action_fcurve(
                     action,
-                    data_path=f'pose.bones["{keyframes_track.name}"].location',
+                    data_path=data_path_str,
                     index=i,
                     action_group_name=group_name
                 )
             except Exception as e:
-                data_path_str = f'pose.bones["{keyframes_track.name}"].location'
+                data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
                 Debug.log_warning(f"Could not create fcurve '{data_path_str}[{i}]' on action '{getattr(action, 'name', '<unknown>')}': {e}")
                 continue
 
@@ -954,9 +958,10 @@ def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object,
         # Check for rotation FCurves
         has_rotation = False
         if imported_armature.animation_data and imported_armature.animation_data.action:
+            rotation_data_path = build_data_path_for_bone(source_name, 'rotation_quaternion')
             for fcurve in iter_action_fcurves(imported_armature.animation_data.action):
                 # Check if this fcurve belongs to this bone and is a rotation curve
-                if fcurve.data_path == f'pose.bones["{source_name}"].rotation_quaternion':
+                if fcurve.data_path == rotation_data_path:
                     has_rotation = True
                     break
         

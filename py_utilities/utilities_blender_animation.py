@@ -85,6 +85,153 @@ def extract_property_from_fcurve_path(data_path: str) -> Optional[str]:
         return None
 
 
+# Pose Bone Data Path Utilities ###################################################
+
+def is_pose_bone_data_path(data_path: str) -> bool:
+    """Check if data_path is a pose.bones animation path.
+    
+    Supports both single and double-quoted formats:
+    - 'pose.bones["BoneName"].property'
+    - "pose.bones['BoneName'].property"
+    
+    Args:
+        data_path: The data_path string to check
+        
+    Returns:
+        True if data_path matches pose.bones format, False otherwise
+    """
+    if not data_path:
+        return False
+    return data_path.startswith('pose.bones["') or data_path.startswith("pose.bones['")
+
+
+def build_data_path_for_bone(bone_name: str, property_name: str, quote_char: str = '"') -> str:
+    """Build a standard pose.bones data_path from components.
+    
+    Args:
+        bone_name: Name of the bone
+        property_name: Name of the property (e.g., 'location', 'rotation_quaternion')
+        quote_char: Quote character to use ('"' or "'"), defaults to double quote
+        
+    Returns:
+        Data path string in format: pose.bones["BoneName"].property
+        
+    Example:
+        >>> build_data_path_for_bone('Armature', 'location')
+        'pose.bones["Armature"].location'
+    """
+    return f'pose.bones[{quote_char}{bone_name}{quote_char}].{property_name}'
+
+
+def extract_bone_name_from_data_path(data_path: str, armature: Optional[bpy.types.Object] = None) -> Optional[str]:
+    """Extract bone name from a pose.bones data_path with auto-detection of quote character.
+    
+    Supports both single and double-quoted formats with automatic fallback:
+    - 'pose.bones["BoneName"].property'
+    - "pose.bones['BoneName'].property"
+    
+    Args:
+        data_path: The fcurve's data_path attribute
+        armature: Optional armature to validate that extracted bone exists in pose.bones
+        
+    Returns:
+        Bone name if path matches expected format, None if malformed or bone not found
+        
+    Example:
+        >>> extract_bone_name_from_data_path('pose.bones["Armature"].location')
+        'Armature'
+    """
+    if not data_path or not is_pose_bone_data_path(data_path):
+        return None
+    
+    try:
+        # Auto-detect quote character (try double quote first, fall back to single)
+        quote_char = '"' if '["' in data_path else "'"
+        
+        # Extract bone name between bracket+quote and quote+bracket
+        start = data_path.index('[' + quote_char) + len('[' + quote_char)
+        end = data_path.index(quote_char + ']', start)
+        bone_name = data_path[start:end]
+        
+        # Validate bone exists in armature if provided
+        if armature and bone_name not in armature.pose.bones:
+            return None
+        
+        return bone_name
+    except (ValueError, IndexError):
+        return None
+
+
+def extract_property_name_from_data_path(data_path: str) -> Optional[str]:
+    """Extract property name from a pose.bones data_path.
+    
+    Handles paths like:
+    - pose.bones["BoneName"].rotation_quaternion → "rotation_quaternion"
+    - pose.bones["BoneName"].location → "location"
+    
+    Args:
+        data_path: The fcurve's data_path attribute
+        
+    Returns:
+        Property name if path matches expected format, None otherwise
+        
+    Example:
+        >>> extract_property_name_from_data_path('pose.bones["Armature"].location')
+        'location'
+    """
+    if not data_path or '"].' not in data_path:
+        return None
+    
+    try:
+        # Extract property name after rightmost "].
+        property_start = data_path.rindex('"].') + len('"].')
+        return data_path[property_start:]
+    except (ValueError, IndexError):
+        return None
+
+
+def parse_data_path_components(data_path: str, armature: Optional[bpy.types.Object] = None) -> Optional[tuple]:
+    """Parse bone name and property name from pose.bones data_path in one pass.
+    
+    Optimized for cases where both bone and property extraction is needed.
+    Automatically detects quote character and validates bone if armature provided.
+    
+    Args:
+        data_path: The fcurve's data_path attribute
+        armature: Optional armature to validate that extracted bone exists
+        
+    Returns:
+        Tuple of (bone_name, property_name) if valid, None if malformed or bone not found
+        
+    Example:
+        >>> parse_data_path_components('pose.bones["Armature"].location')
+        ('Armature', 'location')
+    """
+    if not data_path or not is_pose_bone_data_path(data_path):
+        return None
+    
+    try:
+        # Auto-detect quote character
+        quote_char = '"' if '["' in data_path else "'"
+        
+        # Extract bone name
+        start = data_path.index('[' + quote_char) + len('[' + quote_char)
+        end = data_path.index(quote_char + ']', start)
+        bone_name = data_path[start:end]
+        
+        # Validate bone exists if armature provided
+        if armature and bone_name not in armature.pose.bones:
+            return None
+        
+        # Extract property name
+        property_start = data_path.index('"].') + len('].')
+        property_name = data_path[property_start:]
+        
+        return (bone_name, property_name)
+    except (ValueError, IndexError):
+        return None
+
+
 class FCurveCache:
     """Cache of FCurves indexed by bone name and property name.
     

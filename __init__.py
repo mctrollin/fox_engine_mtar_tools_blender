@@ -7,7 +7,7 @@ from bpy_extras.io_utils import ImportHelper
 from .py_utilities.utilities_logging import Debug
 import traceback
 
-from .mtar_importer import import_mtar
+from .py_tools.tools_mtar_importer import import_mtar
 from . import blender_panel_import
 from . import blender_panel_export
 from . import blender_panel_settings

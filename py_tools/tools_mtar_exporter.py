@@ -11,8 +11,8 @@ from pathlib import Path
 import bpy
 from mathutils import Quaternion
 
-from .py_utilities.utilities_logging import Debug
-from .py_utilities.utilities_transforms import (
+from ..py_utilities.utilities_logging import Debug
+from ..py_utilities.utilities_transforms import (
     reverse_directional_location, 
     apply_reverse_transforms, 
     get_local_space_transform, 
@@ -23,25 +23,27 @@ from .py_utilities.utilities_transforms import (
     reverse_rest_pose_correction_world,
     TransformsCache
 )
-from .py_utilities.utilities_blender_animation import (
-    FCurveCache, action_has_fcurves, iter_action_fcurves, is_relevant_strip, find_layout_track_action
+from ..py_utilities.utilities_blender_animation import (
+    FCurveCache, action_has_fcurves, iter_action_fcurves, is_relevant_strip, find_layout_track_action,
+    build_data_path_for_bone, extract_bone_name_from_data_path
 )
-from .py_utilities.utilities_fcurve_processing import process_export_fcurves
+from ..py_utilities.utilities_fcurve_processing import process_export_fcurves
 
-from .py_foxwrap.foxwrap_motionevent import read_motion_events_from_action
-from .py_foxwrap.foxwrap_metadata import parse_action_track_metadata, read_track_header_properties_from_action
-from .py_foxwrap.foxwrap_metadata import TrackMetaData, merge_track_metadata, iter_track_properties, get_all_track_metadata_from_action
-from .py_foxwrap.foxwrap_misc import TrackUnitWrapper, Tracks, TrackDataBlobWrapper
-from .py_foxwrap.foxwrap_mtar_writer import MtarWriter
-from .py_foxwrap.foxwrap_misc_export import (
+from ..py_foxwrap.foxwrap_motionevent import read_motion_events_from_action
+from ..py_foxwrap.foxwrap_metadata import parse_action_track_metadata, read_track_header_properties_from_action
+from ..py_foxwrap.foxwrap_metadata import TrackMetaData, merge_track_metadata, iter_track_properties, get_all_track_metadata_from_action
+from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper, Tracks, TrackDataBlobWrapper
+from ..py_foxwrap.foxwrap_mtar_writer import MtarWriter
+from ..py_foxwrap.foxwrap_misc_export import (
     GaniData, GaniTracksData, GaniMotionPointsData, GaniMotionEventsData,
     TrackSegmentBoneMapping, ExportActionData, create_synthetic_mapping, build_motion_point_action_maps, find_motion_point_action_for_gani
 )
-from .py_foxwrap.foxwrap_mapping import BoneParameters
-from .py_fox.fox_gani_types import AnimKeyframe, SegmentType, TrackUnitFlags, TrackHeader, TrackUnit, TrackData, TrackDataBlob
-from .py_fox.fox_mtar_types import MotionPointList2, MotionPointEntry
-from .py_fox.fox_frig_types import RigUnitType
-from .py_fox.fox_misc_types import StrCode32
+from ..py_foxwrap.foxwrap_mapping import BoneParameters
+
+from ..py_fox.fox_gani_types import AnimKeyframe, SegmentType, TrackUnitFlags, TrackHeader, TrackUnit, TrackData, TrackDataBlob
+from ..py_fox.fox_mtar_types import MotionPointList2, MotionPointEntry
+from ..py_fox.fox_frig_types import RigUnitType
+from ..py_fox.fox_misc_types import StrCode32
 
 # Utility Functions ###############################################################
 
@@ -435,7 +437,7 @@ def get_bone_keyframe_numbers_from_action(action: bpy.types.Action, bone_name: s
                         keyframe_frames.add(export_frame)
     else:
         # Fall back to scanning action.fcurves (slow path - for backward compatibility)
-        data_paths = [f'pose.bones["{bone_name}"].{prop}' for prop in property_names]
+        data_paths = [build_data_path_for_bone(bone_name, prop) for prop in property_names]
         for fcurve in iter_action_fcurves(action):
             if fcurve.data_path in data_paths:
                 for keyframe_point in fcurve.keyframe_points:
@@ -502,6 +504,44 @@ def export_keyframes_track(armature: bpy.types.Object,
         # Fallback: export all frames
         export_frames = list(range(frame_start, frame_end + 1))
     
+    # ── Non-static track validation ──────────────────────────────────────────
+    # The GANI binary format reads animated keyframes in a loop:
+    #   do { read AnimKeyframe; frameIndex += FrameCount; } while (frameIndex < FrameCount);
+    # so the accumulated frame deltas MUST reach at least FrameCount
+    # (= frame_end - frame_start). If after FCurve cleaning only 1 keyframe
+    # remains (frame_start), the loop has no data to read and parses garbage.
+    if not is_static:
+        # 1. Ensure frame_end is always present so deltas sum to FrameCount
+        if len(export_frames) < 2 or export_frames[-1] < frame_end:
+            if frame_end not in export_frames:
+                Debug.log_warning(
+                    f"Non-static track '{blender_bone_name}' ({segment_type.name}): "
+                    f"only {len(export_frames)} keyframe(s) found after FCurve cleaning, "
+                    f"missing frame_end ({frame_end}). Adding it to prevent invalid binary output."
+                )
+                export_frames.append(frame_end)
+                export_frames = sorted(set(export_frames))
+
+        # 2. Fill gaps > 255 with intermediate frames (8-bit delta limit)
+        fixed_frames = [export_frames[0]]
+        for i in range(1, len(export_frames)):
+            gap = export_frames[i] - export_frames[i - 1]
+            if gap > 255:
+                current = export_frames[i - 1]
+                while current + 255 < export_frames[i]:
+                    current += 255
+                    fixed_frames.append(current)
+            fixed_frames.append(export_frames[i])
+
+        if len(fixed_frames) != len(export_frames):
+            Debug.log_warning(
+                f"Non-static track '{blender_bone_name}' ({segment_type.name}): "
+                f"inserted {len(fixed_frames) - len(export_frames)} intermediate frame(s) "
+                f"to keep frame deltas within the 255-frame binary limit."
+            )
+            export_frames = fixed_frames
+    # ────────────────────────────────────────────────────────────────────────
+
     Debug.log(f"    Collected keyed frames {len(export_frames)}")
 
     if segment_type in [SegmentType.QUAT, SegmentType.QUAT_DIFF]:
@@ -659,7 +699,7 @@ def export_rotation_segment(armature: bpy.types.Object, blender_bone_name: str,
                 Debug.log_warning(f"Export rotation: Invalid frame_delta {frame_delta} at frame {frame} for bone '{blender_bone_name}'. Clamping to 1.")
                 frame_delta = 1
             elif frame_delta > 255:
-                Debug.log_warning(f"Export rotation: frame_delta {frame_delta} exceeds 8-bit range at frame {frame} for bone '{blender_bone_name}'. Clamping to 255.")
+                Debug.log_error(f"Export rotation: INVALID FILE - frame_delta {frame_delta} exceeds the 255-frame binary limit at frame {frame} for bone '{blender_bone_name}'. Delta clamped to 255 but this corrupts all subsequent keyframe timings. Reduce the export clean threshold.")
                 frame_delta = 255
         prev_frame = frame
         keyframe = AnimKeyframe(frame=frame_delta, value=fox_quat_final)
@@ -734,7 +774,7 @@ def export_location_segment(armature: bpy.types.Object, blender_bone_name: str,
                 Debug.log_warning(f"Export location: Invalid frame_delta {frame_delta} at frame {frame} for bone '{blender_bone_name}'. Clamping to 1.")
                 frame_delta = 1
             elif frame_delta > 255:
-                Debug.log_warning(f"Export location: frame_delta {frame_delta} exceeds 8-bit range at frame {frame} for bone '{blender_bone_name}'. Clamping to 255.")
+                Debug.log_error(f"Export location: INVALID FILE - frame_delta {frame_delta} exceeds the 255-frame binary limit at frame {frame} for bone '{blender_bone_name}'. Delta clamped to 255 but this corrupts all subsequent keyframe timings. Reduce the export clean threshold.")
                 frame_delta = 255
 
         prev_frame = frame
@@ -1150,12 +1190,9 @@ def build_motion_points_list_from_armature(motion_points_armature: bpy.types.Obj
                 if strip.action and is_relevant_strip(strip):
                     for fcurve in iter_action_fcurves(strip.action):
                         # Extract bone name from data_path (e.g., 'pose.bones["BoneName"].location')
-                        if 'pose.bones[' in fcurve.data_path:
-                            start = fcurve.data_path.find('["') + 2
-                            end = fcurve.data_path.find('"]', start)
-                            if start > 1 and end > start:
-                                bone_name = fcurve.data_path[start:end]
-                                bones_with_animation.add(bone_name)
+                        bone_name = extract_bone_name_from_data_path(fcurve.data_path)
+                        if bone_name:
+                            bones_with_animation.add(bone_name)
                 else:
                     if strip.action:
                         Debug.log(f"  Skipping motion point strip '{getattr(strip, 'name', '<unknown>')}' (not a GANI strip)")
@@ -1244,10 +1281,13 @@ def build_motion_point_metadata_dict(motion_points_armature: bpy.types.Object,
         
         if action_has_fcurves(action):
             for fc in iter_action_fcurves(action):
-                if f'pose.bones["{bone_name}"].rotation_quaternion' in fc.data_path or \
-                   f'pose.bones["{bone_name}"].rotation_euler' in fc.data_path:
+                rotation_quat_path = build_data_path_for_bone(bone_name, 'rotation_quaternion')
+                rotation_euler_path = build_data_path_for_bone(bone_name, 'rotation_euler')
+                location_path = build_data_path_for_bone(bone_name, 'location')
+                
+                if fc.data_path == rotation_quat_path or fc.data_path == rotation_euler_path:
                     has_rotation = True
-                elif f'pose.bones["{bone_name}"].location' in fc.data_path:
+                elif fc.data_path == location_path:
                     has_location = True
         
         # Build segment types based on what fcurves exist

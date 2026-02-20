@@ -18,7 +18,9 @@ from .utilities_blender_animation import (
     remove_action_from_datablock,
     MTAR_ARMATURE_SLOT_NAME,
     get_fcurves_for_bones,
-    is_fcurve_linear
+    is_fcurve_linear,
+    is_pose_bone_data_path,
+    extract_bone_name_from_data_path
     )
 
 from ..py_foxwrap.foxwrap_metadata import extract_fox_bone_to_rig_unit_type_mapping
@@ -181,7 +183,7 @@ def debug_setup_graph_context_for_manual_test(armature_name: str, action_name: s
     # Switch to POSE mode
     if bpy.context.mode != 'POSE':
         bpy.ops.object.mode_set(mode='POSE')
-        Debug.log(f"✓ Switched to POSE mode")
+        Debug.log("✓ Switched to POSE mode")
     
     # Assign action using the same helper as the real code (slot-aware for Blender 4.4+/5.0+)
     if not armature.animation_data:
@@ -210,15 +212,15 @@ def debug_setup_graph_context_for_manual_test(armature_name: str, action_name: s
         # Override first area to graph editor
         target_area = bpy.context.screen.areas[0]
         target_area.type = 'GRAPH_EDITOR'
-        Debug.log(f"✓ Created GRAPH_EDITOR in area")
+        Debug.log("✓ Created GRAPH_EDITOR in area")
     else:
-        Debug.log(f"✓ Found existing GRAPH_EDITOR")
+        Debug.log("✓ Found existing GRAPH_EDITOR")
     
     # Configure graph editor space
     space = target_area.spaces.active
     if hasattr(space, 'mode'):
         space.mode = 'FCURVES'
-        Debug.log(f"✓ Set graph editor mode to FCURVES")
+        Debug.log("✓ Set graph editor mode to FCURVES")
     
     # Select some fcurves
     selected = 0
@@ -478,11 +480,9 @@ def process_import_fcurves(armature: bpy.types.Object,
         all_bone_names: Set[str] = set()
         for fcurve in action_fcurves:
             # Extract bone name from data path like 'pose.bones["BoneName"].location'
-            if 'pose.bones[' in fcurve.data_path:
-                start = fcurve.data_path.find('["') + 2
-                end = fcurve.data_path.find('"]', start)
-                if start > 1 and end > start:
-                    bone_name = fcurve.data_path[start:end]
+            if is_pose_bone_data_path(fcurve.data_path):
+                bone_name = extract_bone_name_from_data_path(fcurve.data_path)
+                if bone_name:
                     all_bone_names.add(bone_name)
         
         Debug.log(f"Found {len(all_bone_names)} bones in action '{action.name}'")
@@ -508,14 +508,50 @@ def process_import_fcurves(armature: bpy.types.Object,
         # Count skipped fcurves
         for bone_name in bones_to_skip:
             for fcurve in action_fcurves:
-                if f'pose.bones["{bone_name}"]' in fcurve.data_path:
-                    fcurves_skipped += 1
+                if is_pose_bone_data_path(fcurve.data_path):
+                    extracted_bone = extract_bone_name_from_data_path(fcurve.data_path)
+                    if extracted_bone == bone_name:
+                        fcurves_skipped += 1
     
     return {
         'actions_processed': len(actions_to_process),
         'fcurves_decimated': fcurves_decimated,
         'fcurves_skipped': fcurves_skipped
     }
+
+
+def _check_fcurves_for_large_gaps(action: bpy.types.Action,
+                                   fcurve_filter: Set[tuple],
+                                   max_gap: int = 255) -> List[tuple]:
+    """Check fcurves for keyframe gaps larger than max_gap frames.
+
+    The GANI binary format stores inter-keyframe frame deltas as 8-bit unsigned
+    integers (range 1–255). A gap larger than 255 frames between consecutive
+    keyframes cannot be encoded correctly and will produce an invalid binary file.
+
+    Args:
+        action: Action to check.
+        fcurve_filter: Set of (data_path, array_index) tuples to restrict the
+            check to.  Pass an empty set to check all fcurves.
+        max_gap: Maximum allowed gap in frames (default 255 matches the 8-bit
+            binary limit).
+
+    Returns:
+        List of (data_path, array_index, max_gap_found) tuples for every
+        fcurve whose largest inter-keyframe gap exceeds *max_gap*.
+    """
+    violations: List[tuple] = []
+    for fcurve in iter_action_fcurves(action):
+        key = (fcurve.data_path, fcurve.array_index)
+        if fcurve_filter and key not in fcurve_filter:
+            continue
+        if len(fcurve.keyframe_points) < 2:
+            continue
+        frames = sorted(int(kp.co[0]) for kp in fcurve.keyframe_points)
+        max_gap_found = max(frames[i] - frames[i - 1] for i in range(1, len(frames)))
+        if max_gap_found > max_gap:
+            violations.append((fcurve.data_path, fcurve.array_index, max_gap_found))
+    return violations
 
 
 def process_export_fcurves(armature: bpy.types.Object,
@@ -602,7 +638,23 @@ def process_export_fcurves(armature: bpy.types.Object,
     # Clean redundant keyframes only if we actually baked something
     if nonlinear_fcurves and clean_threshold > 0.0:
         fcurves_cleaned = clean_fcurves(processed_action, clean_threshold, fcurve_filter=baked_fcurve_keys, obj=armature)
-    
+
+    # Validate: warn if cleaned fcurves have keyframe gaps > 255 frames.
+    # The GANI binary format stores inter-keyframe deltas as ubyte (1–255).
+    # A gap larger than 255 cannot be encoded and the exporter clamps it to
+    # 255, which shifts all subsequent keyframe timings and corrupts the track.
+    if nonlinear_fcurves and clean_threshold > 0.0 and fcurves_cleaned > 0:
+        gap_violations = _check_fcurves_for_large_gaps(processed_action, baked_fcurve_keys)
+        if gap_violations:
+            Debug.log_error(
+                f"Export: {len(gap_violations)} FCurve(s) have keyframe gaps exceeding the "
+                f"255-frame binary format limit after baking and cleaning "
+                f"(clean_threshold={clean_threshold}). The exported MTAR will be INVALID. "
+                f"Reduce the export clean threshold to fix this. "
+                f"First affected: '{gap_violations[0][0]}[{gap_violations[0][1]}]', "
+                f"gap={gap_violations[0][2]} frames."
+            )
+
     return {
         'action': processed_action,
         'fcurves_baked': fcurves_baked,

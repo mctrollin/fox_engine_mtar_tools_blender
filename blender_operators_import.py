@@ -23,10 +23,10 @@ from .py_foxwrap.foxwrap_mapping import parse_track_mapping_file, TrackMappingDa
 from .py_foxwrap.foxwrap_metadata import get_segments_for_track_type
 from .py_foxwrap.foxwrap_mtar_reader import MtarReader
 
-from .mtar_importer import import_mtar
+from .py_tools.tools_mtar_importer import import_mtar
 # NOTE: import top-level to avoid runtime import cycles; tools_blender_animation_bake
 # contains bake + cleanup helpers used by import/debug operators.
-from .py_tools.tools_blender_animation_bake import bake_and_optimize_action
+from .py_tools.tools_animation_bake import bake_and_optimize_action
 from .py_tools.tools_hash_generator import validate_executable_path
 
 

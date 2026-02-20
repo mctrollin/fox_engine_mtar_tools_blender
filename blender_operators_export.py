@@ -10,10 +10,12 @@ import bpy
 from bpy.types import Operator, Context
 
 from .py_utilities.utilities_logging import Debug
+
 from .py_foxwrap.foxwrap_misc_export import TrackSegmentBoneMapping
 from .py_foxwrap.foxwrap_mapping import parse_track_mapping_file
 from .py_foxwrap.foxwrap_metadata import iter_track_properties
-from .mtar_exporter import export_mtar, find_layout_track_action
+
+from .py_tools.tools_mtar_exporter import export_mtar, find_layout_track_action
 
 
 def build_track_segment_bone_mapping_from_file(mapping_filepath: str,

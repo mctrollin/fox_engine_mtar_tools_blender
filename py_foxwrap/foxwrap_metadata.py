@@ -16,7 +16,7 @@ from ..py_fox.fox_frig_types import RigUnitType
 from ..py_fox.fox_misc_types import StrCode32
 from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper
 from ..py_utilities.utilities_logging import Debug
-from ..py_utilities.utilities_blender_animation import action_has_fcurves, iter_action_fcurves
+from ..py_utilities.utilities_blender_animation import action_has_fcurves, iter_action_fcurves, build_data_path_for_bone
 from ..py_utilities.utilities_rig_hash import unhash_rig_type
 
 
@@ -892,13 +892,16 @@ class TrackMetaData:
             return None
         
         # Check which fcurve types exist for this bone
+        rotation_quat_path = build_data_path_for_bone(bone_name, 'rotation_quaternion')
+        rotation_euler_path = build_data_path_for_bone(bone_name, 'rotation_euler')
+        location_path = build_data_path_for_bone(bone_name, 'location')
+        
         has_rotation = any(
-            fc.data_path in [f'pose.bones["{bone_name}"].rotation_quaternion', 
-                            f'pose.bones["{bone_name}"].rotation_euler']
+            fc.data_path in [rotation_quat_path, rotation_euler_path]
             for fc in iter_action_fcurves(action)
         )
         has_location = any(
-            fc.data_path == f'pose.bones["{bone_name}"].location'
+            fc.data_path == location_path
             for fc in iter_action_fcurves(action)
         )
         

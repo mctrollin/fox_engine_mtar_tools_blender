@@ -19,7 +19,7 @@ from .py_utilities.utilities_debug import create_or_update_dummy_object
 from .py_utilities.utilities_blender_animation import assign_action_to_datablock, remove_action_from_datablock
 from .py_utilities.utilities_fcurve_processing import process_import_fcurves, debug_setup_graph_context_for_manual_test
 # Import bake helpers from tools module (keep top-level to prevent import loops)
-from .py_tools.tools_blender_animation_bake import (
+from .py_tools.tools_animation_bake import (
     bake_armature_action,
     remove_bone_constraints,
     get_bones_with_keyframes,
