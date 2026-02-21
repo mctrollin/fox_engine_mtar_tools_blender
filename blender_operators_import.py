@@ -11,6 +11,7 @@ from bpy.types import Operator, Context
 
 
 from .py_utilities.utilities_logging import Debug
+from .py_utilities.utilities_blender_state import nla_tweak_guard
 from .py_utilities.utilities_rig_hash import unhash_rig_type
 from .py_utilities.utilities_parsing import parse_index_selection
 from .py_utilities.utilities_blender_animation import find_layout_track_action
@@ -351,78 +352,80 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
         execution_props.operation_type = 'IMPORT'
         # Initialize UI progress state
         Debug.update_progress(0, "Starting import...")
-        
-        # Import MTAR animation
-        try:
-            with Debug.busy_cursor():
-                import_result: Tuple[Set[str], Optional[bpy.types.Object]] = import_mtar(context, mtar_filepath_abs, frig_data, track_mapping, gani_indices, custom_rig, import_props.strip_padding)
-                
-                # Extract result and imported armature
-                if isinstance(import_result, tuple):
-                    result: Set[str]
-                    imported_armature: Optional[bpy.types.Object]
-                    result, imported_armature = import_result
-                else:
-                    result = import_result
-                    imported_armature = None
-                
-                Debug.log("\n========= Finished IMPORT MTAR OPERATION =========\n")
 
-                if result == {'FINISHED'}:
-                    Debug.report_and_log(self, 'INFO', "MTAR animation imported successfully")
+        # NLA tweak mode guard — AnimData.action is read-only while use_tweak_mode is True.
+        with nla_tweak_guard(custom_rig):
+            # Import MTAR animation
+            try:
+                with Debug.busy_cursor():
+                    import_result: Tuple[Set[str], Optional[bpy.types.Object]] = import_mtar(context, mtar_filepath_abs, frig_data, track_mapping, gani_indices, custom_rig, import_props.strip_padding)
                     
-                    # Bake custom rig if requested + decimation
-                    if import_props.bake_after_import and custom_rig:
-                        Debug.log("\n========= STARTING BAKE OPERATION =========\n")
-                        Debug.update_progress(75, "Baking...")
-
-                        # Time the bake operation separately and run post-bake optimization via shared utility
-                        Debug.start_timer("Bake Operation")
-                        try:
-                            # Delegate bake + optional decimation/cleanup to shared utility in tools_blender_animation_bake
-                            layout_action = find_layout_track_action()
-                            bake_result = bake_and_optimize_action(
-                                rig_armature=custom_rig,
-                                source_armature=imported_armature,
-                                create_new_action=not import_props.delete_import_armature,
-                                new_action_suffix="_baked",
-                                remove_constraints=True,
-                                delete_import_armature=import_props.delete_import_armature,
-                                decimate_error=import_props.import_decimate_error,
-                                force_linear_types=import_props.interpolation_force_linear_track_types,
-                                layout_action=layout_action,
-                            )
-
-                            # Report outcome (the utility already performs cleanup/logging)
-                            if bake_result.get('success'):
-                                Debug.log(f"Bake completed: {bake_result.get('message')}")
-                                Debug.log(f"  Decimated {bake_result.get('fcurves_decimated', 0)} FCurves")
-                            else:
-                                Debug.report_and_log(self, 'WARNING', f"Bake failed: {bake_result.get('message')}")
-
-                        except Exception as e:
-                            Debug.report_and_log(self, 'ERROR', f"Failed to bake custom rig: {str(e)}")
-                            traceback.print_exc()
-                        finally:
-                            Debug.stop_timer("Bake Operation")
+                    # Extract result and imported armature
+                    if isinstance(import_result, tuple):
+                        result: Set[str]
+                        imported_armature: Optional[bpy.types.Object]
+                        result, imported_armature = import_result
+                    else:
+                        result = import_result
+                        imported_armature = None
                     
-                    Debug.update_progress(100, "Done")
-                    Debug.stop_timer("Import Operator")
-                    return {'FINISHED'}
-                else:
-                    Debug.report_and_log(self, 'WARNING', "MTAR import completed with warnings")
-                    Debug.stop_timer("Import Operator")
-                    return {'FINISHED'}
-        
-        except (OSError, ValueError) as e:  # noqa: E722
-            Debug.report_and_log(self, 'ERROR', f"Failed to import MTAR: {str(e)}")
-            traceback.print_exc()
-            Debug.stop_timer("Import Operator")
-            return {'CANCELLED'}
-        finally:
-            wm.progress_end()
-            execution_props.operation_type = 'NONE'
-            Debug.update_progress(0, "")
+                    Debug.log("\n========= Finished IMPORT MTAR OPERATION =========\n")
+
+                    if result == {'FINISHED'}:
+                        Debug.report_and_log(self, 'INFO', "MTAR animation imported successfully")
+                        
+                        # Bake custom rig if requested + decimation
+                        if import_props.bake_after_import and custom_rig:
+                            Debug.log("\n========= STARTING BAKE OPERATION =========\n")
+                            Debug.update_progress(75, "Baking...")
+
+                            # Time the bake operation separately and run post-bake optimization via shared utility
+                            Debug.start_timer("Bake Operation")
+                            try:
+                                # Delegate bake + optional decimation/cleanup to shared utility in tools_blender_animation_bake
+                                layout_action = find_layout_track_action()
+                                bake_result = bake_and_optimize_action(
+                                    rig_armature=custom_rig,
+                                    source_armature=imported_armature,
+                                    create_new_action=not import_props.delete_import_armature,
+                                    new_action_suffix="_baked",
+                                    remove_constraints=True,
+                                    delete_import_armature=import_props.delete_import_armature,
+                                    decimate_error=import_props.import_decimate_error,
+                                    force_linear_types=import_props.interpolation_force_linear_track_types,
+                                    layout_action=layout_action,
+                                )
+
+                                # Report outcome (the utility already performs cleanup/logging)
+                                if bake_result.get('success'):
+                                    Debug.log(f"Bake completed: {bake_result.get('message')}")
+                                    Debug.log(f"  Decimated {bake_result.get('fcurves_decimated', 0)} FCurves")
+                                else:
+                                    Debug.report_and_log(self, 'WARNING', f"Bake failed: {bake_result.get('message')}")
+
+                            except Exception as e:
+                                Debug.report_and_log(self, 'ERROR', f"Failed to bake custom rig: {str(e)}")
+                                traceback.print_exc()
+                            finally:
+                                Debug.stop_timer("Bake Operation")
+                        
+                        Debug.update_progress(100, "Done")
+                        Debug.stop_timer("Import Operator")
+                        return {'FINISHED'}
+                    else:
+                        Debug.report_and_log(self, 'WARNING', "MTAR import completed with warnings")
+                        Debug.stop_timer("Import Operator")
+                        return {'FINISHED'}
+            
+            except (OSError, ValueError) as e:  # noqa: E722
+                Debug.report_and_log(self, 'ERROR', f"Failed to import MTAR: {str(e)}")
+                traceback.print_exc()
+                Debug.stop_timer("Import Operator")
+                return {'CANCELLED'}
+            finally:
+                wm.progress_end()
+                execution_props.operation_type = 'NONE'
+                Debug.update_progress(0, "")
 
 
 

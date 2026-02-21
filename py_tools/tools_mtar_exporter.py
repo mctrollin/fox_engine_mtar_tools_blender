@@ -514,7 +514,7 @@ def export_keyframes_track(armature: bpy.types.Object,
         # 1. Ensure frame_end is always present so deltas sum to FrameCount
         if len(export_frames) < 2 or export_frames[-1] < frame_end:
             if frame_end not in export_frames:
-                Debug.log_warning(
+                Debug.log(
                     f"Non-static track '{blender_bone_name}' ({segment_type.name}): "
                     f"only {len(export_frames)} keyframe(s) found after FCurve cleaning, "
                     f"missing frame_end ({frame_end}). Adding it to prevent invalid binary output."
@@ -1026,18 +1026,7 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
     frame_end = action_data.frame_end
     
     Debug.log(f"\n  Exporting action as gani: {action_data.to_string()}")
-    
-    # Check if we're in NLA tweak mode (happens when user double-clicks an NLA strip)
-    # In tweak mode, the action attribute is read-only
-    was_in_tweak_mode = False
-    if armature.animation_data:
-        # Check if NLA is in tweak mode
-        was_in_tweak_mode = armature.animation_data.use_tweak_mode
-        if was_in_tweak_mode:
-            Debug.log_warning("    Warning: Armature is in NLA tweak mode, exiting tweak mode temporarily")
-            # Exit tweak mode to allow action changes
-            armature.animation_data.use_tweak_mode = False
-    
+
     try:
         gani_tracks = []
         
@@ -1146,12 +1135,6 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
                 bpy.data.actions.remove(processed_action)
             except (ReferenceError, RuntimeError):
                 pass  # Action may already be removed
-        
-        # Restore original action and NLA state
-        if armature.animation_data:
-            # Restore tweak mode if it was active
-            if was_in_tweak_mode:
-                armature.animation_data.use_tweak_mode = True
 
 
 # Motion Points #############################################################
@@ -1355,7 +1338,7 @@ def build_motion_point_metadata_dict(motion_points_armature: bpy.types.Object,
 
     return metadata_dict
 
-def collect_motion_point_actions(motion_points_armature: bpy.types.Object, use_nla: bool) -> List[ExportActionData]:
+def collect_motion_point_actions(motion_points_armature: bpy.types.Object, use_nla: bool, export_clean_threshold: float = 0.0) -> List[ExportActionData]:
     """Collect motion point animation actions from the motion points armature.
     
     Follows the same logic as collect_actions_for_export() but for motion points.
@@ -1363,6 +1346,7 @@ def collect_motion_point_actions(motion_points_armature: bpy.types.Object, use_n
     Args:
         motion_points_armature: Motion points armature object
         use_nla: If True, collect from NLA strips; if False, use active action
+        export_clean_threshold: Threshold for FCurve cleaning (0 = disabled)
         
     Returns:
         List of ExportActionData for motion point animations
@@ -1390,7 +1374,8 @@ def collect_motion_point_actions(motion_points_armature: bpy.types.Object, use_n
                     action=strip.action,
                     frame_start=int(strip.frame_start),
                     frame_end=int(strip.frame_end),
-                    source=f"NLA strip '{strip.name}' on track '{track.name}'"
+                    source=f"NLA strip '{strip.name}' on track '{track.name}'",
+                    export_clean_threshold=export_clean_threshold
                 )
                 actions.append(action_data)
                 Debug.log(f"    {action_data.to_string()}")
@@ -1413,7 +1398,8 @@ def collect_motion_point_actions(motion_points_armature: bpy.types.Object, use_n
             action=action,
             frame_start=frame_start,
             frame_end=frame_end,
-            source="Active action"
+            source="Active action",
+            export_clean_threshold=export_clean_threshold
         )
         actions.append(action_data)
         Debug.log(f"    {action_data.to_string()}")
@@ -1604,7 +1590,7 @@ def export_mtar(context: bpy.types.Context,
         motion_points_list : MotionPointList2 = build_motion_points_list_from_armature(motion_points_armature)
         
         # Collect motion point actions
-        motion_point_actions_data = collect_motion_point_actions(motion_points_armature, use_nla)
+        motion_point_actions_data = collect_motion_point_actions(motion_points_armature, use_nla, export_props.export_clean_threshold)
         
         if motion_point_actions_data:
             Debug.log(f"Found {len(motion_point_actions_data)} motion point action(s)")

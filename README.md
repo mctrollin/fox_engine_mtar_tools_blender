@@ -16,7 +16,7 @@ Blender add-on and Python utilities to import and export MTAR animation files (M
 Supported Blender versions: 4.0+ (progress UI uses Blender 4.0 progress APIs when available).
 
 ## Project Layout
-- `py_fox/` – Binary format datatypes and enums (low level Fox types).
-- `py_foxwrap/` – Format-agnostic readers/writers and metadata/mapping helpers.
-- Top-level modules (`mtar_importer.py`, `mtar_exporter.py`, `blender_panel_import.py`, `blender_panel_export.py`, `blender_operators_*`) – Blender integration and UI.
-- `wiki/` – Example files.
+- `py_fox/` - Binary format datatypes and enums (low level Fox types).
+- `py_foxwrap/` - Format-agnostic readers/writers and metadata/mapping helpers.
+- Top-level modules (`mtar_importer.py`, `mtar_exporter.py`, `blender_panel_import.py`, `blender_panel_export.py`, `blender_operators_*`) - Blender integration and UI.
+- `wiki/` - Example files.

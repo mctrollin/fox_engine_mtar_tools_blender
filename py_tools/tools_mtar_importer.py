@@ -1680,6 +1680,7 @@ def import_mtar_data(
     # Modify keyframes track names based on rig unit type and apply track mapping transformations
     Debug.update_progress(20, "Applying Mapping...")
     apply_track_transformations(all_gani_tracks, track_mapping)
+    apply_track_transformations(all_motion_point_gani_tracks, track_mapping)
     
     # Extract rest pose from custom rig if provided (merges with mapping file transformations)
     # Check settings to see if rest pose correction is enabled

@@ -5,7 +5,6 @@ This module provides functions to optimize fcurves for import/export workflows:
 - Import: Decimate dense linear keyframes → sparse bezier curves
 - Export: Bake and clean non-linear fcurves → optimized linear keyframes
 """
-from contextlib import contextmanager
 from typing import List, Set, Optional, Dict, Any
 
 import bpy
@@ -15,138 +14,16 @@ from .utilities_blender_animation import (
     iter_action_fcurves,
     action_has_fcurves,
     assign_action_to_datablock,
-    remove_action_from_datablock,
-    MTAR_ARMATURE_SLOT_NAME,
     get_fcurves_for_bones,
     is_fcurve_linear,
     is_pose_bone_data_path,
-    extract_bone_name_from_data_path
+    extract_bone_name_from_data_path,
+    MTAR_ARMATURE_SLOT_NAME,
     )
+from .utilities_blender_state import switch_context
 
 from ..py_foxwrap.foxwrap_metadata import extract_fox_bone_to_rig_unit_type_mapping
 
-
-
-@contextmanager
-def switch_context(area_type: str, obj: Optional[bpy.types.Object] = None, 
-                   action: Optional[bpy.types.Action] = None):
-    """Context manager to switch to a specific area type with optional object/action.
-    
-    Args:
-        area_type: Type of area to switch to (e.g., 'GRAPH_EDITOR')
-        obj: Optional object to set as active (needed for graph operators)
-        action: Optional action to assign to object (needed for graph operators)
-        
-    Yields:
-        Context with specified area type and object/action configured
-    """
-    
-    target_area = None
-    former_area_type = None
-    former_mode = None
-    former_active = bpy.context.view_layer.objects.active if bpy.context.view_layer else None
-    former_action = None
-    former_slot = None
-    former_object_mode = bpy.context.mode if obj else None
-    window = bpy.context.window
-
-    # Try to find an area of the requested type (preserves existing editor if open)
-    for area in window.screen.areas:
-        if area.type == area_type:
-            target_area = area
-            break
-
-    # If not found, override the first area
-    if target_area is None:
-        target_area = window.screen.areas[0]
-        former_area_type = target_area.type
-        target_area.type = area_type
-
-    try:
-        # Set active object and action if provided (needed for graph operators)
-        if obj is not None:
-            bpy.context.view_layer.objects.active = obj
-            
-            # Switch to POSE mode for armatures (required for pose bone FCurves)
-            if obj.type == 'ARMATURE' and bpy.context.mode != 'POSE':
-                bpy.ops.object.mode_set(mode='POSE')
-            
-            if action is not None:
-                # Save current action and slot
-                if obj.animation_data:
-                    former_action = obj.animation_data.action
-                    if hasattr(obj.animation_data, 'action_slot'):
-                        former_slot = obj.animation_data.action_slot
-                
-                # Assign action using the proper slot-aware helper (Blender 4.4+ compatible)
-                try:
-                    assign_action_to_datablock(obj, action, slot_name=MTAR_ARMATURE_SLOT_NAME)
-                except Exception as e:
-                    # Fallback to direct assignment if slot helper fails
-                    Debug.log_warning(f"Could not use slot-aware assignment: {e}")
-                    if not obj.animation_data:
-                        obj.animation_data_create()
-                    obj.animation_data.action = action
-                
-                # Verify action is assigned; warn if assignment failed
-                if not (obj.animation_data and obj.animation_data.action):
-                    Debug.log_warning(f"No action assigned to object '{obj.name}' after attempted assignment")
-        
-        # Configure graph editor space
-        if area_type == 'GRAPH_EDITOR':
-            try:
-                space = target_area.spaces.active
-                # Ensure FCURVES mode (not DRIVERS)
-                if hasattr(space, 'mode'):
-                    former_mode = space.mode
-                    space.mode = 'FCURVES'
-            
-            except (AttributeError, RuntimeError) as e:
-                Debug.log_warning(f"Failed to configure graph editor space: {e}")
-        
-        with bpy.context.temp_override(window=window, area=target_area):
-            yield
-    finally:
-        # Restore object action and slot
-        if obj is not None and action is not None:
-            if obj.animation_data:
-                if former_action is not None:
-                    obj.animation_data.action = former_action
-                    # Restore slot if it was saved (Blender 4.4+)
-                    if hasattr(obj.animation_data, 'action_slot') and former_slot is not None:
-                        try:
-                            obj.animation_data.action_slot = former_slot
-                        except Exception:
-                            pass
-                else:
-                    # No former action, clear it
-                    try:
-                        remove_action_from_datablock(obj)
-                    except Exception:
-                        obj.animation_data.action = None
-        
-        # Restore object mode
-        if former_object_mode is not None and bpy.context.mode != former_object_mode:
-            try:
-                bpy.ops.object.mode_set(mode=former_object_mode)
-            except RuntimeError:
-                pass  # Mode switch may fail in some contexts
-        
-        # Restore active object
-        if former_active is not None:
-            bpy.context.view_layer.objects.active = former_active
-        
-        # Restore graph editor space state
-        if former_mode is not None:
-            try:
-                space = target_area.spaces.active
-                space.mode = former_mode
-            except (AttributeError, RuntimeError):
-                pass
-        
-        # Restore original area type if we changed it
-        if former_area_type is not None:
-            target_area.type = former_area_type
 
 
 def debug_setup_graph_context_for_manual_test(armature_name: str, action_name: str):
@@ -304,48 +181,34 @@ def decimate_fcurves(action: bpy.types.Action, error_threshold: float,
         return 0
 
 
-def bake_action_fcurves(armature: bpy.types.Object, action: bpy.types.Action, 
+def bake_action_fcurves(armature: bpy.types.Object, action: bpy.types.Action,
                         frame_start: int, frame_end: int) -> None:
     """Bake fcurves in an action using LINEAR interpolation.
-    
+
     Uses bpy.ops.anim.channels_bake() to sample animation at every frame.
     FCurves must be selected before calling this function.
-    
+
+    State (active action, object mode, area type) is fully restored by
+    switch_context on exit — no manual cleanup needed here.
+
     Args:
         armature: Armature object (must be active)
         action: Action to bake
         frame_start: First frame to bake
         frame_end: Last frame to bake
     """
-    # Store original context state
-    original_action: Optional[bpy.types.Action] = armature.animation_data.action if armature.animation_data else None
-    original_mode: str = bpy.context.mode
-    
-    try:
-        # Ensure armature has animation_data and run bake inside the same graph/action context
-        if not armature.animation_data:
-            armature.animation_data_create()
-        with switch_context('GRAPH_EDITOR', obj=armature, action=action):
-            # Bake selected FCurves with LINEAR interpolation, frame step of 1
-            # FCurves must be selected by the caller before calling this function
-            bpy.ops.anim.channels_bake(
-                range=(frame_start, frame_end),
-                step=1,
-                remove_outside_range=True,
-                interpolation_type='LIN',
-                bake_modifiers=True
-            )
-    
-    finally:
-        # Restore original state
-        if armature.animation_data and original_action:
-            armature.animation_data.action = original_action
-        
-        if bpy.context.mode != original_mode:
-            try:
-                bpy.ops.object.mode_set(mode=original_mode)
-            except RuntimeError:
-                pass  # Mode switch may fail in some contexts
+    if not armature.animation_data:
+        armature.animation_data_create()
+    with switch_context('GRAPH_EDITOR', obj=armature, action=action):
+        # Bake selected FCurves with LINEAR interpolation, frame step of 1.
+        # FCurves must be selected by the caller before calling this function.
+        bpy.ops.anim.channels_bake(
+            range=(frame_start, frame_end),
+            step=1,
+            remove_outside_range=True,
+            interpolation_type='LIN',
+            bake_modifiers=True
+        )
 
 
 def clean_fcurves(action: bpy.types.Action, threshold: float,
@@ -526,7 +389,7 @@ def _check_fcurves_for_large_gaps(action: bpy.types.Action,
     """Check fcurves for keyframe gaps larger than max_gap frames.
 
     The GANI binary format stores inter-keyframe frame deltas as 8-bit unsigned
-    integers (range 1–255). A gap larger than 255 frames between consecutive
+    integers (range 1-255). A gap larger than 255 frames between consecutive
     keyframes cannot be encoded correctly and will produce an invalid binary file.
 
     Args:
@@ -640,7 +503,7 @@ def process_export_fcurves(armature: bpy.types.Object,
         fcurves_cleaned = clean_fcurves(processed_action, clean_threshold, fcurve_filter=baked_fcurve_keys, obj=armature)
 
     # Validate: warn if cleaned fcurves have keyframe gaps > 255 frames.
-    # The GANI binary format stores inter-keyframe deltas as ubyte (1–255).
+    # The GANI binary format stores inter-keyframe deltas as ubyte (1-255).
     # A gap larger than 255 cannot be encoded and the exporter clamps it to
     # 255, which shifts all subsequent keyframe timings and corrupts the track.
     if nonlinear_fcurves and clean_threshold > 0.0 and fcurves_cleaned > 0:

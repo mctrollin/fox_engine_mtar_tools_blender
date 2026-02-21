@@ -10,6 +10,7 @@ import bpy
 from bpy.types import Operator, Context
 
 from .py_utilities.utilities_logging import Debug
+from .py_utilities.utilities_blender_state import nla_tweak_guard
 
 from .py_foxwrap.foxwrap_misc_export import TrackSegmentBoneMapping
 from .py_foxwrap.foxwrap_mapping import parse_track_mapping_file
@@ -181,40 +182,41 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
         execution_props.operation_type = 'EXPORT'
         # Initialize UI progress state
         Debug.update_progress(0, "Starting export...")
-        
-        try:
-            with Debug.busy_cursor():
-                # Export MTAR with layout track extracted from metadata
-                export_filepath_abs = bpy.path.abspath(export_props.filepath)
-                result = export_mtar(
-                    context=context,
-                    filepath=export_filepath_abs,
-                    armature=export_props.armature,
-                    track_segment_bone_mapping=track_segment_bone_mapping,
-                    use_nla=export_props.use_nla
-                )
-                
-                Debug.log("\n========= Finished EXPORT MTAR OPERATION =========\n")
 
-                # Result is a dict like {'FINISHED': 'message'} or {'CANCELLED': 'message'}
-                if 'FINISHED' in result:
-                    Debug.report_and_log(self, 'INFO', result['FINISHED'])
-                    Debug.update_progress(100, "Done")
-                    Debug.stop_timer("Export Operator")
-                    return {'FINISHED'}
-                else:
-                    Debug.report_and_log(self, 'ERROR', result.get('CANCELLED', 'Export failed'))
-                    Debug.stop_timer("Export Operator")
-                    return {'CANCELLED'}
-        
-        except (OSError, ValueError) as e:  # noqa: E722
-            Debug.report_and_log(self, 'ERROR', f"Export failed: {str(e)}")
-            traceback.print_exc()
-            Debug.stop_timer("Export Operator")
-            return {'CANCELLED'}
-        finally:
-            wm.progress_end()
-            execution_props.operation_type = 'NONE'
-            Debug.update_progress(0, "")
-            # Note: Animation state is restored by export_mtar() function
+        # NLA tweak mode guard — AnimData.action is read-only while use_tweak_mode is True.
+        with nla_tweak_guard(export_props.armature, export_props.motion_points_armature):
+            try:
+                with Debug.busy_cursor():
+                    # Export MTAR with layout track extracted from metadata
+                    export_filepath_abs = bpy.path.abspath(export_props.filepath)
+                    result = export_mtar(
+                        context=context,
+                        filepath=export_filepath_abs,
+                        armature=export_props.armature,
+                        track_segment_bone_mapping=track_segment_bone_mapping,
+                        use_nla=export_props.use_nla
+                    )
+                    
+                    Debug.log("\n========= Finished EXPORT MTAR OPERATION =========\n")
+
+                    # Result is a dict like {'FINISHED': 'message'} or {'CANCELLED': 'message'}
+                    if 'FINISHED' in result:
+                        Debug.report_and_log(self, 'INFO', result['FINISHED'])
+                        Debug.update_progress(100, "Done")
+                        Debug.stop_timer("Export Operator")
+                        return {'FINISHED'}
+                    else:
+                        Debug.report_and_log(self, 'ERROR', result.get('CANCELLED', 'Export failed'))
+                        Debug.stop_timer("Export Operator")
+                        return {'CANCELLED'}
+            
+            except (OSError, ValueError) as e:  # noqa: E722
+                Debug.report_and_log(self, 'ERROR', f"Export failed: {str(e)}")
+                traceback.print_exc()
+                Debug.stop_timer("Export Operator")
+                return {'CANCELLED'}
+            finally:
+                wm.progress_end()
+                execution_props.operation_type = 'NONE'
+                Debug.update_progress(0, "")
 
