@@ -1200,7 +1200,7 @@ def create_and_setup_armature(
     Debug.log(f"Creating new armature: {mtar_file_name}")
     arm_data: bpy.types.Armature = bpy.data.armatures.new(name=mtar_file_name)
     armature: bpy.types.Object = bpy.data.objects.new(mtar_file_name, arm_data)
-    context.scene.collection.objects.link(armature)
+    context.view_layer.active_layer_collection.collection.objects.link(armature)
 
     # Set armature as active object and enter edit mode
     Debug.log("Setting up armature bones...")
@@ -1356,7 +1356,7 @@ def create_and_setup_motion_points_armature(
     
     arm_data: bpy.types.Armature = bpy.data.armatures.new(name=armature_name)
     armature: bpy.types.Object = bpy.data.objects.new(armature_name, arm_data)
-    context.scene.collection.objects.link(armature)
+    context.view_layer.active_layer_collection.collection.objects.link(armature)
     
     # Set as active and enter edit mode
     context.view_layer.objects.active = armature
