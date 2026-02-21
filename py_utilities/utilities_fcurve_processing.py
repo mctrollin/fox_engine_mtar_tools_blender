@@ -181,12 +181,16 @@ def decimate_fcurves(action: bpy.types.Action, error_threshold: float,
         return 0
 
 
-def bake_action_fcurves(armature: bpy.types.Object, action: bpy.types.Action,
+def _sample_fcurves_to_linear(armature: bpy.types.Object, action: bpy.types.Action,
                         frame_start: int, frame_end: int) -> None:
-    """Bake fcurves in an action using LINEAR interpolation.
+    """Sample fcurves in an action to LINEAR interpolation at every frame.
 
     Uses bpy.ops.anim.channels_bake() to sample animation at every frame.
     FCurves must be selected before calling this function.
+
+    This is distinct from constraint-baking (bpy.ops.nla.bake): this function
+    samples non-linear fcurves to create linear keyframes on every frame, which
+    can then be cleaned (redundant keyframes removed).
 
     State (active action, object mode, area type) is fully restored by
     switch_context on exit — no manual cleanup needed here.
@@ -275,43 +279,43 @@ def clean_fcurves(action: bpy.types.Action, threshold: float,
         return 0
 
 
-def process_import_fcurves(armature: bpy.types.Object,
-                           decimate_error: float,
-                           force_linear_types: str = '',
+def decimate_import_fcurves_to_bezier(armature: bpy.types.Object,
+                           bake_decimate_fcurve_error: float,
+                           decimate_skip_types: str = '',
                            layout_action: Optional[bpy.types.Action] = None) -> Dict[str, int]:
-    """Process imported armature fcurves with decimation.
+    """Decimate imported fcurves by converting linear keyframes to Bezier curves.
     
-    Workflow:
-    1. All keyframes are already LINEAR from import
+    Import workflow:
+    1. All keyframes are already LINEAR from constraint-baking
     2. Apply decimation to reduce keyframe density (filtered by track type)
-    3. Result: Bezier curves with fewer keyframes
+    3. Result: Bezier curves with fewer keyframes for better editability
     
     Args:
         armature: Armature object with animation data
-        decimate_error: Error threshold for decimation (0.0 = skip)
-        force_linear_types: Comma-separated rig unit types to keep LINEAR (skip decimation)
+        bake_decimate_fcurve_error: Error threshold for decimation (0.0 = skip)
+        decimate_skip_types: Comma-separated rig unit types to keep LINEAR (skip decimation)
         layout_action: Layout action to extract bone-to-rig-unit-type mapping for filtering
         
     Returns:
         Dictionary with results:
         - 'actions_processed': Number of actions processed
-        - 'fcurves_decimated': Number of fcurves decimated
-        - 'fcurves_skipped': Number of fcurves skipped (filtered by type)
+        - 'fcurves_decimated': Number of fcurves decimated (converted to Bezier)
+        - 'fcurves_skipped': Number of fcurves skipped (filtered by type, kept LINEAR)
     """
-    if decimate_error <= 0.0:
+    if bake_decimate_fcurve_error <= 0.0:
         return {'actions_processed': 0, 'fcurves_decimated': 0, 'fcurves_skipped': 0}
     
-    # Parse force_linear_types filter
-    force_linear_set: Set[str] = set()
-    if force_linear_types:
-        for type_str in force_linear_types.split(','):
+    # Parse decimate_skip_types filter
+    decimate_skip_set: Set[str] = set()
+    if decimate_skip_types:
+        for type_str in decimate_skip_types.split(','):
             type_str = type_str.strip().upper()
             if type_str:
-                force_linear_set.add(type_str)
+                decimate_skip_set.add(type_str)
     
     # Build bone-to-rig-unit-type mapping from layout action if provided
     bone_to_type: Dict[str, Any] = {}
-    if layout_action and force_linear_set:
+    if layout_action and decimate_skip_set:
         bone_to_type = extract_fox_bone_to_rig_unit_type_mapping(layout_action, {})
     
     # Process all actions on armature (NLA strips + active action)
@@ -354,18 +358,18 @@ def process_import_fcurves(armature: bpy.types.Object,
         bones_to_decimate = set(all_bone_names)
         bones_to_skip: Set[str] = set()
         
-        if force_linear_set and bone_to_type:
+        if decimate_skip_set and bone_to_type:
             for bone_name in list(bones_to_decimate):
                 rig_type = bone_to_type.get(bone_name)
-                if rig_type and rig_type.name in force_linear_set:
+                if rig_type and rig_type.name in decimate_skip_set:
                     bones_to_skip.add(bone_name)
                     bones_to_decimate.discard(bone_name)
         
         if bones_to_skip:
-            Debug.log(f"Skipping {len(bones_to_skip)} bone(s) due to force-linear filter")
+            Debug.log(f"Skipping {len(bones_to_skip)} bone(s) due to decimation skip filter")
         
         # Apply decimation to allowed bones
-        decimated = decimate_fcurves(action, decimate_error, bones_to_decimate, obj=armature)
+        decimated = decimate_fcurves(action, bake_decimate_fcurve_error, bones_to_decimate, obj=armature)
         fcurves_decimated += decimated
         
         # Count skipped fcurves
@@ -417,24 +421,25 @@ def _check_fcurves_for_large_gaps(action: bpy.types.Action,
     return violations
 
 
-def process_export_fcurves(armature: bpy.types.Object,
-                           clean_threshold: float) -> Dict[str, Any]:
-    """Process active action fcurves for export.
+def bake_and_clean_export_fcurves(armature: bpy.types.Object,
+                           fcurve_clean_threshold: float) -> Dict[str, Any]:
+    """Bake non-linear Bezier fcurves to linear and optionally clean redundant keyframes.
     
-    Workflow:
-    1. Skip fcurves that are already LINEAR
+    Export workflow:
+    1. Identify fcurves that are non-linear (Bezier, etc.)
     2. Bake non-linear fcurves to LINEAR (sample every frame)
-    3. Apply clean to remove redundant keyframes
+    3. Apply clean to remove redundant keyframes within threshold
+    4. Validate that keyframe gaps don't exceed 255 frames (Fox binary format limit)
     
     Args:
         armature: Armature object with active action
-        clean_threshold: Threshold for clean operation (0.0 = skip)
+        fcurve_clean_threshold: Threshold for clean operation (0.0 = skip cleaning)
         
     Returns:
         Dictionary with results:
         - 'action': Processed action (may be a copy if non-linear fcurves found)
-        - 'fcurves_baked': Number of fcurves baked from non-linear
-        - 'fcurves_cleaned': Number of fcurves cleaned
+        - 'fcurves_baked': Number of fcurves baked from non-linear to linear
+        - 'fcurves_cleaned': Number of fcurves cleaned (redundant keyframes removed)
         - 'fcurves_already_linear': Number of fcurves that were already linear
     """
     action = armature.animation_data.action if armature.animation_data else None
@@ -482,7 +487,7 @@ def process_export_fcurves(armature: bpy.types.Object,
             for fcurve in iter_action_fcurves(processed_action):
                 fcurve.select = (fcurve.data_path, fcurve.array_index) in baked_fcurve_keys
             
-            bake_action_fcurves(armature, processed_action, frame_start, frame_end)
+            _sample_fcurves_to_linear(armature, processed_action, frame_start, frame_end)
             fcurves_baked = len(nonlinear_fcurves)
             
             # Deselect all FCurves
@@ -499,20 +504,20 @@ def process_export_fcurves(armature: bpy.types.Object,
             armature.animation_data.action = action
     
     # Clean redundant keyframes only if we actually baked something
-    if nonlinear_fcurves and clean_threshold > 0.0:
-        fcurves_cleaned = clean_fcurves(processed_action, clean_threshold, fcurve_filter=baked_fcurve_keys, obj=armature)
+    if nonlinear_fcurves and fcurve_clean_threshold > 0.0:
+        fcurves_cleaned = clean_fcurves(processed_action, fcurve_clean_threshold, fcurve_filter=baked_fcurve_keys, obj=armature)
 
     # Validate: warn if cleaned fcurves have keyframe gaps > 255 frames.
     # The GANI binary format stores inter-keyframe deltas as ubyte (1-255).
     # A gap larger than 255 cannot be encoded and the exporter clamps it to
     # 255, which shifts all subsequent keyframe timings and corrupts the track.
-    if nonlinear_fcurves and clean_threshold > 0.0 and fcurves_cleaned > 0:
+    if nonlinear_fcurves and fcurve_clean_threshold > 0.0 and fcurves_cleaned > 0:
         gap_violations = _check_fcurves_for_large_gaps(processed_action, baked_fcurve_keys)
         if gap_violations:
             Debug.log_error(
                 f"Export: {len(gap_violations)} FCurve(s) have keyframe gaps exceeding the "
                 f"255-frame binary format limit after baking and cleaning "
-                f"(clean_threshold={clean_threshold}). The exported MTAR will be INVALID. "
+                f"(fcurve_clean_threshold={fcurve_clean_threshold}). The exported MTAR will be INVALID. "
                 f"Reduce the export clean threshold to fix this. "
                 f"First affected: '{gap_violations[0][0]}[{gap_violations[0][1]}]', "
                 f"gap={gap_violations[0][2]} frames."

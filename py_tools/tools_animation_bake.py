@@ -21,7 +21,7 @@ from ..py_utilities.utilities_blender_animation import (
     is_pose_bone_data_path,
     extract_bone_name_from_data_path
 )
-from ..py_utilities.utilities_fcurve_processing import process_import_fcurves
+from ..py_utilities.utilities_fcurve_processing import decimate_import_fcurves_to_bezier
 
 
 def get_bones_with_keyframes(action: bpy.types.Action) -> Set[str]:
@@ -362,17 +362,17 @@ def reset_baked_bone_transforms(armature: bpy.types.Object, bone_names: Set[str]
     return bones_reset
 
 
-def bake_armature_action(rig_armature: bpy.types.Object, 
+def bake_armature_constraints_to_keyframes(rig_armature: bpy.types.Object, 
                         action: Optional[bpy.types.Action] = None,
                         remove_constraints: bool = True,
                         create_new_action: bool = False,
                         new_action_suffix: str = "_baked",
                         nla_track: Optional[bpy.types.NlaTrack] = None,
                         source_armature: Optional[bpy.types.Object] = None) -> Dict[str, any]:
-    """Bake animated bones in an armature action with visual transforms.
+    """Bake constraint-evaluated visual transforms from an armature action into keyframes.
 
-    This function bakes only bones that have keyframes, only on frames where
-    keyframes exist, using visual transforms (post-constraint evaluation).
+    Uses bpy.ops.nla.bake with visual_keying=True to capture post-constraint transforms.
+    Bakes only bones that have keyframes, only on frames where keyframes exist.
     The existing action is overridden with baked keyframes, or a new action
     is created if create_new_action is True.
 
@@ -419,7 +419,7 @@ def bake_armature_action(rig_armature: bpy.types.Object,
     target_action = action
     
     # Call the actual implementation
-    return _continue_bake_armature_action_implementation(
+    return _continue_bake_armature_constraints_implementation(
         rig_armature=rig_armature,
         action=action,
         target_action=target_action,
@@ -431,10 +431,10 @@ def bake_armature_action(rig_armature: bpy.types.Object,
     )
 
 
-# ---- Continuation of bake_armature_action implementation ----
+# ---- Continuation of bake_armature_constraints_to_keyframes implementation ----
 # (This section continues the actual function body)
 
-def _continue_bake_armature_action_implementation(
+def _continue_bake_armature_constraints_implementation(
     rig_armature: bpy.types.Object,
     action: bpy.types.Action,
     target_action: bpy.types.Action,
@@ -444,10 +444,10 @@ def _continue_bake_armature_action_implementation(
     nla_track: Optional[bpy.types.NlaTrack],
     source_armature: Optional[bpy.types.Object]
 ) -> Dict[str, Any]:
-    """Internal continuation of bake_armature_action logic.
+    """Internal continuation of bake_armature_constraints_to_keyframes logic.
     
     This contains the actual baking implementation that was split during refactoring.
-    Should be called from bake_armature_action after initial setup.
+    Should be called from bake_armature_constraints_to_keyframes after initial setup.
     """
     # Create new action if requested
     if create_new_action:
@@ -700,16 +700,17 @@ def _continue_bake_armature_action_implementation(
         raise RuntimeError(f"Failed to bake armature action: {str(e)}") from e
 
 
-def bake_armature_nla_strips(rig_armature: bpy.types.Object,
+def bake_armature_nla_strips_to_keyframes(rig_armature: bpy.types.Object,
                              create_new_action: bool = False,
                              new_action_suffix: str = "_baked",
                              source_armature: Optional[bpy.types.Object] = None,
                              remove_constraints: bool = True
                              ) -> Dict[str, any]:
-    """Bake all NLA strips in an armature, creating new actions for each.
+    """Bake constraint-evaluated visual transforms from all NLA strips into keyframes.
     
     This function iterates through all NLA strips and bakes each one into
     a new action with the specified suffix. Only processes unmuted strips by default.
+    Uses bpy.ops.nla.bake with visual_keying=True to capture post-constraint transforms.
     
     Args:
         armature: Armature object to bake
@@ -783,7 +784,7 @@ def bake_armature_nla_strips(rig_armature: bpy.types.Object,
             
         try:
             # Bake the action
-            bake_result = bake_armature_action(
+            bake_result = bake_armature_constraints_to_keyframes(
                 rig_armature=rig_armature,
                 action=action,
                 create_new_action=create_new_action,
@@ -935,22 +936,40 @@ def _handle_bake_result(bake_result: dict,
         Debug.report_and_log(reporter, 'WARNING', f"Bake failed: {bake_result.get('message')}")
 
 
-def bake_and_optimize_action(
+def bake_constraints_and_decimate_fcurves(
     rig_armature: bpy.types.Object,
     source_armature: Optional[bpy.types.Object] = None,
     create_new_action: bool = False,
     new_action_suffix: str = "_baked",
     remove_constraints: bool = True,
     delete_import_armature: bool = False,
-    decimate_error: float = 0.0,
-    force_linear_types: str = '',
+    bake_decimate_fcurve_error: float = 0.0,
+    decimate_skip_types: str = '',
     layout_action: Optional[bpy.types.Action] = None,
 ) -> Dict[str, Any]:
-    """High-level helper: bake rig armature (NLA or active action), then run
-    post-bake optimizations (decimation). Returns a bake_result-like dict.
+    """High-level helper: bake constraint-evaluated transforms, then optionally decimate fcurves.
 
-    This consolidates the bake + decimate behavior so callers (import, debug)
+    Bakes the rig armature (NLA or active action) using visual-keying (post-constraint transforms),
+    then optionally decimates the resulting linear keyframes by converting to Bezier fcurves 
+    for better editability. Returns a bake_result-like dict.
+
+    This consolidates the constraint-baking + decimation behavior so callers (import, debug)
     use the same implementation and avoid duplication.
+    
+    Args:
+        rig_armature: Armature to bake constraint transforms from
+        source_armature: Optional source armature for constraint binding (if different from rig_armature)
+        create_new_action: If True, creates new actions instead of overriding
+        new_action_suffix: Suffix for new action names
+        remove_constraints: Whether to remove constraints after baking
+        delete_import_armature: Whether to delete the temporary imported armature
+        bake_decimate_fcurve_error: Decimation error threshold (0.0 = skip decimation)
+        decimate_skip_types: Track types to skip during decimation (keep as linear)
+        layout_action: Optional layout action to preserve
+        
+    Returns:
+        Dictionary with results including 'success', 'message', 'actions_created', 
+        'fcurves_decimated', and 'failed_strips'
     """
     result: Dict[str, Any] = {
         'success': False,
@@ -963,7 +982,7 @@ def bake_and_optimize_action(
     try:
         # Prefer NLA strips when present
         if rig_armature.animation_data and rig_armature.animation_data.nla_tracks:
-            bake_res = bake_armature_nla_strips(
+            bake_res = bake_armature_nla_strips_to_keyframes(
                 rig_armature=rig_armature,
                 create_new_action=create_new_action,
                 new_action_suffix=new_action_suffix,
@@ -977,7 +996,7 @@ def bake_and_optimize_action(
                 'failed_strips': bake_res.get('failed_strips', [])
             })
         elif rig_armature.animation_data and rig_armature.animation_data.action:
-            bake_res = bake_armature_action(
+            bake_res = bake_armature_constraints_to_keyframes(
                 rig_armature=rig_armature,
                 action=rig_armature.animation_data.action,
                 remove_constraints=remove_constraints,
@@ -995,14 +1014,14 @@ def bake_and_optimize_action(
             result['message'] = 'No NLA tracks or active action to bake'
             return result
 
-        # Run decimation if requested (operate on armature so process_import_fcurves
+        # Run decimation if requested (operate on armature so decimate_import_fcurves_to_bezier
         # will find NLA-created actions and/or active action)
-        if decimate_error > 0.0:
+        if bake_decimate_fcurve_error > 0.0:
             try:
-                dec_res = process_import_fcurves(
+                dec_res = decimate_import_fcurves_to_bezier(
                     armature=rig_armature,
-                    decimate_error=decimate_error,
-                    force_linear_types=force_linear_types,
+                    bake_decimate_fcurve_error=bake_decimate_fcurve_error,
+                    decimate_skip_types=decimate_skip_types,
                     layout_action=layout_action
                 )
                 result['fcurves_decimated'] = dec_res.get('fcurves_decimated', 0)
@@ -1015,7 +1034,7 @@ def bake_and_optimize_action(
         return result
 
     except Exception as e:
-        Debug.log_warning(f"bake_and_optimize_action failed: {e}")
+        Debug.log_warning(f"bake_constraints_and_decimate_fcurves failed: {e}")
         result['success'] = False
         result['message'] = str(e)
         return result

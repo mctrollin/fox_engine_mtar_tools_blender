@@ -174,9 +174,9 @@ class MTAR_PG_ImportProperties(PropertyGroup):
         soft_max=10.0,
     )
     
-    bake_after_import: BoolProperty(
+    import_bake_constraints: BoolProperty(
         name="Bake custom rig Constraints",
-        description="Bake the constraints from the rig into the animation.",
+        description="Bake constraint-evaluated visual transforms into linear keyframes on the custom rig.",
         default=True
     )
     
@@ -193,10 +193,10 @@ class MTAR_PG_ImportProperties(PropertyGroup):
         min=0,
     )
 
-    interpolation_force_linear_track_types: StringProperty(
+    import_bake_decimate_skip_types: StringProperty(
         name="Decimation Track Type Filter",
         description=(
-            "Comma-separated list of track types to EXCLUDE from decimation (keep linear).\n"
+            "Track types to exclude from Bezier fcurve conversion — these remain as dense linear keyframes.\n"
             "Empty = decimate all tracks.\n"
             "Available types: ROOT, ORIENTATION, TWO_BONE, LOCAL_ORIENTATION, LOCAL_TRANSFORM,\n"
             "THREE_BONE_LIKE_TWO_BONE, TRANSFORM, ARM, LOCAL_TRANSFORM_SRT, ANIMAL_LEG,\n"
@@ -207,9 +207,9 @@ class MTAR_PG_ImportProperties(PropertyGroup):
         maxlen=256
     )
     
-    import_decimate_error: FloatProperty(
+    import_bake_decimate_fcurve_error: FloatProperty(
         name="Decimate Error Threshold",
-        description="Error threshold for keyframe decimation (0.0 = skip decimation, higher = more aggressive)",
+        description="After baking, decimate linear keyframes by converting to Bezier fcurves for better editability (0.0 = skip, higher = more aggressive reduction).",
         default=0.01,
         min=0.0,
         max=1.0,
@@ -289,9 +289,9 @@ class MTAR_PG_ExportProperties(PropertyGroup):
         poll=lambda self, obj: obj.type == 'ARMATURE'
     )
     
-    export_clean_threshold: FloatProperty(
+    export_fcurve_clean_threshold: FloatProperty(
         name="Clean Threshold",
-        description="Threshold for removing redundant keyframes after baking non linear interpolated fcurves (0.0 = skip cleaning, higher = more aggressive)",
+        description="After baking non-linear Bezier fcurves to linear (required for Fox binary format), remove redundant keyframes (0.0 = skip, higher = more aggressive).",
         default=0.03,
         min=0.0,
         max=1.0,

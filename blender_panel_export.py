@@ -75,7 +75,7 @@ class MTAR_PT_ExportPanel(Panel):
             adv_box.alert = True
 
             # FCurve cleaning threshold (advanced setting)
-            adv_box.prop(export_props, 'export_clean_threshold', text='Clean Threshold', icon='IPO_LINEAR')
+            adv_box.prop(export_props, 'export_fcurve_clean_threshold', text='Clean Threshold', icon='IPO_LINEAR')
 
             # Force highest bit encoding option
             row2 = adv_box.row()

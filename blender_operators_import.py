@@ -27,7 +27,7 @@ from .py_foxwrap.foxwrap_mtar_reader import MtarReader
 from .py_tools.tools_mtar_importer import import_mtar
 # NOTE: import top-level to avoid runtime import cycles; tools_blender_animation_bake
 # contains bake + cleanup helpers used by import/debug operators.
-from .py_tools.tools_animation_bake import bake_and_optimize_action
+from .py_tools.tools_animation_bake import bake_constraints_and_decimate_fcurves
 from .py_tools.tools_hash_generator import validate_executable_path
 
 
@@ -375,24 +375,24 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                         Debug.report_and_log(self, 'INFO', "MTAR animation imported successfully")
                         
                         # Bake custom rig if requested + decimation
-                        if import_props.bake_after_import and custom_rig:
+                        if import_props.import_bake_constraints and custom_rig:
                             Debug.log("\n========= STARTING BAKE OPERATION =========\n")
                             Debug.update_progress(75, "Baking...")
 
                             # Time the bake operation separately and run post-bake optimization via shared utility
                             Debug.start_timer("Bake Operation")
                             try:
-                                # Delegate bake + optional decimation/cleanup to shared utility in tools_blender_animation_bake
+                                # Delegate constraint-baking + optional fcurve decimation to shared utility
                                 layout_action = find_layout_track_action()
-                                bake_result = bake_and_optimize_action(
+                                bake_result = bake_constraints_and_decimate_fcurves(
                                     rig_armature=custom_rig,
                                     source_armature=imported_armature,
                                     create_new_action=not import_props.delete_import_armature,
                                     new_action_suffix="_baked",
                                     remove_constraints=True,
                                     delete_import_armature=import_props.delete_import_armature,
-                                    decimate_error=import_props.import_decimate_error,
-                                    force_linear_types=import_props.interpolation_force_linear_track_types,
+                                    bake_decimate_fcurve_error=import_props.import_bake_decimate_fcurve_error,
+                                    decimate_skip_types=import_props.import_bake_decimate_skip_types,
                                     layout_action=layout_action,
                                 )
 

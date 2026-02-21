@@ -17,13 +17,13 @@ from .py_utilities.utilities_transforms import get_world_space_transform, get_lo
 from .py_utilities.utilities_logging import Debug
 from .py_utilities.utilities_debug import create_or_update_dummy_object
 from .py_utilities.utilities_blender_animation import assign_action_to_datablock, remove_action_from_datablock
-from .py_utilities.utilities_fcurve_processing import process_import_fcurves, debug_setup_graph_context_for_manual_test
+from .py_utilities.utilities_fcurve_processing import decimate_import_fcurves_to_bezier, debug_setup_graph_context_for_manual_test
 # Import bake helpers from tools module (keep top-level to prevent import loops)
 from .py_tools.tools_animation_bake import (
-    bake_armature_action,
+    bake_armature_constraints_to_keyframes,
     remove_bone_constraints,
     get_bones_with_keyframes,
-    bake_and_optimize_action,
+    bake_constraints_and_decimate_fcurves,
     clear_armature_transforms,
 )
 from .py_tools.tools_hash_generator import hash_filename_all_modes
@@ -378,17 +378,17 @@ class MTAR_OT_DebugRunBake(Operator):
                             Debug.report_and_log(self, 'WARNING', "No source armature NLA tracks to mute for prepare")
                             return {'CANCELLED'}
                     else:
-                        # Full bake using unified utility (bake + optional decimation/cleanup)
+                        # Full bake using unified utility (constraint-bake + optional fcurve decimation)
                         Debug.log("Debug: Baking NLA strips on target armature")
-                        bake_result = bake_and_optimize_action(
+                        bake_result = bake_constraints_and_decimate_fcurves(
                             rig_armature=target_armature,
                             source_armature=source_arm,
                             create_new_action=True,
                             new_action_suffix="_baked",
                             remove_constraints=True,
                             delete_import_armature=False,
-                            decimate_error=0.01,  # Debug UI does not apply import-decimate by default
-                            force_linear_types='',
+                            bake_decimate_fcurve_error=0.01,  # Debug UI does not apply fcurve decimation by default
+                            decimate_skip_types='',
                             layout_action=None,
                         )
 
@@ -445,7 +445,7 @@ class MTAR_OT_DebugRunBake(Operator):
                                 Debug.log(f"  Muted {len(source_arm.animation_data.nla_tracks)} source NLA tracks for legacy bake")
                             assign_action_to_datablock(source_arm, action)
 
-                        bake_result = bake_armature_action(
+                        bake_result = bake_armature_constraints_to_keyframes(
                             rig_armature=target_armature,
                             action=action,
                             remove_constraints=False,
@@ -460,25 +460,27 @@ class MTAR_OT_DebugRunBake(Operator):
                             baked_actions.append(bake_result.get('action'))
                             success_count += 1
 
-                            # Run post-bake decimation/cleanup for this baked action using scene settings
+                            # Run post-bake decimation for this baked action using scene settings
                             try:
                                 decimate_err = 0.0
+                                decimate_skip_types = ''
                                 clean_thresh = 0.0
                                 if hasattr(context.scene, 'mtar_properties'):
                                     ip = getattr(context.scene.mtar_properties, 'import_props', None)
                                     ep = getattr(context.scene.mtar_properties, 'export_props', None)
                                     if ip is not None:
-                                        decimate_err = getattr(ip, 'import_decimate_error', 0.0)
+                                        decimate_err = getattr(ip, 'import_bake_decimate_fcurve_error', 0.0)
+                                        decimate_skip_types = getattr(ip, 'import_bake_decimate_skip_types', '')
                                     if ep is not None:
-                                        clean_thresh = getattr(ep, 'export_clean_threshold', 0.0)
+                                        clean_thresh = getattr(ep, 'export_fcurve_clean_threshold', 0.0)
 
-                                # Decimate via process_import_fcurves (operates on armature level)
+                                # Decimate via decimate_import_fcurves_to_bezier (operates on armature level)
                                 if decimate_err > 0.0:
                                     layout_action = find_layout_track_action()
-                                    dec_res = process_import_fcurves(
+                                    dec_res = decimate_import_fcurves_to_bezier(
                                         armature=target_armature,
-                                        decimate_error=decimate_err,
-                                        force_linear_types=(ip.interpolation_force_linear_track_types if ip else ''),
+                                        bake_decimate_fcurve_error=decimate_err,
+                                        decimate_skip_types=decimate_skip_types,
                                         layout_action=layout_action
                                     )
                                     Debug.log(f"  Post-bake decimation: decimated={dec_res.get('fcurves_decimated', 0)}")
@@ -524,14 +526,14 @@ class MTAR_OT_DebugRunBake(Operator):
 
             elif target_armature.animation_data and target_armature.animation_data.action:
                 Debug.log("Debug: Baking active action on target armature")
-                bake_result = bake_and_optimize_action(
+                bake_result = bake_constraints_and_decimate_fcurves(
                     rig_armature=target_armature,
                     source_armature=source_arm,
                     create_new_action=True,
                     new_action_suffix="_baked",
                     remove_constraints=True,
-                    decimate_error=0.0,
-                    force_linear_types='',
+                    bake_decimate_fcurve_error=0.0,
+                    decimate_skip_types='',
                     layout_action=None,
                 )
 

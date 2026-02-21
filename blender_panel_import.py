@@ -176,17 +176,17 @@ class MTAR_PT_ImportPanel(Panel):
             # Bake after import checkbox (only shown if advanced settings enabled and custom rig is specified)
             adv_box = box_custom_rig.box()
             adv_box.alert = True
-            draw_bool_prop_checkbox_icon(adv_box, import_props, "bake_after_import")
+            draw_bool_prop_checkbox_icon(adv_box, import_props, "import_bake_constraints")
 
             # Delete imported armature option is an advanced, dependent setting
-            if import_props.bake_after_import:
+            if import_props.import_bake_constraints:
                  # FCurve decimation settings (advanced setting) — per-import property
                 row = adv_box.row()
-                row.prop(import_props, 'import_decimate_error', text='Decimate Error', icon='IPO_BEZIER')
+                row.prop(import_props, 'import_bake_decimate_fcurve_error', text='Decimate Error', icon='IPO_BEZIER')
                 
                 # Decimation track type filter (only shown if decimation error > 0)
-                if import_props.import_decimate_error > 0:
-                    row.prop(import_props, 'interpolation_force_linear_track_types', text='', icon='FILTER')
+                if import_props.import_bake_decimate_fcurve_error > 0:
+                    row.prop(import_props, 'import_bake_decimate_skip_types', text='', icon='FILTER')
 
                 draw_bool_prop_checkbox_icon(adv_box, import_props, "delete_import_armature")
 
@@ -204,7 +204,7 @@ class MTAR_PT_ImportPanel(Panel):
         # Show a slim warning if the number of animations that will be processed (after applying the GANI filter)
         # exceeds the threshold; keep parse error shown only below the filter (do not duplicate it here).
         if header_info:
-            if selected_count is not None and selected_count > 100 and import_props.bake_after_import and not parse_error_msg:
+            if selected_count is not None and selected_count > 100 and import_props.import_bake_constraints and not parse_error_msg:
                 warn_box = box_button.box()
                 warn_box.alert = True
                 warn_box.label(text=f"Importing + baking {selected_count} animations.")

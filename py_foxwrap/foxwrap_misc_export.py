@@ -32,7 +32,7 @@ class ExportActionData:
         frame_end: Last frame to export (inclusive)
         name: Display name for the exported animation
         source: Description of where this action came from (NLA strip, active action, etc.)
-        export_clean_threshold: Threshold for FCurve cleaning (0 = disabled)
+        export_clean_threshold: Threshold for FCurve cleaning after baking non-linear fcurves to linear (0 = disabled)
     """
     action: bpy.types.Action
     frame_start: int

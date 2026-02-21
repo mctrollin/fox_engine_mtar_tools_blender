@@ -27,7 +27,7 @@ from ..py_utilities.utilities_blender_animation import (
     FCurveCache, action_has_fcurves, iter_action_fcurves, is_relevant_strip, find_layout_track_action,
     build_data_path_for_bone, extract_bone_name_from_data_path
 )
-from ..py_utilities.utilities_fcurve_processing import process_export_fcurves
+from ..py_utilities.utilities_fcurve_processing import bake_and_clean_export_fcurves
 
 from ..py_foxwrap.foxwrap_motionevent import read_motion_events_from_action
 from ..py_foxwrap.foxwrap_metadata import parse_action_track_metadata, read_track_header_properties_from_action
@@ -1043,9 +1043,9 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
                     armature.animation_data_create()
                 armature.animation_data.action = action
                 
-                export_result = process_export_fcurves(
+                export_result = bake_and_clean_export_fcurves(
                     armature=armature,
-                    clean_threshold=clean_threshold
+                    fcurve_clean_threshold=clean_threshold
                 )
                 
                 processed_action = export_result['action']
@@ -1546,7 +1546,7 @@ def export_mtar(context: bpy.types.Context,
     actions_to_export = collect_actions_for_export_from_armature(
         armature, 
         use_nla,
-        export_clean_threshold=export_props.export_clean_threshold
+        export_clean_threshold=export_props.export_fcurve_clean_threshold
     )
     
     if not actions_to_export:
@@ -1590,7 +1590,7 @@ def export_mtar(context: bpy.types.Context,
         motion_points_list : MotionPointList2 = build_motion_points_list_from_armature(motion_points_armature)
         
         # Collect motion point actions
-        motion_point_actions_data = collect_motion_point_actions(motion_points_armature, use_nla, export_props.export_clean_threshold)
+        motion_point_actions_data = collect_motion_point_actions(motion_points_armature, use_nla, export_props.export_fcurve_clean_threshold)
         
         if motion_point_actions_data:
             Debug.log(f"Found {len(motion_point_actions_data)} motion point action(s)")
