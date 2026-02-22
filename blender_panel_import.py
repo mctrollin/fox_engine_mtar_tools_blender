@@ -12,8 +12,7 @@ from .py_utilities.utilities_parsing import parse_index_selection
 
 from .blender_operators_import import (
     MTAR_OT_GenerateTrackMappingTemplateFile,
-    MTAR_OT_ImportAnimationFromMTAR,
-    MTAR_OT_ValidateHashGeneratorExe
+    MTAR_OT_ImportAnimationFromMTAR
 )
 from .blender_properties import MTAR_PG_Properties
 
@@ -149,12 +148,22 @@ class MTAR_PT_ImportPanel(Panel):
                 row = box.row()
                 row.label(text=label_text, icon='ANIM')
         
-        # Verbose naming (advanced setting)
         if settings_props.show_advanced_settings:
             adv_box = box_import.box()
             adv_box.alert = True
+
+            # Verbose naming (advanced setting)
             draw_bool_prop_checkbox_icon(adv_box, import_props, "use_verbose_naming")
-        
+
+            # Hash dictionary for GANI name unhashing (advanced setting)
+            draw_bool_prop_checkbox_icon(adv_box, import_props, "import_use_hash_dictionary")
+            if import_props.import_use_hash_dictionary:
+                dict_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dic', 'mtar_hash_dictionary.txt')
+                if not os.path.exists(dict_path):
+                    row = adv_box.row()
+                    row.alert = True
+                    row.label(text="dic/mtar_hash_dictionary.txt not found", icon='ERROR')
+
         # Strip padding (advanced setting)
         if settings_props.show_advanced_settings:
             adv_box = box_import.box()
@@ -170,12 +179,8 @@ class MTAR_PT_ImportPanel(Panel):
             adv_box = box_custom_rig.box()
             adv_box.alert = True
             adv_box.prop(import_props, "ik_up_distance", text="IK Up Distance", icon='DRIVER_DISTANCE')
-        
-           
 
             # Bake after import checkbox (only shown if advanced settings enabled and custom rig is specified)
-            adv_box = box_custom_rig.box()
-            adv_box.alert = True
             draw_bool_prop_checkbox_icon(adv_box, import_props, "import_bake_constraints")
 
             # Delete imported armature option is an advanced, dependent setting
@@ -219,7 +224,6 @@ class MTAR_PT_ImportPanel(Panel):
 classes = (
     MTAR_OT_GenerateTrackMappingTemplateFile,
     MTAR_OT_ImportAnimationFromMTAR,
-    MTAR_OT_ValidateHashGeneratorExe,
     MTAR_PT_ImportPanel,
 )
 

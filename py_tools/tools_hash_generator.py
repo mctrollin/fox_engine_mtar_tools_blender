@@ -1,8 +1,9 @@
 """
 External hash generator tool for Metal Gear Solid V animation tools.
 
-Provides functionality to convert filenames to hashes using an external executable.
-Supports multiple hash operations: filename, extension, with extension, and legacy.
+Provides functionality to convert filenames to hashes using an external executable
+or pure Python CityHash implementation. Supports multiple hash operations: filename,
+extension, with extension, and legacy.
 """
 import subprocess
 from typing import Dict, Tuple
@@ -11,6 +12,10 @@ from pathlib import Path
 import bpy
 
 from ..py_utilities.utilities_logging import Debug
+from ..py_utilities.utilities_hashing_cityhash import (hash_file_name_with_ext,
+                                                       hash_file_name,
+                                                       hash_file_extension,
+                                                       hash_file_name_legacy)
 
 
 def resolve_executable_path(exe_path: str) -> Path:
@@ -44,7 +49,35 @@ def resolve_executable_path(exe_path: str) -> Path:
         return Path(abs_path)
 
 
-def hash_filename_all_modes(exe_path: str, 
+def validate_executable_path_by_external_generator(hash_generator_exe_path: str) -> Tuple[bool, str]:
+    """Validate that the executable path exists and is accessible.
+    
+    Args:
+        exe_path: Path to validate
+        
+    Returns:
+        Tuple of (is_valid: bool, error_message: str)
+    """
+    if not hash_generator_exe_path:
+        return False, "No path specified"
+
+    exe_file = resolve_executable_path(hash_generator_exe_path)
+    Debug.log(f"Validating executable path: {exe_file}")
+
+    if not exe_file.exists():
+        return False, f"File does not exist: {exe_file}"
+
+    if not exe_file.is_file():
+        return False, f"Path is not a file: {exe_file}"
+
+    # Check if it's an executable (has .exe extension on Windows)
+    if exe_file.suffix.lower() not in ['.exe', '.bat', '.cmd', '']:
+        return False, f"Not a recognized executable type: {exe_file.suffix}"
+
+    return True, ""
+
+
+def hash_filename_all_modes_by_external_generator(hash_generator_exe_path: str, 
                             input_string: str,
                             timeout: int = 30) -> Tuple[bool, Dict[str, str], str]:
     """Hash filename using all available modes.
@@ -67,11 +100,11 @@ def hash_filename_all_modes(exe_path: str,
         - error: Error message if all conversions failed
     """
     # Validate exe path
-    if not exe_path:
+    if not hash_generator_exe_path:
         return False, {}, "No executable path specified"
 
     # Resolve the executable path (handle Blender relative paths like //path)
-    exe_file = resolve_executable_path(exe_path)
+    exe_file = resolve_executable_path(hash_generator_exe_path)
     Debug.log(f"Resolved executable path: {exe_file}")
 
     if not exe_file.exists():
@@ -84,7 +117,7 @@ def hash_filename_all_modes(exe_path: str,
     if not input_string:
         return False, {}, "No input string provided"
     
-    Debug.log(f"Hashing with external exe: {exe_path}")
+    Debug.log(f"Hashing with external exe: {hash_generator_exe_path}")
     Debug.log(f"  Input: {input_string}")
     
     results = {
@@ -196,39 +229,94 @@ def hash_filename_all_modes(exe_path: str,
         return False, results, combined_error
 
 
-def validate_executable_path(exe_path: str) -> Tuple[bool, str]:
-    """Validate that the executable path exists and is accessible.
+def hash_filename_all_modes(input_string: str, modes: tuple = None) -> Tuple[bool, Dict[str, str], str]:
+    """Hash filename using specified modes with pure Python CityHash.
+    
+    Computes only the requested hash operations without needing external executable:
+    - 'filename': Hash Filename (-d -h <filename>)
+    - 'extension': Hash Extension (-d -he <extension>)
+    - 'with_extension': Hash With Extension (-d -hwe <filename.ext>)
+    - 'legacy': Hash Legacy (-d -hl <filename>)
     
     Args:
-        exe_path: Path to validate
+        input_string: Input filename (with or without extension)
+        modes: Tuple of mode names to compute (e.g., ('with_extension',) or ('filename', 'extension', 'with_extension', 'legacy')).
+               If None, computes all modes for backward compatibility.
         
     Returns:
-        Tuple of (is_valid: bool, error_message: str)
+        Tuple of (success: bool, results: Dict[str, str], error: str)
+        - success: True (always succeeds with Python implementation)
+        - results: Dictionary with keys for requested modes plus corresponding '_dec' keys with decimal representations
+        - error: Empty string (no errors with Python implementation)
     """
-    if not exe_path:
-        return False, "No path specified"
+    if not input_string:
+        return False, {}, "No input string provided"
+    
+    # Default to all modes for backward compatibility
+    if modes is None:
+        modes = ('filename', 'extension', 'with_extension', 'legacy')
+    
+    Debug.log(f"Hashing with pure Python CityHash: {input_string} (modes: {', '.join(modes)})")
+    
+    # Initialize results with all possible keys
+    results = {
+        'filename': '',
+        'filename_dec': '',
+        'extension': '',
+        'extension_dec': '',
+        'with_extension': '',
+        'with_extension_dec': '',
+        'legacy': '',
+        'legacy_dec': ''
+    }
+    
+    # Parse input to extract filename and extension
+    input_path = Path(input_string)
+    filename_only = input_path.stem if input_path.suffix else input_string
+    extension_only = input_path.suffix.lstrip('.') if input_path.suffix else ''
+    
+    try:
+        # Hash Filename: -d -h <filename>
+        if 'filename' in modes:
+            hash_val = hash_file_name(filename_only, remove_extension=False)
+            results['filename'] = f"0x{hash_val:016X}"
+            results['filename_dec'] = str(hash_val)
+            Debug.log(f"  filename (-d -h {filename_only}): 0x{hash_val:016X}")
+        
+        # Hash Extension: -d -he <extension> (only if extension exists and requested)
+        if 'extension' in modes and extension_only:
+            hash_val = hash_file_extension(extension_only)
+            results['extension'] = f"0x{hash_val:016X}"
+            results['extension_dec'] = str(hash_val)
+            Debug.log(f"  extension (-d -he {extension_only}): 0x{hash_val:016X}")
+        
+        # Hash With Extension: -d -hwe <filename.ext>
+        if 'with_extension' in modes:
+            hash_val = hash_file_name_with_ext(input_string)
+            results['with_extension'] = f"0x{hash_val:016X}"
+            results['with_extension_dec'] = str(hash_val)
+            Debug.log(f"  with_extension (-d -hwe {input_string}): 0x{hash_val:016X}")
+        
+        # Hash Legacy: -d -hl <filename>
+        if 'legacy' in modes:
+            hash_val = hash_file_name_legacy(input_string)
+            results['legacy'] = f"0x{hash_val:016X}"
+            results['legacy_dec'] = str(hash_val)
+            Debug.log(f"  legacy (-d -hl {input_string}): 0x{hash_val:016X}")
+        
+        return True, results, ""
+        
+    except Exception as e:
+        error_msg = f"Python hash failed: {str(e)}"
+        Debug.log_error(f"  {error_msg}")
+        return False, results, error_msg
 
-    exe_file = resolve_executable_path(exe_path)
-    Debug.log(f"Validating executable path: {exe_file}")
 
-    if not exe_file.exists():
-        return False, f"File does not exist: {exe_file}"
-
-    if not exe_file.is_file():
-        return False, f"Path is not a file: {exe_file}"
-
-    # Check if it's an executable (has .exe extension on Windows)
-    if exe_file.suffix.lower() not in ['.exe', '.bat', '.cmd', '']:
-        return False, f"Not a recognized executable type: {exe_file.suffix}"
-
-    return True, ""
-
-
-def hash_animation_name_from_blender_context(input_string: str) -> Tuple[bool, Dict[str, str], str]:
+def hash_animation_name_from_blender_context_by_external_generator(input_string: str) -> Tuple[bool, Dict[str, str], str]:
     """Hash animation name using the hash generator executable path configured in Blender.
 
     Wrapper around hash_filename_all_modes() that retrieves the hash generator exe path from the
-    main scene settings (`context.scene.mtar_properties.settings_props.hash_generator_exe_path`).
+    debug panel properties (`context.scene.mtar_debug_hash_properties.hash_generator_exe_path`).
     
     Args:
         input_string: Animation name string to hash (e.g., "/Assets/tpp/Walk/walk_001")
@@ -245,16 +333,165 @@ def hash_animation_name_from_blender_context(input_string: str) -> Tuple[bool, D
             return False, {}, "No active Blender scene"
         scene = bpy.context.scene
         # Retrieve the executable path from the main settings (no backward compatibility)
-        if not hasattr(scene, 'mtar_properties') or not scene.mtar_properties.settings_props.hash_generator_exe_path:
-            return False, {}, "MTAR property 'hash_generator_exe_path' not found in scene settings"
-        exe_path = scene.mtar_properties.settings_props.hash_generator_exe_path
+        # read from debug panel props rather than settings
+        if not hasattr(scene, 'mtar_debug_hash_properties') or not scene.mtar_debug_hash_properties.hash_generator_exe_path:
+            return False, {}, "Hash generator executable path not configured in debug properties"
+        exe_path = scene.mtar_debug_hash_properties.hash_generator_exe_path
         if not exe_path:
             return False, {}, "Hash Generator executable path not set in properties"
         
         # Call the main hash function
-        return hash_filename_all_modes(exe_path, input_string)
+        return hash_filename_all_modes_by_external_generator(exe_path, input_string)
         
     except ImportError:
         return False, {}, "Blender not available (not running inside Blender)"
     except Exception as e:
         return False, {}, f"Error accessing Blender properties: {str(e)}"
+
+
+def hash_animation_name_from_blender_context(input_string: str) -> Tuple[bool, Dict[str, str], str]:
+    """Hash animation name using pure Python CityHash (no external executable).
+
+    Pure-Python wrapper around hash_filename_all_modes_python(). Optimized for export by only
+    computing the 'with_extension' mode, which is all that export path hashing needs.
+    
+    Args:
+        input_string: Animation name string to hash (e.g., "/Assets/tpp/Walk/walk_001")
+        
+    Returns:
+        Tuple of (success: bool, results: Dict[str, str], error: str)
+        - success: True if hashing succeeded
+        - results: Dictionary with 'with_extension_dec' key containing the hash value
+        - error: Error message if hashing failed
+    """
+    try:
+        # Only compute 'with_extension' mode for export optimization
+        return hash_filename_all_modes(input_string, modes=('with_extension',))
+    except Exception as e:
+        return False, {}, f"Error in Python hash: {str(e)}"
+
+
+def build_gani_hash_dictionary_by_external_generator(dictionary_path: str, hash_generator_exe_path: str) -> Dict[int, str]:
+    """Build a GANI path hash dictionary from mtar_dictionary.txt using the hash generator.
+
+    Replicates what BuildMtarHashDic.bat does: for each path in the dictionary file,
+    appends '.gani' and calls the external executable with -d -hwe to get the 64-bit hash,
+    then maps hash → path in the result.
+
+    Each phase is wrapped in a timing log so the cost of reading vs. hashing is visible.
+
+    Args:
+        dictionary_path: Path to mtar_dictionary.txt (one plain asset path per line, no hashes)
+        exe_path: Path to the hash generator executable (GzsTool)
+
+    Returns:
+        Dict mapping 64-bit hash integer to asset path string (same format as
+        load_gani_hash_dictionary, i.e. {hash_int: "/Assets/..."})
+    """
+    result: Dict[int, str] = {}
+
+    dict_file = Path(dictionary_path)
+    if not dict_file.exists():
+        Debug.log_warning(f"GANI dictionary not found: {dictionary_path}")
+        return result
+
+    exe_file = resolve_executable_path(hash_generator_exe_path)
+    if not exe_file.exists():
+        Debug.log_error(f"Hash generator not found: {exe_file}")
+        return result
+
+    # Phase 1: read the plain-path dictionary file
+    Debug.start_timer("Build GANI hash dict: read file")
+    try:
+        paths = [
+            line.strip()
+            for line in dict_file.read_text(encoding='utf-8').splitlines()
+            if line.strip()
+        ]
+    except OSError as e:
+        Debug.log_error(f"Failed to read dictionary file: {e}")
+        Debug.stop_timer("Build GANI hash dict: read file")
+        return result
+    Debug.stop_timer("Build GANI hash dict: read file")
+    Debug.log(f"  Read {len(paths)} paths from '{dictionary_path}'")
+
+    # Phase 2: hash every path with the external exe (-d -hwe path.gani)
+    Debug.start_timer("Build GANI hash dict: hash generation")
+    failed = 0
+    for path in paths:
+        path_with_ext = f"{path}.gani"
+        try:
+            proc = subprocess.run(
+                [str(exe_file), '-d', '-hwe', path_with_ext],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                shell=False,
+                check=False,
+            )
+            if proc.returncode == 0:
+                token = proc.stdout.strip().split()[0]
+                result[int(token, 0)] = path
+            else:
+                failed += 1
+        except Exception:
+            failed += 1
+    Debug.stop_timer("Build GANI hash dict: hash generation")
+    Debug.log(f"  Built {len(result)} hash entries ({failed} failed) from '{dictionary_path}'")
+    return result
+
+
+def build_gani_hash_dictionary(dictionary_path: str) -> Dict[int, str]:
+    """Build a GANI path hash dictionary from mtar_dictionary.txt using pure Python CityHash.
+
+    Replaces the external executable approach with a pure-Python CityHash v1.0.3
+    implementation, making it dramatically faster and cross-platform.
+
+    For each path in the dictionary file, appends '.gani' and computes the 64-bit hash
+    using hash_file_name_with_ext, then maps hash → path in the result.
+
+    Each phase is wrapped in a timing log so the cost of reading vs. hashing is visible.
+
+    Args:
+        dictionary_path: Path to mtar_dictionary.txt (one plain asset path per line, no hashes)
+
+    Returns:
+        Dict mapping 64-bit hash integer to asset path string (same format as
+        load_gani_hash_dictionary and build_gani_hash_dictionary_from_exe, i.e.
+        {hash_int: "/Assets/..."})
+    """
+    result: Dict[int, str] = {}
+
+    dict_file = Path(dictionary_path)
+    if not dict_file.exists():
+        Debug.log_warning(f"GANI dictionary not found: {dictionary_path}")
+        return result
+
+    # Phase 1: read the plain-path dictionary file
+    Debug.start_timer("Build GANI hash dict: read file")
+    try:
+        paths = [
+            line.strip()
+            for line in dict_file.read_text(encoding='utf-8').splitlines()
+            if line.strip()
+        ]
+    except OSError as e:
+        Debug.log_error(f"Failed to read dictionary file: {e}")
+        Debug.stop_timer("Build GANI hash dict: read file")
+        return result
+    Debug.stop_timer("Build GANI hash dict: read file")
+    Debug.log(f"  Read {len(paths)} paths from '{dictionary_path}'")
+
+    # Phase 2: hash every path with pure-Python CityHash64
+    Debug.start_timer("Build GANI hash dict: hash generation")
+    failed = 0
+    for path in paths:
+        path_with_ext = f"{path}.gani"
+        try:
+            hash_value = hash_file_name_with_ext(path_with_ext)
+            result[hash_value] = path
+        except Exception:
+            failed += 1
+    Debug.stop_timer("Build GANI hash dict: hash generation")
+    Debug.log(f"  Built {len(result)} hash entries ({failed} failed) from '{dictionary_path}'")
+    return result

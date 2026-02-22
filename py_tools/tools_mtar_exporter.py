@@ -1419,14 +1419,14 @@ def export_mtar(context: bpy.types.Context,
                 use_nla: bool = True
                 ) -> Dict[str, str]:
     """Export Blender animation data to MTAR format.
-    
+
     Args:
         context: Blender context
         filepath: Path where the MTAR file should be saved
         armature: Armature object to export animation from
         track_segment_bone_mapping: Optional unified mapping from (track_idx, segment_idx) to (bone_name, bone_params)
         use_nla: If True, export NLA strips as separate GANI files; if False, export only active action
-        
+
     Returns:
         Dictionary with export result information
     """
@@ -1556,10 +1556,10 @@ def export_mtar(context: bpy.types.Context,
     Debug.log(f"\n=== Exporting {len(actions_to_export)} action(s) ===")
 
     # Create MTAR writer with custom path hash settings
-    # (The writer will get hash_generator_exe_path from Blender properties when needed)
+    # (The writer will hash paths directly via hash_animation_name_from_blender_context)
     writer = MtarWriter(
         filepath,
-        export_custom_path_hashes=export_props.custom_path_hashes,
+        treat_hashes_as_names=export_props.treat_hashes_as_names,
         export_custom_path_base=export_props.custom_path_base
     )
     
@@ -1582,6 +1582,7 @@ def export_mtar(context: bpy.types.Context,
     
     motion_point_actions_data: List[ExportActionData] = []
     motion_points_list: Optional[MotionPointList2] = None
+    motion_point_actions_by_gani_index: Dict[int, ExportActionData] = {}
     
     if motion_points_armature:
         Debug.log(f"Found motion points armature: {motion_points_armature.name}")

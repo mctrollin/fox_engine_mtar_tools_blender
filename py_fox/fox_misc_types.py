@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import struct
 import ctypes
 
-from ..py_utilities.utilities_rig_hash import hash_rig_type
+from ..py_utilities.utilities_hashing import hash_rig_type
 
 # Type aliases for clarity
 ubyte = ctypes.c_ubyte

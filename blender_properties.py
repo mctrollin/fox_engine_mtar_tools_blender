@@ -1,11 +1,13 @@
 """
 Blender property groups for MTAR import and export functionality.
 """
+
+# pyright: reportInvalidTypeForm=false
+
 import bpy
 from bpy.types import PropertyGroup
 from bpy.props import StringProperty, PointerProperty, IntProperty, BoolProperty, FloatProperty, EnumProperty
 
-# pyright: reportInvalidTypeForm=false
 
 # Helper to add relative path support based on Blender version
 def _file_path_kwargs(**kwargs):
@@ -63,12 +65,10 @@ def _compute_action_show_pose_markers() -> bool:
     except Exception:
         return True
 
-    seen = False
     for window in wm.windows:
         screen = window.screen
         for area in screen.areas:
             if area.type == 'DOPESHEET_EDITOR':
-                seen = True
                 try:
                     sp = area.spaces.active
                     if hasattr(sp, 'show_pose_markers') and not sp.show_pose_markers:
@@ -223,7 +223,19 @@ class MTAR_PG_ImportProperties(PropertyGroup):
             "Verbose: player2.0.h340_d278.gani\n"
             "Simple: player2.0.gani\n"
             "h = header index (position in MTAR file table)\n"
-            "d = data index (position sorted by file offset)"
+            "d = data index (position sorted by file offset)\n"
+            "Note: h/d indices are suppressed when the hash dictionary resolves the GANI name."
+        ),
+        default=True
+    )
+
+    import_use_hash_dictionary: BoolProperty(
+        name="Unhash GANI Names",
+        description=(
+            "Use dic/mtar_dictionary.txt and the Hash Generator executable to build a hash lookup "
+            "table on-the-fly, resolving GANI path hashes to readable names during import. "
+            "When resolved, the action is named using the last path component (e.g. 'walk_idle') "
+            "and the full asset path is stored for re-export. "
         ),
         default=True
     )
@@ -257,15 +269,26 @@ class MTAR_PG_ExportProperties(PropertyGroup):
         default=True
     )
 
-    custom_path_hashes: BoolProperty(
-        name="Export Custom Path Hashes",
-        description="Also export hashes for a custom base path",
+    treat_hashes_as_names: BoolProperty(
+        name="Treat Hashes as Names",
+        description=(
+            "When enabled, raw hash integers stored in gani_path are treated as path name "
+            "components: the base path below is prepended and the result is re-hashed via "
+            "the hash generator. "
+            "Has no effect on valid /Assets/ paths (always hashed) or on invalid non-/Assets/ "
+            "path strings (always combined with base path, regardless of this setting)."
+        ),
         default=False
     )
 
     custom_path_base: StringProperty(
         name="Hash Base Path",
-        description="Base path to use for custom path hashes",
+        description=(
+            "Base path prepended when constructing a full asset path for hashing. "
+            "Applied to: raw hashes when 'Treat Hashes as Names' is enabled, invalid path strings "
+            "(not starting with /Assets/), and NLA source fallbacks. "
+            "Example: hash '12345678901234' → '/Assets/tpp/12345678901234'"
+        ),
         default="/Assets/tpp/",
         maxlen=1024
     )
@@ -366,7 +389,7 @@ class MTAR_PG_SettingsProperties(PropertyGroup):
     # Sorting GANI import/export to match file order / hash
     sort_gani: BoolProperty(
         name="Sort GANI",
-        description="When enabled, import will reorder GANIs by file offset and export will sort the MTAR file table by path hash. Can be disabled for testing.",
+        description="When enabled, import will reorder GANIs by file offset and export will sort the MTAR file table by path hash.",
         default=True
     )
 
@@ -386,12 +409,6 @@ class MTAR_PG_SettingsProperties(PropertyGroup):
         set=_set_show_pose_markers
     )
 
-    hash_generator_exe_path: StringProperty(**_file_path_kwargs(
-        name="Hash Generator Executable",
-        description="Path to the external hash generator executable (GzsTool fork with debug output)",
-        default="",
-        maxlen=1024
-    ))
 
 class MTAR_PG_Properties(PropertyGroup):
     """Main property group containing all MTAR sub-properties."""

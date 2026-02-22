@@ -12,6 +12,7 @@ import bpy
 
 from ..py_utilities.utilities_logging import Debug
 from ..py_utilities.utilities_binary_write import align_buffer, write_padding
+from ..py_utilities.utilities_hashing import is_gani_path_a_hash, parse_gani_hash_str
 
 from ..py_fox.fox_mtar_types import MtarHeader, MtarTableList2, MtarFlags, MtarMiniDataNode, MotionPointList2
 from ..py_fox.fox_gani_enums import CommonInfoNodeType, TrackUnitFlags
@@ -26,6 +27,11 @@ from .foxwrap_metadata import read_track_header_properties_from_action
 from ..py_tools.tools_hash_generator import hash_animation_name_from_blender_context
 
 
+def _is_valid_asset_path(s: str) -> bool:
+    """Return True if s is a recognised Fox Engine asset path (starts with '/Assets/')."""
+    return s.startswith('/Assets/')
+
+
 class MtarWriter:
     """Writes MTAR format files.
     
@@ -33,15 +39,20 @@ class MtarWriter:
     for writing GANI sections, maintaining symmetry with the read path.
     """
     
-    def __init__(self, filepath: str, 
-                 export_custom_path_hashes: bool = False,
+    def __init__(self, filepath: str,
+                 treat_hashes_as_names: bool = False,
                  export_custom_path_base: str = ""):
         """Initialize the MTAR writer.
-        
+
         Args:
             filepath: Path where the MTAR file should be written
-            export_custom_path_hashes: Whether to generate custom path hashes for GANI files
-            export_custom_path_base: Base path to prepend when generating animation names (e.g., "/Assets/tpp/")
+            treat_hashes_as_names: When True, raw hash strings in gani_path are treated as path
+                name components and combined with export_custom_path_base before re-hashing via
+                the generator. Has no effect on valid /Assets/ paths (always hashed directly)
+                or invalid non-/Assets/ paths (always combined with base regardless of this flag).
+            export_custom_path_base: Base path prepended when constructing paths for unresolved
+                items — raw hashes (when treat_hashes_as_names=True), invalid paths, and NLA
+                source fallbacks. Example: "/Assets/tpp/"
         """
         self.filepath = filepath
         self.gani_writer = Gani2Writer()
@@ -67,7 +78,7 @@ class MtarWriter:
         self.motion_point_header_count: int = 0
         
         # Custom path hashing settings
-        self.export_custom_path_hashes = export_custom_path_hashes
+        self.treat_hashes_as_names = treat_hashes_as_names
         self.export_custom_path_base = export_custom_path_base
         
     def add_gani_data(self, gani_data: 'GaniData') -> None:
@@ -125,90 +136,152 @@ class MtarWriter:
         """
         return sorted(file_table_entries, key=lambda entry: entry.path)
     
-    def get_animation_name_for_gani(self, gani_data: 'GaniData') -> str:
-        """Extract the animation name string from GaniData.
-        
-        This reconstructs the same format used in the info.txt file:
-        - For NLA strips: [custom_path_base]track_name/strip_name
-        - For active actions: action_name
-        
-        Args:
-            gani_data: GaniData object containing animation data
-            
-        Returns:
-            Animation name string (e.g., "/Assets/tpp/Walk/walk_001" or "ActionName")
+    def _resolve_gani_path_string(self, gani_data: 'GaniData') -> str:
+        """Determine the canonical path string for a GANI, mirroring _compute_gani_path_hash logic.
+
+        Returns paths with .gani extension for use in info files and path recording.
+
+        - Raw hash + treat_hashes_as_names=True  → export_custom_path_base + hash_str + .gani
+        - Raw hash + treat_hashes_as_names=False → raw hash string (unchanged, no extension needed)
+        - Valid /Assets/ path                    → returned with .gani extension if not present
+        - Invalid path (not hash, not /Assets/)  → export_custom_path_base + path + .gani
+        - NLA source fallback                    → export_custom_path_base + track/strip + .gani
         """
-        # Try to get the source from tracks_data
-        source = gani_data.tracks_data.source
         action = gani_data.tracks_data.action
-        
-        if not source:
-            # Fallback to using the GANI name or action name
-            return action.name if action else gani_data.name
-        
-        # Parse the source string
-        # Format: 'NLA Track "track_name" Strip "strip_name"' or 'Active Action'
-        if source.startswith('NLA Track'):
-            # Parse: NLA Track "track_name" Strip "strip_name"
+        source = gani_data.tracks_data.source
+
+        if action and "gani_path" in action.keys():
+            gani_path_val = str(action["gani_path"])
+            if is_gani_path_a_hash(gani_path_val):
+                if self.treat_hashes_as_names:
+                    return f"{self.export_custom_path_base}{gani_path_val}.gani"
+                return gani_path_val  # raw hash — use directly
+            if _is_valid_asset_path(gani_path_val):
+                # Valid /Assets/ path — ensure .gani extension
+                return gani_path_val if gani_path_val.endswith('.gani') else f"{gani_path_val}.gani"
+            # Invalid path — always prepend base and add .gani
+            return f"{self.export_custom_path_base}{gani_path_val}.gani"
+
+        # No gani_path — fall back to NLA source or action name
+        if source and source.startswith('NLA Track'):
             parts = source.split('"')
             if len(parts) >= 4:
-                track_name = parts[1]  # Text between first pair of quotes
-                strip_name = parts[3]  # Text between second pair of quotes
-                base = self.export_custom_path_base if self.export_custom_path_hashes else ''
-                return f"{base}{track_name}/{strip_name}"
-        
-        # Fallback: use action name or GANI name
-        return action.name if action else gani_data.name
+                track_name = parts[1]
+                strip_name = parts[3]
+                # NLA source is not a valid asset path — always prepend base and add .gani
+                return f"{self.export_custom_path_base}{track_name}/{strip_name}.gani"
+
+        # Fallback to action name with .gani extension
+        action_name = action.name if action else gani_data.name
+        return action_name if action_name.endswith('.gani') else f"{action_name}.gani"
+
+    def get_animation_name_for_gani(self, gani_data: 'GaniData') -> str:
+        """Extract the animation name string from GaniData for the info file.
+
+        Mirrors the path resolution logic of _compute_gani_path_hash:
+        - Valid asset path from gani_path → used directly.
+        - Unresolved hash with custom_path_hashes → custom_path_base + hash_str.
+        - NLA source (no gani_path) → [custom_path_base]track_name/strip_name.
+        - Fallback → action name.
+
+        Args:
+            gani_data: GaniData object containing animation data
+
+        Returns:
+            Animation name string (e.g., "/Assets/mgo/motion/walk_idle" or "player2.0.gani")
+        """
+        return self._resolve_gani_path_string(gani_data)
 
     def _compute_gani_path_hash(self, gani_data: 'GaniData') -> int:
         """Compute the path hash for a GANI file.
-        
-        Attempts to generate a custom path hash if enabled, falls back to stored hash,
-        and returns 0 if neither is available.
-        
+
+        Reads the 'gani_path' custom property from the action:
+        - Raw hash + treat_hashes_as_names=False → use hash directly.
+        - Raw hash + treat_hashes_as_names=True  → combine with export_custom_path_base,
+          hash via generator only (no dict fallback for constructed paths).
+        - Valid /Assets/ path                    → hash via generator first, then dict lookup.
+        - Invalid path (not hash, not /Assets/)  → always combine with base, hash via generator only.
+        - Raises ValueError if the hash cannot be determined or the property is missing.
+
         Args:
             gani_data: GaniData object containing animation data
-            
+
         Returns:
             Path hash value (64-bit integer)
+
+        Raises:
+            ValueError: If the hash cannot be determined.
         """
-        path_hash = 0
-        
-        # Check if custom path hashing is enabled
-        if self.export_custom_path_hashes:
-            # Generate custom path hash using the hash generator from Blender properties
-            animation_name = self.get_animation_name_for_gani(gani_data)
-            Debug.log(f"      Generating custom path hash for: '{animation_name}'")
-            
-            success, results, error = hash_animation_name_from_blender_context(animation_name)
-            
+        action = gani_data.tracks_data.action
+
+        # gani_path is required — abort if missing
+        if not action or "gani_path" not in action.keys():
+            action_name = action.name if action else "None"
+            raise ValueError(
+                f"Action '{action_name}' is missing the 'gani_path' custom property. "
+                "Re-import the MTAR with the current version to populate this property or add it yourself."
+            )
+
+        gani_path_val: str = str(action["gani_path"])
+
+        if is_gani_path_a_hash(gani_path_val):
+            if not self.treat_hashes_as_names:
+                # Raw hash — use directly
+                path_hash = parse_gani_hash_str(gani_path_val)
+                Debug.log(f"      Using stored hash from gani_path: 0x{path_hash:016X}")
+                return path_hash
+            # treat_hashes_as_names: treat hash as a path component, combine with base
+            combined = f"{self.export_custom_path_base}{gani_path_val}.gani"
+            Debug.log(f"      Treating hash as name component, combined path: '{combined}'")
+            success, results, error = hash_animation_name_from_blender_context(combined)
             if success and results.get('with_extension_dec'):
-                # Use the hash+extension result
                 hash_str = results['with_extension_dec']
                 try:
-                    # Parse the hash (could be hex string like "0x..." or plain decimal)
-                    if hash_str.startswith('0x') or hash_str.startswith('0X'):
-                        path_hash = int(hash_str, 16)
-                    else:
-                        path_hash = int(hash_str)
-                    Debug.log(f"      Custom path hash computed: 0x{path_hash:016X}")
+                    path_hash = parse_gani_hash_str(hash_str)
+                    Debug.log(f"      Hash result: 0x{path_hash:016X}")
+                    return path_hash
                 except ValueError:
-                    Debug.log_warning(f"      Warning: Failed to parse hash result '{hash_str}', falling back to stored hash")
-                    path_hash = 0
-            else:
-                Debug.log_warning(f"      Warning: Failed to generate custom path hash ({error}), falling back to stored hash")
-        
-        # Fallback: use stored hash from action if custom hash wasn't generated
-        if path_hash == 0:
-            if gani_data.tracks_data.action and "gani_path_hash" in gani_data.tracks_data.action.keys():
-                # PathCode64 is stored as string because it's too large for Blender's int type
-                path_hash_str = gani_data.tracks_data.action["gani_path_hash"]
-                path_hash = int(path_hash_str) if isinstance(path_hash_str, str) else int(path_hash_str)
-                Debug.log(f"      Using stored path hash: 0x{path_hash:016X}")
-            else:
-                Debug.log("      No path hash available, using 0")
-        
-        return path_hash
+                    Debug.log_warning(f"      Failed to parse hash result: '{hash_str}'")
+            raise ValueError(
+                f"Could not compute hash for action '{action.name}' with combined path '{combined}'. "
+                f"Hash computation failed: {error}."
+            )
+
+        if _is_valid_asset_path(gani_path_val):
+            # Valid /Assets/ path — hash directly via Python
+            # Ensure .gani extension is present before hashing
+            path_to_hash = gani_path_val if gani_path_val.endswith('.gani') else f"{gani_path_val}.gani"
+            Debug.log(f"      Hashing valid asset path: '{path_to_hash}'")
+            success, results, error = hash_animation_name_from_blender_context(path_to_hash)
+            if success and results.get('with_extension_dec'):
+                hash_str = results['with_extension_dec']
+                try:
+                    path_hash = parse_gani_hash_str(hash_str)
+                    Debug.log(f"      Hash result: 0x{path_hash:016X}")
+                    return path_hash
+                except ValueError:
+                    Debug.log_warning(f"      Failed to parse hash result: '{hash_str}'")
+            raise ValueError(
+                f"Could not compute hash for action '{action.name}' with gani_path='{gani_path_val}'. "
+                f"Hash computation failed: {error}."
+            )
+
+        # Invalid path (not a hash, not /Assets/) — always combine with base, hash via Python
+        combined = f"{self.export_custom_path_base}{gani_path_val}.gani"
+        Debug.log(f"      Invalid path, combining with base: '{combined}'")
+        success, results, error = hash_animation_name_from_blender_context(combined)
+        if success and results.get('with_extension_dec'):
+            hash_str = results['with_extension_dec']
+            try:
+                path_hash = parse_gani_hash_str(hash_str)
+                Debug.log(f"      Hash result: 0x{path_hash:016X}")
+                return path_hash
+            except ValueError:
+                Debug.log_warning(f"      Failed to parse hash result: '{hash_str}'")
+        raise ValueError(
+            f"Could not compute hash for action '{action.name}' with combined path '{combined}'. "
+            f"Hash computation failed: {error}."
+        )
 
     
     def write(self) -> None:

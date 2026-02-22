@@ -6,7 +6,7 @@ import bpy
 from mathutils import Quaternion, Vector
 
 from ..py_utilities.utilities_logging import Debug
-from ..py_utilities.utilities_rig_hash import unhash_rig_type
+from ..py_utilities.utilities_hashing import unhash_rig_type, unhash_gani_path, is_gani_path_a_hash
 from ..py_utilities.utilities_transforms import (
     calculate_directional_location,
     prepare_rotation_offset_quats,
@@ -23,7 +23,7 @@ from ..py_utilities.utilities_blender_animation import (
     iter_action_fcurves,
     build_data_path_for_bone
 )
-from ..py_utilities.utilities_naming import format_action_name, format_strip_name
+from ..py_utilities.utilities_naming import format_action_name, format_strip_name, resolve_gani_name_segment, extract_gani_name_from_path
 
 from ..py_foxwrap.foxwrap_metadata import TrackMetaData, store_track_header_properties_on_action, make_track_property_key
 from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper, TrackDataBlobWrapper, Tracks
@@ -529,7 +529,8 @@ def create_animation_actions(
     layout_track: Optional['Tracks'],
     all_motion_events: List[Optional[EvpHeader]],
     path_to_indices: Dict[int, Tuple[int, int]],
-    use_verbose_naming: bool
+    use_verbose_naming: bool,
+    gani_hash_dict: Optional[Dict[int, str]] = None
 ) -> Tuple[Optional[bpy.types.Action], List[bpy.types.Action], int]:
     """Create Blender animation actions from MTAR data.
     
@@ -592,15 +593,21 @@ def create_animation_actions(
     for gani_index, gani_tracks in enumerate(all_gani_tracks):
         Debug.log(f"\n--- GANI {gani_index + 1}/{len(all_gani_tracks)} ---")
 
+        # Resolve GANI path hash to readable name if dictionary provided
+        file_header = all_file_headers[gani_index]
+        gani_full_path, gani_name_segment = resolve_gani_name_segment(file_header, gani_hash_dict)
+
         # -----------------------------------------------------
         # Update UI progress for per-GANI processing (keeps overall 'Creating Actions...' stage)
         try:
             total_ganis = len(all_gani_tracks) if len(all_gani_tracks) > 0 else 1
             # Map per-GANI progress into a small slice (30 -> 49)
             progress = 30 + min(19, int(((gani_index + 1) / total_ganis) * 20))
-            # Prefer a human-readable display name from file header path hash if available
-            if gani_index < len(all_file_headers) and hasattr(all_file_headers[gani_index], 'path'):
-                display_name = f"0x{int(all_file_headers[gani_index].path):016X}"
+            # Prefer resolved name, then hex hash, then index
+            if gani_name_segment:
+                display_name = gani_name_segment
+            elif hasattr(file_header, 'path'):
+                display_name = f"0x{int(file_header.path):016X}"
             else:
                 display_name = f"Gani_{gani_index+1:03d}"
             Debug.update_progress(progress, f"GANI {gani_index + 1}/{total_ganis}: {display_name}")
@@ -611,12 +618,11 @@ def create_animation_actions(
 
         # Create one action per GANI file
         # Look up h/d indices from path hash
-        file_header = all_file_headers[gani_index]
         h_idx, d_idx = path_to_indices.get(file_header.path, (0, 0))
         if file_header.path not in path_to_indices:
             Debug.log_warning(f"Missing path hash mapping for GANI: 0x{file_header.path:016X}, using h0_d0")
         
-        action_name: str = format_action_name(mtar_file_name, gani_index, h_idx, d_idx, use_verbose_naming)
+        action_name: str = format_action_name(mtar_file_name, gani_index, h_idx, d_idx, use_verbose_naming, gani_name=gani_name_segment)
         action: bpy.types.Action = bpy.data.actions.new(name=action_name)
         gani_actions.append(action)
         Debug.log(f"Created action: {action_name}")
@@ -629,15 +635,20 @@ def create_animation_actions(
         track_metadata_list = TrackMetaData.from_gani_tracks(gani_tracks, track_mini_header.segment_headers)
         store_track_metadata_on_action(action, track_metadata_list, include_segments=False, include_hash=False)
         
-        # Store the path hash from the file header for re-export
-        file_header = all_file_headers[gani_index]
+        # Store gani_path for re-export: full asset path if unhashed, raw decimal hash string otherwise
         if hasattr(file_header, 'path'):
-            # Store as string because PathCode64 is too large for Blender's int type
-            action["gani_path_hash"] = str(file_header.path)
-            action.id_properties_ui("gani_path_hash").update(
-                description="PathCode64 hash from MTAR file header (stored as string)"
-            )
-            Debug.log(f"  Stored path hash: 0x{file_header.path:016X}")
+            if gani_full_path is not None:
+                action["gani_path"] = gani_full_path
+                action.id_properties_ui("gani_path").update(
+                    description="Full asset path for this GANI (unhashed from MTAR file header)"
+                )
+                Debug.log(f"  Stored gani_path (unhashed): {gani_full_path}")
+            else:
+                action["gani_path"] = str(file_header.path)
+                action.id_properties_ui("gani_path").update(
+                    description="PathCode64 hash from MTAR file header (stored as decimal string)"
+                )
+                Debug.log(f"  Stored gani_path (hash): 0x{file_header.path:016X}")
 
         # Store motion events if present
         if gani_index < len(all_motion_events):
@@ -676,7 +687,8 @@ def create_motion_points_animation_actions(
     all_motion_point_track_headers: List[Optional[TrackHeader]],
     all_file_headers: List[MtarTableList2],
     path_to_indices: Dict[int, Tuple[int, int]],
-    use_verbose_naming: bool
+    use_verbose_naming: bool,
+    gani_hash_dict: Optional[Dict[int, str]] = None
 ) -> List[Optional[bpy.types.Action]]:
     """Create Blender animation actions for motion points from MTAR data.
     
@@ -725,8 +737,11 @@ def create_motion_points_animation_actions(
         h_idx, d_idx = path_to_indices.get(file_header.path, (0, 0))
         if file_header.path not in path_to_indices:
             Debug.log_warning(f"Missing path hash mapping for motion points GANI: 0x{file_header.path:016X}, using h0_d0")
+
+        # Resolve GANI path hash to readable name if dictionary provided
+        gani_full_path, gani_name_segment = resolve_gani_name_segment(file_header, gani_hash_dict)
         
-        action_name: str = format_action_name(mtar_file_name, gani_index, h_idx, d_idx, use_verbose_naming, is_motion_points=True)
+        action_name: str = format_action_name(mtar_file_name, gani_index, h_idx, d_idx, use_verbose_naming, is_motion_points=True, gani_name=gani_name_segment)
         action: bpy.types.Action = bpy.data.actions.new(name=action_name)
         motion_point_actions.append(action)
         Debug.log(f"  Created action: {action_name}")
@@ -744,6 +759,13 @@ def create_motion_points_animation_actions(
         motion_point_track_header: TrackHeader = all_motion_point_track_headers[gani_index]
         if motion_point_track_header is not None:
             store_track_header_properties_on_action(action, motion_point_track_header)
+
+        # Store gani_path for NLA strip naming consistency with main animation actions
+        if hasattr(file_header, 'path'):
+            if gani_full_path is not None:
+                action["gani_path"] = gani_full_path
+            else:
+                action["gani_path"] = str(file_header.path)
         
         # =============================
 
@@ -855,7 +877,13 @@ def create_nla_strips_for_actions(
             # Look up h/d indices from path hash
             file_header = all_file_headers[index]
             h_idx, d_idx = path_to_indices.get(file_header.path, (0, 0))
-            strip.name = format_strip_name(mtar_file_name, index, h_idx, d_idx, use_verbose_naming, is_motion_points=is_motion_points)
+            # Determine gani_name from action's gani_path property (if a readable path)
+            gani_name_segment: Optional[str] = None
+            if "gani_path" in action.keys():
+                gani_path_val = str(action["gani_path"])
+                if not is_gani_path_a_hash(gani_path_val):
+                    gani_name_segment = extract_gani_name_from_path(gani_path_val)
+            strip.name = format_strip_name(mtar_file_name, index, h_idx, d_idx, use_verbose_naming, is_motion_points=is_motion_points, gani_name=gani_name_segment)
             # strip.frame_start = int(current_frame_offset)
             strip.frame_end = strip.frame_start + action_length
             strip.action_frame_start = 0
@@ -1539,7 +1567,8 @@ def import_mtar(
         track_mapping: Optional[Dict[str, BoneParameters]] = None, 
         gani_indices: Optional[List[int]] = None, 
         custom_rig: Optional[bpy.types.Object] = None, 
-        strip_padding: int = 10) -> Tuple[Dict[str, str], bpy.types.Object]:
+        strip_padding: int = 10,
+        gani_hash_dict: Optional[Dict[int, str]] = None) -> Tuple[Dict[str, str], bpy.types.Object]:
     """Import MTAR animation data and create corresponding objects and animations.
     
     Args:
@@ -1550,9 +1579,10 @@ def import_mtar(
         gani_indices: List of GANI indices to import (None = import all, [] = import nothing)
         custom_rig: Optional Rigify armature to connect imported animation to
         strip_padding: Number of frames to insert between animation strips (default: 10)
+        gani_hash_dict: Optional pre-loaded GANI path hash dictionary for name resolution
     """
     # Import the mtar data
-    result, imported_armature = import_mtar_data(context, filepath, frig, track_mapping, gani_indices, custom_rig, strip_padding)
+    result, imported_armature = import_mtar_data(context, filepath, frig, track_mapping, gani_indices, custom_rig, strip_padding, gani_hash_dict=gani_hash_dict)
     
     # Set up rig constraints if custom rig is provided
     if custom_rig and imported_armature:
@@ -1567,7 +1597,8 @@ def import_mtar_data(
         track_mapping: Optional[Dict[str, BoneParameters]] = None, 
         gani_indices: Optional[List[int]] = None, 
         custom_rig: Optional[bpy.types.Object] = None, 
-        strip_padding: int = 10) -> Tuple[Dict[str, str], bpy.types.Object]:
+        strip_padding: int = 10,
+        gani_hash_dict: Optional[Dict[int, str]] = None) -> Tuple[Dict[str, str], bpy.types.Object]:
     """Import MTAR animation data and create corresponding objects and animations.
     
     Each GANI file in the MTAR becomes one Blender action.
@@ -1726,7 +1757,8 @@ def import_mtar_data(
         layout_track,
         all_motion_events,
         path_to_indices,
-        use_verbose_naming
+        use_verbose_naming,
+        gani_hash_dict=gani_hash_dict
     )
     
     # Create and setup the armature with animation data (optional secondary task)
@@ -1754,7 +1786,8 @@ def import_mtar_data(
         all_motion_point_track_headers,
         all_file_headers,
         path_to_indices,
-        use_verbose_naming
+        use_verbose_naming,
+        gani_hash_dict=gani_hash_dict
     )
     
     # Create and setup motion points armature with animation data (optional secondary task)

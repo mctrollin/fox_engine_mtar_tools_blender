@@ -189,6 +189,7 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
                 with Debug.busy_cursor():
                     # Export MTAR with layout track extracted from metadata
                     export_filepath_abs = bpy.path.abspath(export_props.filepath)
+
                     result = export_mtar(
                         context=context,
                         filepath=export_filepath_abs,

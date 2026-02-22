@@ -83,15 +83,9 @@ class MTAR_PT_ExportPanel(Panel):
 
             # Custom path hash export option
             row_path_hash = adv_box.box()
-            draw_bool_prop_checkbox_icon(row_path_hash, export_props, "custom_path_hashes")
-            if export_props.custom_path_hashes:
-                # Show base path text field with required label
-                row_path_hash.prop(export_props, "custom_path_base", text="")
-                # Warn if Hash Generator executable is not configured in settings
-                if not settings_props.hash_generator_exe_path:
-                    warn_box = row_path_hash.box()
-                    warn_box.label(text="Hash Generator not configured", icon='ERROR')
-                    warn_box.label(text="Configure 'Hash Generator Executable' in MTAR Settings → Show Advanced Settings")
+            draw_bool_prop_checkbox_icon(row_path_hash, export_props, "treat_hashes_as_names")
+            # Always show base path — it applies to invalid paths and NLA fallbacks regardless of the flag above
+            row_path_hash.prop(export_props, "custom_path_base", text="")
 
             # Export info file option
             draw_bool_prop_checkbox_icon(row_path_hash, export_props, "info_file")

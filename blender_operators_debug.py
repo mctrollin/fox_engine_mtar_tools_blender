@@ -5,19 +5,27 @@ This module contains operator classes for debugging and inspecting transforms,
 as well as interfacing with the external hash generator executable.
 """
 
-from typing import TYPE_CHECKING
+# pyright: reportInvalidTypeForm=false
+
+from typing import Set
 import math
 import re
 
 import bpy
 from bpy.types import Operator, Context
-from bpy.props import StringProperty, BoolProperty
+from bpy.props import StringProperty
 
 from .py_utilities.utilities_transforms import get_world_space_transform, get_local_space_transform
 from .py_utilities.utilities_logging import Debug
 from .py_utilities.utilities_debug import create_or_update_dummy_object
-from .py_utilities.utilities_blender_animation import assign_action_to_datablock, remove_action_from_datablock
+from .py_utilities.utilities_blender_animation import assign_action_to_datablock, find_layout_track_action, remove_action_from_datablock
 from .py_utilities.utilities_fcurve_processing import decimate_import_fcurves_to_bezier, debug_setup_graph_context_for_manual_test
+from .py_utilities.utilities_hashing_cityhash import (
+    hash_file_name,
+    hash_file_name_legacy,
+    hash_file_extension,
+    hash_file_name_with_ext,
+)
 # Import bake helpers from tools module (keep top-level to prevent import loops)
 from .py_tools.tools_animation_bake import (
     bake_armature_constraints_to_keyframes,
@@ -26,7 +34,7 @@ from .py_tools.tools_animation_bake import (
     bake_constraints_and_decimate_fcurves,
     clear_armature_transforms,
 )
-from .py_tools.tools_hash_generator import hash_filename_all_modes
+from .py_tools.tools_hash_generator import hash_filename_all_modes_by_external_generator, validate_executable_path_by_external_generator
 
 # Transform Debug Operators ##################################################################
 
@@ -464,15 +472,11 @@ class MTAR_OT_DebugRunBake(Operator):
                             try:
                                 decimate_err = 0.0
                                 decimate_skip_types = ''
-                                clean_thresh = 0.0
                                 if hasattr(context.scene, 'mtar_properties'):
                                     ip = getattr(context.scene.mtar_properties, 'import_props', None)
-                                    ep = getattr(context.scene.mtar_properties, 'export_props', None)
                                     if ip is not None:
                                         decimate_err = getattr(ip, 'import_bake_decimate_fcurve_error', 0.0)
                                         decimate_skip_types = getattr(ip, 'import_bake_decimate_skip_types', '')
-                                    if ep is not None:
-                                        clean_thresh = getattr(ep, 'export_fcurve_clean_threshold', 0.0)
 
                                 # Decimate via decimate_import_fcurves_to_bezier (operates on armature level)
                                 if decimate_err > 0.0:
@@ -560,69 +564,141 @@ class MTAR_OT_DebugRunBake(Operator):
 
 # External Hash Generator Operators ############################################################
 
-class MTAR_OT_GenerateHashWithExternalExe(Operator):
-    """Generate hash for input filename using external executable."""
-    bl_idname = "mtar.generate_hash_with_external_exe"
-    bl_label = "Hash"
-    bl_description = "Hash input filename using the specified external executable (all modes)"
-    
-    def execute(self, context: Context) -> set:
-        """Execute the hash conversion."""
-        
+class MTAR_OT_ValidateHashGeneratorExe(Operator):
+    """Validate hash generator executable path (debug panel)."""
+    bl_idname = "mtar.validate_hash_generator_exe"
+    bl_label = "Validate Executable"
+    bl_description = "Validate that the executable path is valid and accessible"
+
+    def execute(self, context: Context) -> Set[str]:
         props = context.scene.mtar_debug_hash_properties
-        # The executable path is read strictly from main scene settings
-        if not hasattr(context.scene, 'mtar_properties') or not context.scene.mtar_properties.settings_props.hash_generator_exe_path:
-            Debug.report_and_log(self, 'ERROR', "Hash Generator executable path not configured in MTAR Settings")
-            props.hash_generator_error = "Hash Generator executable path not configured in MTAR Settings"
-            self._clear_results(props)
-            return {'CANCELLED'}
-        exe_path = context.scene.mtar_properties.settings_props.hash_generator_exe_path
-        
-        # Validate inputs
+        exe_path = props.hash_generator_exe_path
         if not exe_path:
-            Debug.report_and_log(self, 'ERROR', "No executable path specified")
-            props.hash_generator_error = "No executable path specified"
-            self._clear_results(props)
+            Debug.report_and_log(self, 'ERROR', "Executable path not configured")
             return {'CANCELLED'}
-        
+        is_valid, error_msg = validate_executable_path_by_external_generator(exe_path)
+        if is_valid:
+            Debug.report_and_log(self, 'INFO', "Executable path is valid")
+            return {'FINISHED'}
+        else:
+            Debug.report_and_log(self, 'ERROR', f"Invalid executable: {error_msg}")
+            return {'CANCELLED'}
+
+
+class MTAR_OT_GenerateHash(Operator):
+    """Generate hash for input filename using both Python CityHash and external executable."""
+    bl_idname = "mtar.generate_hash"
+    bl_label = "Hash"
+    bl_description = (
+        "Hash input filename using Python CityHash (always) and "
+        "the external executable (when configured) — all modes"
+    )
+
+    def execute(self, context: Context) -> set:
+        """Execute the hash computation."""
+        props = context.scene.mtar_debug_hash_properties
+
         if not props.hash_generator_input:
             Debug.report_and_log(self, 'ERROR', "No input filename provided")
             props.hash_generator_error = "No input filename provided"
-            self._clear_results(props)
+            self._clear_exe_results(props)
+            self._clear_py_results(props)
             return {'CANCELLED'}
-        
-        # Run hash conversion (all modes)
-        success, results, error = hash_filename_all_modes(
-            exe_path,
-            props.hash_generator_input
-        )
-        
-        # Store results
+
+        self._run_python(props)
+        self._run_exe(context, props)
+
+        Debug.report_and_log(self, 'INFO', "Hash computation complete")
+        return {'FINISHED'}
+
+    # ------------------------------------------------------------------
+    # Python CityHash path
+    # ------------------------------------------------------------------
+
+    def _run_python(self, props) -> None:
+        """Compute all four hash variants using the pure-Python implementation."""
+        text = props.hash_generator_input
+        try:
+            h_file = hash_file_name(text)
+            props.hash_generator_py_hash_filename = format(h_file, 'x')
+            props.hash_generator_py_hash_filename_dec = str(h_file)
+
+            # Extension hash: extract extension after last '.'
+            dot = text.rfind('.')
+            if dot != -1:
+                ext = text[dot + 1:]
+                h_ext = hash_file_extension(ext)
+                props.hash_generator_py_hash_extension = format(h_ext, 'x')
+                props.hash_generator_py_hash_extension_dec = str(h_ext)
+            else:
+                props.hash_generator_py_hash_extension = ""
+                props.hash_generator_py_hash_extension_dec = ""
+
+            h_hwe = hash_file_name_with_ext(text)
+            props.hash_generator_py_hash_with_extension = format(h_hwe, 'x')
+            props.hash_generator_py_hash_with_extension_dec = str(h_hwe)
+
+            h_leg = hash_file_name_legacy(text)
+            props.hash_generator_py_hash_legacy = format(h_leg, 'x')
+            props.hash_generator_py_hash_legacy_dec = str(h_leg)
+
+            props.hash_generator_py_error = ""
+        except Exception as exc:
+            self._clear_py_results(props)
+            props.hash_generator_py_error = str(exc)
+            Debug.report_and_log(self, 'ERROR', f"Python hash failed: {exc}")
+
+    # ------------------------------------------------------------------
+    # External exe path
+    # ------------------------------------------------------------------
+
+    def _run_exe(self, context: Context, props) -> None:
+        """Compute hash variants using the external executable (if configured)."""
+        exe_path = props.hash_generator_exe_path
+        if not exe_path:
+            self._clear_exe_results(props)
+            return
+
+        success, results, error = hash_filename_all_modes_by_external_generator(exe_path, props.hash_generator_input)
+
         props.hash_generator_hash_filename = results.get('filename', '')
         props.hash_generator_hash_extension = results.get('extension', '')
         props.hash_generator_hash_with_extension = results.get('with_extension', '')
         props.hash_generator_hash_legacy = results.get('legacy', '')
-        # Decimal representations (may be empty strings if parsing failed)
         props.hash_generator_hash_filename_dec = results.get('filename_dec', '')
         props.hash_generator_hash_extension_dec = results.get('extension_dec', '')
         props.hash_generator_hash_with_extension_dec = results.get('with_extension_dec', '')
         props.hash_generator_hash_legacy_dec = results.get('legacy_dec', '')
-        
+
         if success:
             props.hash_generator_error = ""
-            Debug.report_and_log(self, 'INFO', "Hash conversion successful")
-            return {'FINISHED'}
         else:
             props.hash_generator_error = error
-            Debug.report_and_log(self, 'ERROR', f"Hash conversion failed: {error}")
-            return {'CANCELLED'}
-    
-    def _clear_results(self, props) -> None:
-        """Clear all result properties."""
+            Debug.report_and_log(self, 'WARNING', f"Exe hash failed: {error}")
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _clear_exe_results(self, props) -> None:
         props.hash_generator_hash_filename = ""
         props.hash_generator_hash_extension = ""
         props.hash_generator_hash_with_extension = ""
         props.hash_generator_hash_legacy = ""
+        props.hash_generator_hash_filename_dec = ""
+        props.hash_generator_hash_extension_dec = ""
+        props.hash_generator_hash_with_extension_dec = ""
+        props.hash_generator_hash_legacy_dec = ""
+
+    def _clear_py_results(self, props) -> None:
+        props.hash_generator_py_hash_filename = ""
+        props.hash_generator_py_hash_filename_dec = ""
+        props.hash_generator_py_hash_extension = ""
+        props.hash_generator_py_hash_extension_dec = ""
+        props.hash_generator_py_hash_with_extension = ""
+        props.hash_generator_py_hash_with_extension_dec = ""
+        props.hash_generator_py_hash_legacy = ""
+        props.hash_generator_py_hash_legacy_dec = ""
 
 
 class MTAR_OT_CopyHashGeneratorOutput(Operator):
@@ -651,7 +727,16 @@ class MTAR_OT_CopyHashGeneratorOutput(Operator):
             'filename_dec': props.hash_generator_hash_filename_dec,
             'extension_dec': props.hash_generator_hash_extension_dec,
             'with_extension_dec': props.hash_generator_hash_with_extension_dec,
-            'legacy_dec': props.hash_generator_hash_legacy_dec
+            'legacy_dec': props.hash_generator_hash_legacy_dec,
+            # Python CityHash results
+            'py_filename': props.hash_generator_py_hash_filename,
+            'py_extension': props.hash_generator_py_hash_extension,
+            'py_with_extension': props.hash_generator_py_hash_with_extension,
+            'py_legacy': props.hash_generator_py_hash_legacy,
+            'py_filename_dec': props.hash_generator_py_hash_filename_dec,
+            'py_extension_dec': props.hash_generator_py_hash_extension_dec,
+            'py_with_extension_dec': props.hash_generator_py_hash_with_extension_dec,
+            'py_legacy_dec': props.hash_generator_py_hash_legacy_dec,
         }
         
         output = result_map.get(self.result_key, '')
@@ -681,11 +766,26 @@ class MTAR_OT_ClearHashGeneratorResults(Operator):
         props = context.scene.mtar_debug_hash_properties
         
         props.hash_generator_input = ""
+        # Exe results
         props.hash_generator_hash_filename = ""
         props.hash_generator_hash_extension = ""
         props.hash_generator_hash_with_extension = ""
         props.hash_generator_hash_legacy = ""
+        props.hash_generator_hash_filename_dec = ""
+        props.hash_generator_hash_extension_dec = ""
+        props.hash_generator_hash_with_extension_dec = ""
+        props.hash_generator_hash_legacy_dec = ""
         props.hash_generator_error = ""
+        # Python CityHash results
+        props.hash_generator_py_hash_filename = ""
+        props.hash_generator_py_hash_filename_dec = ""
+        props.hash_generator_py_hash_extension = ""
+        props.hash_generator_py_hash_extension_dec = ""
+        props.hash_generator_py_hash_with_extension = ""
+        props.hash_generator_py_hash_with_extension_dec = ""
+        props.hash_generator_py_hash_legacy = ""
+        props.hash_generator_py_hash_legacy_dec = ""
+        props.hash_generator_py_error = ""
         
         Debug.report_and_log(self, 'INFO', "Hash Generator cleared")
         return {'FINISHED'}

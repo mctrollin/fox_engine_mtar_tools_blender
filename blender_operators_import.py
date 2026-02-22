@@ -12,7 +12,8 @@ from bpy.types import Operator, Context
 
 from .py_utilities.utilities_logging import Debug
 from .py_utilities.utilities_blender_state import nla_tweak_guard
-from .py_utilities.utilities_rig_hash import unhash_rig_type
+from .py_utilities.utilities_hashing import unhash_rig_type
+from .py_tools.tools_hash_generator import build_gani_hash_dictionary
 from .py_utilities.utilities_parsing import parse_index_selection
 from .py_utilities.utilities_blender_animation import find_layout_track_action
 
@@ -28,7 +29,7 @@ from .py_tools.tools_mtar_importer import import_mtar
 # NOTE: import top-level to avoid runtime import cycles; tools_blender_animation_bake
 # contains bake + cleanup helpers used by import/debug operators.
 from .py_tools.tools_animation_bake import bake_constraints_and_decimate_fcurves
-from .py_tools.tools_hash_generator import validate_executable_path
+
 
 
 class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
@@ -353,12 +354,22 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
         # Initialize UI progress state
         Debug.update_progress(0, "Starting import...")
 
+        # Build GANI hash dictionary on-the-fly from mtar_dictionary.txt using Python CityHash
+        gani_hash_dict = None
+        if import_props.import_use_hash_dictionary:
+            addon_dir = os.path.dirname(os.path.abspath(__file__))
+            dict_path = os.path.join(addon_dir, 'dic', 'mtar_dictionary.txt')
+            Debug.start_timer("Build GANI hash dict (import)")
+            gani_hash_dict = build_gani_hash_dictionary(dict_path)
+            Debug.stop_timer("Build GANI hash dict (import)")
+            Debug.log(f"Built GANI hash dictionary: {len(gani_hash_dict)} entries")
+
         # NLA tweak mode guard — AnimData.action is read-only while use_tweak_mode is True.
         with nla_tweak_guard(custom_rig):
             # Import MTAR animation
             try:
                 with Debug.busy_cursor():
-                    import_result: Tuple[Set[str], Optional[bpy.types.Object]] = import_mtar(context, mtar_filepath_abs, frig_data, track_mapping, gani_indices, custom_rig, import_props.strip_padding)
+                    import_result: Tuple[Set[str], Optional[bpy.types.Object]] = import_mtar(context, mtar_filepath_abs, frig_data, track_mapping, gani_indices, custom_rig, import_props.strip_padding, gani_hash_dict=gani_hash_dict)
                     
                     # Extract result and imported armature
                     if isinstance(import_result, tuple):
@@ -430,29 +441,3 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
 
 
 
-class MTAR_OT_ValidateHashGeneratorExe(Operator):
-    """Validate hash generator executable path."""
-    bl_idname = "mtar.validate_hash_generator_exe"
-    bl_label = "Validate Executable"
-    bl_description = "Validate that the executable path is valid and accessible"
-    
-    def execute(self, context: Context) -> Set[str]:
-        """Execute the validation."""
-        
-        # Read exe path from main scene properties (no fallback)
-        scene: bpy.types.Scene = context.scene
-        if not hasattr(scene, 'mtar_properties') or not scene.mtar_properties.settings_props.hash_generator_exe_path:
-            Debug.report_and_log(self, 'ERROR', "Executable path not configured in MTAR Settings")
-            return {'CANCELLED'}
-        exe_path: str = scene.mtar_properties.settings_props.hash_generator_exe_path
-        
-        is_valid: bool
-        error_msg: str
-        is_valid, error_msg = validate_executable_path(exe_path)
-        
-        if is_valid:
-            Debug.report_and_log(self, 'INFO', "Executable path is valid")
-            return {'FINISHED'}
-        else:
-            Debug.report_and_log(self, 'ERROR', f"Invalid executable: {error_msg}")
-            return {'CANCELLED'}

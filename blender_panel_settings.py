@@ -45,14 +45,6 @@ class MTAR_PT_SettingsPanel(Panel):
             # Sorting option for GANI (advanced)
             draw_bool_prop_checkbox_icon(adv_box, settings_props, "sort_gani", text="Sort GANI", toggle=True)
 
-            # Hash Generator executable
-            conv_box = adv_box.box()
-            conv_box.label(text="External Hash Generator", icon='FILE_SCRIPT')
-            conv_box.label(text="Needed for custom hashes.")
-            row = conv_box.row(align=True)
-            row.prop(settings_props, "hash_generator_exe_path", text="")
-            row.operator("mtar.validate_hash_generator_exe", text="", icon='FORCE_HARMONIC')
-            conv_box.label(text="https://mgsvmoddingwiki.github.io/GzsTool/")
 
         box = layout.box()
         box.label(text="Logging", icon='PREFERENCES')
