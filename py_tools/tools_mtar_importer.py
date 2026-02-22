@@ -6,7 +6,7 @@ import bpy
 from mathutils import Quaternion, Vector
 
 from ..py_utilities.utilities_logging import Debug
-from ..py_utilities.utilities_hashing import unhash_rig_type, unhash_gani_path, is_gani_path_a_hash
+from ..py_utilities.utilities_hashing import unhash_rig_type, is_gani_path_a_hash
 from ..py_utilities.utilities_transforms import (
     calculate_directional_location,
     prepare_rotation_offset_quats,
@@ -25,7 +25,12 @@ from ..py_utilities.utilities_blender_animation import (
 )
 from ..py_utilities.utilities_naming import format_action_name, format_strip_name, resolve_gani_name_segment, extract_gani_name_from_path
 
-from ..py_foxwrap.foxwrap_metadata import TrackMetaData, store_track_header_properties_on_action, make_track_property_key
+from ..py_foxwrap.foxwrap_metadata import (
+    TrackMetaData,
+    store_track_header_properties_on_action,
+    make_track_property_key,
+)
+from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper, TrackDataBlobWrapper, Tracks
 from ..py_foxwrap.foxwrap_motionevent import store_motion_events_on_action
 from ..py_foxwrap.foxwrap_mtar_reader import MtarReader
@@ -294,7 +299,6 @@ def import_keyframes_track(
     context: bpy.types.Context, 
     action: bpy.types.Action, 
     keyframes_track: TrackDataBlobWrapper,
-    rig_unit_type: Optional[RigUnitType] = None
 ) -> int:
     """Import a single track data blob into a Blender action.
     
@@ -302,7 +306,6 @@ def import_keyframes_track(
         context: Blender context (used to access import properties like ik_up_distance)
         action: Blender action to add keyframes to
         keyframes_track: TrackDataBlobWrapper object containing animation data
-        rig_unit_type: Optional RigUnitType from FRIG (reserved for future per-track-type handling)
         
     Returns:
         Maximum frame number encountered in this track
@@ -515,7 +518,7 @@ def import_gani_track(context: bpy.types.Context, action: bpy.types.Action, gani
     
     # Process each keyframes track (segment) in the GaniTrack
     for keyframes_track in gani_track.segments_track_data:
-        track_max_frame: int = import_keyframes_track(context, action, keyframes_track, gani_track.rig_unit_type)
+        track_max_frame: int = import_keyframes_track(context, action, keyframes_track)
         max_frame = max(max_frame, track_max_frame)
     
     return max_frame
@@ -635,20 +638,20 @@ def create_animation_actions(
         track_metadata_list = TrackMetaData.from_gani_tracks(gani_tracks, track_mini_header.segment_headers)
         store_track_metadata_on_action(action, track_metadata_list, include_segments=False, include_hash=False)
         
-        # Store gani_path for re-export: full asset path if unhashed, raw decimal hash string otherwise
+        # Store mtar_const.TABL_PATH for re-export: full asset path if unhashed, raw decimal hash string otherwise
         if hasattr(file_header, 'path'):
             if gani_full_path is not None:
-                action["gani_path"] = gani_full_path
-                action.id_properties_ui("gani_path").update(
+                action[mtar_const.TABL_PATH] = gani_full_path
+                action.id_properties_ui(mtar_const.TABL_PATH).update(
                     description="Full asset path for this GANI (unhashed from MTAR file header)"
                 )
-                Debug.log(f"  Stored gani_path (unhashed): {gani_full_path}")
+                Debug.log(f"  Stored {mtar_const.TABL_PATH} (unhashed): {gani_full_path}")
             else:
-                action["gani_path"] = str(file_header.path)
-                action.id_properties_ui("gani_path").update(
+                action[mtar_const.TABL_PATH] = str(file_header.path)
+                action.id_properties_ui(mtar_const.TABL_PATH).update(
                     description="PathCode64 hash from MTAR file header (stored as decimal string)"
                 )
-                Debug.log(f"  Stored gani_path (hash): 0x{file_header.path:016X}")
+                Debug.log(f"  Stored {mtar_const.TABL_PATH} (hash): 0x{file_header.path:016X}")
 
         # Store motion events if present
         if gani_index < len(all_motion_events):
@@ -760,12 +763,12 @@ def create_motion_points_animation_actions(
         if motion_point_track_header is not None:
             store_track_header_properties_on_action(action, motion_point_track_header)
 
-        # Store gani_path for NLA strip naming consistency with main animation actions
+        # Store mtar_const.TABL_PATH for NLA strip naming consistency with main animation actions
         if hasattr(file_header, 'path'):
             if gani_full_path is not None:
-                action["gani_path"] = gani_full_path
+                action[mtar_const.TABL_PATH] = gani_full_path
             else:
-                action["gani_path"] = str(file_header.path)
+                action[mtar_const.TABL_PATH] = str(file_header.path)
         
         # =============================
 
@@ -877,10 +880,10 @@ def create_nla_strips_for_actions(
             # Look up h/d indices from path hash
             file_header = all_file_headers[index]
             h_idx, d_idx = path_to_indices.get(file_header.path, (0, 0))
-            # Determine gani_name from action's gani_path property (if a readable path)
+            # Determine gani_name from action's mtar_const.TABL_PATH property (if a readable path)
             gani_name_segment: Optional[str] = None
-            if "gani_path" in action.keys():
-                gani_path_val = str(action["gani_path"])
+            if mtar_const.TABL_PATH in action.keys():
+                gani_path_val = str(action[mtar_const.TABL_PATH])
                 if not is_gani_path_a_hash(gani_path_val):
                     gani_name_segment = extract_gani_name_from_path(gani_path_val)
             strip.name = format_strip_name(mtar_file_name, index, h_idx, d_idx, use_verbose_naming, is_motion_points=is_motion_points, gani_name=gani_name_segment)

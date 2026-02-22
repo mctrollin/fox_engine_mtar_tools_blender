@@ -12,12 +12,23 @@ import copy
 import bpy
 
 from ..py_fox.fox_gani_types import SegmentType, TrackHeader, TrackUnitFlags, TrackUnit, Gani2TrackData
+from ..py_fox import fox_gani_constants as gani_const
+from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_fox.fox_frig_types import RigUnitType
 from ..py_fox.fox_misc_types import StrCode32
 from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper
 from ..py_utilities.utilities_logging import Debug
 from ..py_utilities.utilities_blender_animation import action_has_fcurves, iter_action_fcurves, build_data_path_for_bone
 from ..py_utilities.utilities_hashing import unhash_rig_type
+
+
+# Action property key constants -------------------------------------------------------------
+# These strings are used as Blender action custom-property keys throughout the
+# importer/exporter. The field names are derived from Fox Engine binary templates.
+# (Constants imported from py_fox layer).
+
+TRACK_PROP_PREFIX = "track_"  # used by make_/parse_track_property_key
+EVENT_PROP_PREFIX = "event_"  # used by make_/parse_event_property_key
 
 
 # Custom Property Key Utilities #############################################################
@@ -35,7 +46,7 @@ def make_track_property_key(track_idx: int, track_name: str) -> str:
     Returns:
         Property key string (e.g., "track_000_SKL_000_ROOT")
     """
-    return f"track_{track_idx:03d}_{track_name}"
+    return f"{TRACK_PROP_PREFIX}{track_idx:03d}_{track_name}"
 
 
 def parse_track_property_key(key: str) -> Optional[Tuple[int, str]]:
@@ -49,7 +60,7 @@ def parse_track_property_key(key: str) -> Optional[Tuple[int, str]]:
     Returns:
         Tuple of (track_idx, track_name) if valid, None otherwise
     """
-    if not key.startswith('track_'):
+    if not key.startswith(TRACK_PROP_PREFIX):
         return None
     
     parts = key.split('_', 2)
@@ -74,7 +85,7 @@ def make_event_property_key(event_idx: int, category_name: str) -> str:
     Returns:
         Property key string (e.g., "event_000_ag")
     """
-    return f"event_{event_idx:03d}_{category_name}"
+    return f"{EVENT_PROP_PREFIX}{event_idx:03d}_{category_name}"
 
 
 def parse_event_property_key(key: str) -> Optional[Tuple[int, str]]:
@@ -88,7 +99,7 @@ def parse_event_property_key(key: str) -> Optional[Tuple[int, str]]:
     Returns:
         Tuple of (event_idx, category_name) if valid, None otherwise
     """
-    if not key.startswith('event_'):
+    if not key.startswith(EVENT_PROP_PREFIX):
         return None
     
     parts = key.split('_', 2)
@@ -152,26 +163,26 @@ def store_track_header_properties_on_action(action: bpy.types.Action, track_head
     
     Args:
         action: The Blender action to store properties on
-        track_header: TrackHeader object containing t_id, unknown_a, unknown_b, frame_count, frame_rate
+        track_header: TrackHeader object containing Id, UnknownA, UnknownB, FrameCount, FrameRate
     """
-    action["t_id"] = int(track_header.t_id)
-    action.id_properties_ui("t_id").update(
-        description="Track header t_id field"
+    action[gani_const.TRKH_ID] = int(track_header.t_id)
+    action.id_properties_ui(gani_const.TRKH_ID).update(
+        description="Track header Id field"
     )
     
-    action["unknown_a"] = int(track_header.unknown_a)
-    action.id_properties_ui("unknown_a").update(
-        description="Track header unknown_a field"
+    action[gani_const.TRKH_UNKNOWN_A] = int(track_header.unknown_a)
+    action.id_properties_ui(gani_const.TRKH_UNKNOWN_A).update(
+        description="Track header UnknownA field"
     )
     
-    action["unknown_b"] = int(track_header.unknown_b)
-    action.id_properties_ui("unknown_b").update(
-        description="Track header unknown_b field"
+    action[gani_const.TRKH_UNKNOWN_B] = int(track_header.unknown_b)
+    action.id_properties_ui(gani_const.TRKH_UNKNOWN_B).update(
+        description="Track header UnknownB field"
     )
     
-    action["frame_rate"] = int(track_header.frame_rate)
-    action.id_properties_ui("frame_rate").update(
-        description="Track header frame_rate field"
+    action[gani_const.TRKH_FRAME_RATE] = int(track_header.frame_rate)
+    action.id_properties_ui(gani_const.TRKH_FRAME_RATE).update(
+        description="Track header FrameRate field"
     )
 
 
@@ -186,36 +197,36 @@ def read_track_header_properties_from_action(action: Optional[bpy.types.Action])
         action: The Blender action to read properties from (can be None)
         
     Returns:
-        Dictionary with t_id, unknown_a, unknown_b, frame_count, frame_rate
+        Dictionary with Id, UnknownA, UnknownB, FrameCount, FrameRate
     """
     result = {
-        't_id': 0,
-        'unknown_a': 0,
-        'unknown_b': 0,
-        'frame_count': 0,
-        'frame_rate': 60
+        gani_const.TRKH_ID: 0,
+        gani_const.TRKH_UNKNOWN_A: 0,
+        gani_const.TRKH_UNKNOWN_B: 0,
+        gani_const.TRKH_FRAME_COUNT: 0,
+        gani_const.TRKH_FRAME_RATE: 60
     }
     
     if action:
-        if "t_id" in action.keys():
-            result['t_id'] = int(action["t_id"])
-        if "unknown_a" in action.keys():
-            result['unknown_a'] = int(action["unknown_a"])
-        if "unknown_b" in action.keys():
-            result['unknown_b'] = int(action["unknown_b"])
+        if gani_const.TRKH_ID in action.keys():
+            result[gani_const.TRKH_ID] = int(action[gani_const.TRKH_ID])
+        if gani_const.TRKH_UNKNOWN_A in action.keys():
+            result[gani_const.TRKH_UNKNOWN_A] = int(action[gani_const.TRKH_UNKNOWN_A])
+        if gani_const.TRKH_UNKNOWN_B in action.keys():
+            result[gani_const.TRKH_UNKNOWN_B] = int(action[gani_const.TRKH_UNKNOWN_B])
         
-        # Read frame_count from manual frame range instead of custom property
+        # Read FrameCount from manual frame range instead of custom property
         # Use frame_end - frame_start to get the duration, then take absolute value
         # to handle negative time ranges (e.g., layout track at -100 to -50)
         if action.use_frame_range:
             frame_duration = int(action.frame_end - action.frame_start)
-            result['frame_count'] = abs(frame_duration)
-        elif "frame_count" in action.keys():
+            result[gani_const.TRKH_FRAME_COUNT] = abs(frame_duration)
+        elif gani_const.TRKH_FRAME_COUNT in action.keys():
             # Fallback: read from custom property if present (for backward compatibility)
-            result['frame_count'] = abs(int(action["frame_count"]))
+            result[gani_const.TRKH_FRAME_COUNT] = abs(int(action[gani_const.TRKH_FRAME_COUNT]))
         
-        if "frame_rate" in action.keys():
-            result['frame_rate'] = int(action["frame_rate"])
+        if gani_const.TRKH_FRAME_RATE in action.keys():
+            result[gani_const.TRKH_FRAME_RATE] = int(action[gani_const.TRKH_FRAME_RATE])
     
     return result
 

@@ -8,7 +8,11 @@ This module provides functions to store motion events from MTAR files as:
 from typing import List, Dict, Optional
 
 from ..py_utilities.utilities_logging import Debug
-from .foxwrap_metadata import make_event_property_key, iter_event_properties
+from .foxwrap_metadata import (
+    make_event_property_key,
+    iter_event_properties,
+)
+from ..py_fox import fox_gani_constants as gani_const
 
 from ..py_fox.fox_gani_types import EvpHeader, EvpData, EventUnitInfo, TimeSection
 from ..py_fox.fox_misc_types import StrCode32
@@ -34,8 +38,8 @@ def store_motion_events_on_action(action: 'bpy.types.Action', motion_events: Opt
     Debug.log(f"Storing {motion_events.count} motion event categor(ies) on action '{action.name}'")
 
     # Store version as a custom property
-    action["motion_events_version"] = motion_events.version
-    action.id_properties_ui("motion_events_version").update(
+    action[gani_const.EVPH_VERSION] = motion_events.version
+    action.id_properties_ui(gani_const.EVPH_VERSION).update(
         description="EvpHeader version from MTAR file"
     )
 
@@ -298,7 +302,7 @@ def read_motion_events_from_action(action: 'bpy.types.Action') -> Optional[EvpHe
         Debug.log(f"  Reconstructed category '{category_name}': {len(event_units)} event(s)")
 
     # Read stored version from action, default to 201207030 if not found
-    version = action.get("motion_events_version", 201207030)
+    version = action.get(gani_const.EVPH_VERSION, 201207030)
 
     # Create EvpHeader
     evp_header = EvpHeader(

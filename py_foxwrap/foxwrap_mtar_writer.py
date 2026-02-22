@@ -23,6 +23,7 @@ from .foxwrap_gani_writer import Gani2Writer
 from .foxwrap_misc import Tracks, TrackUnitWrapper
 from .foxwrap_misc_export import GaniData
 from .foxwrap_metadata import read_track_header_properties_from_action
+from ..py_fox import fox_mtar_constants as mtar_const
 
 from ..py_tools.tools_hash_generator import hash_animation_name_from_blender_context
 
@@ -46,7 +47,7 @@ class MtarWriter:
 
         Args:
             filepath: Path where the MTAR file should be written
-            treat_hashes_as_names: When True, raw hash strings in gani_path are treated as path
+            treat_hashes_as_names: When True, raw hash strings in the action's mtar_const.TABL_PATH custom property are treated as path
                 name components and combined with export_custom_path_base before re-hashing via
                 the generator. Has no effect on valid /Assets/ paths (always hashed directly)
                 or invalid non-/Assets/ paths (always combined with base regardless of this flag).
@@ -150,8 +151,8 @@ class MtarWriter:
         action = gani_data.tracks_data.action
         source = gani_data.tracks_data.source
 
-        if action and "gani_path" in action.keys():
-            gani_path_val = str(action["gani_path"])
+        if action and mtar_const.TABL_PATH in action.keys():
+            gani_path_val = str(action[mtar_const.TABL_PATH])
             if is_gani_path_a_hash(gani_path_val):
                 if self.treat_hashes_as_names:
                     return f"{self.export_custom_path_base}{gani_path_val}.gani"
@@ -214,15 +215,15 @@ class MtarWriter:
         """
         action = gani_data.tracks_data.action
 
-        # gani_path is required — abort if missing
-        if not action or "gani_path" not in action.keys():
+        # TABL_PATH is required — abort if missing
+        if not action or mtar_const.TABL_PATH not in action.keys():
             action_name = action.name if action else "None"
             raise ValueError(
-                f"Action '{action_name}' is missing the 'gani_path' custom property. "
+                f"Action '{action_name}' is missing the '{mtar_const.TABL_PATH}' custom property. "
                 "Re-import the MTAR with the current version to populate this property or add it yourself."
             )
 
-        gani_path_val: str = str(action["gani_path"])
+        gani_path_val: str = str(action[mtar_const.TABL_PATH])
 
         if is_gani_path_a_hash(gani_path_val):
             if not self.treat_hashes_as_names:

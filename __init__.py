@@ -1,13 +1,15 @@
-from typing import Set, TYPE_CHECKING
-
+from typing import TYPE_CHECKING
 import os
-import bpy
-from bpy.props import StringProperty, BoolProperty
-from bpy_extras.io_utils import ImportHelper
-from .py_utilities.utilities_logging import Debug
 import traceback
 
-from .py_tools.tools_mtar_importer import import_mtar
+import bpy
+from bpy.props import BoolProperty
+# from bpy_extras.io_utils import ImportHelper
+# from bpy.types import Context
+
+from .py_utilities.utilities_logging import Debug
+
+# from .py_tools.tools_mtar_importer import import_mtar
 from . import blender_panel_import
 from . import blender_panel_export
 from . import blender_panel_settings
@@ -15,9 +17,6 @@ from . import blender_properties
 
 blender_debug_module = None
 _debug_registered = False
-
-if TYPE_CHECKING:
-    from bpy.types import Context
 
 
 bl_info = {

@@ -31,6 +31,7 @@ from ..py_utilities.utilities_fcurve_processing import bake_and_clean_export_fcu
 
 from ..py_foxwrap.foxwrap_motionevent import read_motion_events_from_action
 from ..py_foxwrap.foxwrap_metadata import parse_action_track_metadata, read_track_header_properties_from_action
+from ..py_fox import fox_gani_constants as gani_const
 from ..py_foxwrap.foxwrap_metadata import TrackMetaData, merge_track_metadata, iter_track_properties, get_all_track_metadata_from_action
 from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper, Tracks, TrackDataBlobWrapper
 from ..py_foxwrap.foxwrap_mtar_writer import MtarWriter
@@ -164,17 +165,24 @@ def build_layout_track_from_metadata(track_segment_bone_mapping: TrackSegmentBon
     # Get header properties from layout_action if available
     header_props = read_track_header_properties_from_action(layout_action)
     
-    Debug.log(f"    Using layout header from action: t_id={header_props['t_id']}, unknown_a={header_props['unknown_a']}, unknown_b={header_props['unknown_b']}, frame_count={header_props['frame_count']}, frame_rate={header_props['frame_rate']}")
+    Debug.log(
+        f"    Using layout header from action: "
+        f"{gani_const.TRKH_ID}={header_props[gani_const.TRKH_ID]}, "
+        f"{gani_const.TRKH_UNKNOWN_A}={header_props[gani_const.TRKH_UNKNOWN_A]}, "
+        f"{gani_const.TRKH_UNKNOWN_B}={header_props[gani_const.TRKH_UNKNOWN_B]}, "
+        f"{gani_const.TRKH_FRAME_COUNT}={header_props[gani_const.TRKH_FRAME_COUNT]}, "
+        f"{gani_const.TRKH_FRAME_RATE}={header_props[gani_const.TRKH_FRAME_RATE]}"
+    )
     
     # Create TrackHeader
     header = TrackHeader(
         unit_count=len(track_units),
         segment_count=total_segments,
-        t_id=header_props['t_id'],
-        unknown_a=header_props['unknown_a'],
-        unknown_b=header_props['unknown_b'],
-        frame_count=header_props['frame_count'],
-        frame_rate=header_props['frame_rate'],
+        t_id=header_props[gani_const.TRKH_ID],
+        unknown_a=header_props[gani_const.TRKH_UNKNOWN_A],
+        unknown_b=header_props[gani_const.TRKH_UNKNOWN_B],
+        frame_count=header_props[gani_const.TRKH_FRAME_COUNT],
+        frame_rate=header_props[gani_const.TRKH_FRAME_RATE],
         unit_offsets=[]
     )
     
