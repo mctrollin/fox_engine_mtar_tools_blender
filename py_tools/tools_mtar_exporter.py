@@ -1299,7 +1299,7 @@ def build_motion_point_metadata_dict(motion_points_armature: bpy.types.Object,
             if track_name == bone_name:
                 # Found metadata for this bone
                 found_metadata_in_action = True
-                if isinstance(metadata_str, str) and metadata_str.startswith('@track'):
+                if isinstance(metadata_str, str):
                     # Parse the metadata string to extract component_bit_sizes and flags
                     parsed = parse_action_track_metadata(metadata_str)
                     if parsed:

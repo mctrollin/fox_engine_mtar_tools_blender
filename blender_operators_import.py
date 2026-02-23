@@ -207,17 +207,17 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
                         lines.append(f"# Track {track_idx} ({segment_str}) - Hash: {track_hash} (0x{track_hash:X})")
                     else:
                         lines.append(f"# Track {track_idx} ({segment_str})")
-                    # Write @track directive
+                    # Write @meta directive
                     if track_type:
                         # Detect MULTI_LOCAL_ORIENTATION: type with many quaternion segments
                         if track_type == 'MULTI_LOCAL_ORIENTATION' and len(segments_shorthand) > 3:
                             count: int = len(segments_shorthand)
-                            lines.append(f"@track {track_name} : type=MULTI_LOCAL_ORIENTATION ; count={count}")
+                            lines.append(f"@meta name={track_name} ; type=MULTI_LOCAL_ORIENTATION ; count={count}")
                         else:
-                            lines.append(f"@track {track_name} : type={track_type}")
+                            lines.append(f"@meta name={track_name} ; type={track_type}")
                     else:
                         # If no track type, just add placeholder
-                        lines.append(f"@track {track_name} : type=UNKNOWN")
+                        lines.append(f"@meta name={track_name} ; type=UNKNOWN")
                     
                     # Write bone mapping template
                     # For multi-segment tracks, add suffix to each bone

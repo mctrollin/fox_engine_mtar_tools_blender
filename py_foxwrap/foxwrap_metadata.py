@@ -2,7 +2,7 @@
 Shared utilities for parsing and working with animation metadata.
 
 This module contains helper functions used throughout the importer and
-exporter for parsing @track metadata strings stored either in mapping files
+exporter for parsing track metadata strings stored either in mapping files
 or on Blender action properties.
 """
 from typing import List, Optional, Dict, Any, Tuple
@@ -370,21 +370,22 @@ def get_segments_for_track_type(track_type: str, count: Optional[int] = None) ->
 
 
 def parse_track_metadata_generic(metadata_str: str) -> Optional[dict]:
-    """Unified parser for @track metadata in all formats.
-    
+    """Unified parser for track metadata in key=value format.
+
     Handles three format variants:
-    1. Mapping file: @track <name> : type=<type> ; [count=<n>] ; [flags=<flags>] ; [bits=<bits>]
-    2. Action: @track <name> : type=<type> ; [flags=<flags>] ; [bits=<bits>]
-    3. Layout: @track <name> : segments=<codes> ; [flags=<flags>] ; [hash=<hash>] ; [type=<type>] ; [bits=<bits>] ; [count=<n>]
-    
+    1. Mapping file (after stripping '@meta' prefix): name=<name> ; type=<type> ; [count=<n>] ; [flags=<flags>] ; [bits=<bits>]
+    2. Action (GANI file): name=<name> ; type=<type> ; [flags=<flags>] ; [bits=<bits>]
+    3. Layout action: name=<name> ; segments=<codes> ; [flags=<flags>] ; [hash=<hash>] ; [type=<type>] ; [bits=<bits>] ; [count=<n>]
+
     Auto-detects which parameters are present:
     - Explicit segments= takes priority
     - Falls back to type-derived segments when segments= not present
     - Handles MULTI_LOCAL_ORIENTATION count parameter
-    
+
     Args:
-        metadata_str: Full @track directive string
-        
+        metadata_str: Semicolon-separated key=value string. The 'name' key is required.
+            No '@' prefix expected - callers must strip prefixes before calling this function.
+
     Returns:
         Dictionary with standardized keys:
         - track_name: str
@@ -398,53 +399,32 @@ def parse_track_metadata_generic(metadata_str: str) -> Optional[dict]:
     """
     if not isinstance(metadata_str, str):
         return None
-    
+
     metadata_str = metadata_str.strip()
-    if not metadata_str.startswith('@track'):
+    if not metadata_str:
         return None
-    
-    # Split by colon to separate track name from parameters
-    rest = metadata_str[len('@track'):].strip()
-    if ':' not in rest:
-        return None
-    
-    parts = rest.split(':', 1)
-    track_name = parts[0].strip()
-    if not track_name:
-        return None
-    
-    params_str = parts[1].strip()
-    
-    # Initialize result dict with all possible fields
-    result = {
-        'track_name': track_name,
-        'segment_types': [],
-        'component_bit_sizes': None,
-        'flags_list': None,
-        'unit_flags': None,
-        'name_hash': None,
-        'rig_unit_type': None,
-        'count': None
-    }
-    
-    # Parse all parameters
+
+    # Collect all key=value pairs (including 'name')
+    track_name = None
     segments_str = None
     type_str = None
     bits_str = None
     flags_str = None
     hash_str = None
     count_str = None
-    
-    for param in params_str.split(';'):
+
+    for param in metadata_str.split(';'):
         param = param.strip()
         if not param or '=' not in param:
             continue
-        
+
         key, value = param.split('=', 1)
         key = key.strip()
         value = value.strip()
-        
-        if key == 'segments':
+
+        if key == 'name':
+            track_name = value
+        elif key == 'segments':
             segments_str = value
         elif key == 'type':
             type_str = value
@@ -456,6 +436,21 @@ def parse_track_metadata_generic(metadata_str: str) -> Optional[dict]:
             hash_str = value
         elif key == 'count':
             count_str = value
+
+    if not track_name:
+        return None
+
+    # Initialize result dict with all possible fields
+    result = {
+        'track_name': track_name,
+        'segment_types': [],
+        'component_bit_sizes': None,
+        'flags_list': None,
+        'unit_flags': None,
+        'name_hash': None,
+        'rig_unit_type': None,
+        'count': None
+    }
     
     # Parse segments (explicit or type-derived)
     if segments_str:
@@ -519,20 +514,25 @@ def parse_track_metadata_generic(metadata_str: str) -> Optional[dict]:
 
 
 def parse_track_metadata(line: str) -> Optional[dict]:
-    """Parse track metadata from @track directive (mapping file format).
+    """Parse track metadata from @meta directive (mapping file format).
 
-    Format: @track <name> : type=<rig_type> ; [count=<n>] ; [flags=<flags>] ; [bits=<bit_sizes>]
-    
+    Format: @meta name=<name> ; type=<rig_type> ; [count=<n>] ; [flags=<flags>] ; [bits=<bit_sizes>]
+
     Note: 'bits' is legacy and represents a default compression level. In actual MTAR files,
     each segment has its own component_bit_size stored separately.
-    
+
     Uses the unified parse_track_metadata_generic() parser internally.
 
     Returns:
-        Dictionary with track metadata or None if not a track directive
+        Dictionary with track metadata or None if not a @meta directive
     """
-    # Use unified parser
-    parsed = parse_track_metadata_generic(line)
+    line = line.strip()
+    if not line.startswith('@meta'):
+        return None
+
+    # Strip '@meta' prefix and delegate to unified parser
+    content = line[len('@meta'):].strip()
+    parsed = parse_track_metadata_generic(content)
     if not parsed:
         return None
     
@@ -567,43 +567,29 @@ def parse_track_metadata(line: str) -> Optional[dict]:
 
 
 def parse_track_type_from_metadata(metadata_str: str) -> Optional[RigUnitType]:
-    """Extract only the RigUnitType from @track metadata string.
-    
-    Lightweight parser that extracts only 'type=VALUE' attribute without
+    """Extract only the RigUnitType from track metadata string.
+
+    Lightweight parser that extracts only the 'type=VALUE' key without
     parsing segments, flags, or other metadata. Optimized for performance.
-    
+
     Args:
-        metadata_str: Metadata string in format '@track BoneName : type=ROOT ; bits=14'
-        
+        metadata_str: Metadata string in key=value format, e.g. 'name=Root ; type=ROOT ; bits=14'
+
     Returns:
         RigUnitType enum if type attribute found and valid, None otherwise
     """
     if not metadata_str or not isinstance(metadata_str, str):
         return None
-    
-    # Split by ':' to separate bone name from attributes
-    parts = metadata_str.split(':', 1)
-    if len(parts) < 2:
-        return None
-    
-    # Parse attributes section (type=ROOT ; bits=14)
-    attributes_part = parts[1]
-    
-    # Split by ';' to get individual attributes
-    for attr in attributes_part.split(';'):
+
+    for attr in metadata_str.split(';'):
         attr = attr.strip()
         if not attr or '=' not in attr:
             continue
-        
-        # Split by '=' to get key=value
+
         attr_key, attr_value = attr.split('=', 1)
-        attr_key = attr_key.strip()
-        attr_value = attr_value.strip()
-        
-        if attr_key == 'type':
-            # Parse RigUnitType from string
-            return RigUnitType.parse_from_string(attr_value)
-    
+        if attr_key.strip() == 'type':
+            return RigUnitType.parse_from_string(attr_value.strip())
+
     return None
 
 
@@ -612,7 +598,7 @@ def extract_fox_bone_to_rig_unit_type_mapping(layout_action: bpy.types.Action,
                                           ) -> Dict[str, RigUnitType]:
     """Extract fox bone name to RigUnitType mapping from layout action metadata.
     
-    Parses track metadata stored in layout action custom properties (format: '@track FoxBoneName : type=ROOT ; bits=14')
+    Parses track metadata stored in layout action custom properties (format: 'name=FoxBoneName ; type=ROOT ; bits=14')
     to build a mapping of box bone names to their rig unit types. Layout action is the authoritative source for
     rig unit types in the MTAR structure.
     
@@ -638,9 +624,9 @@ def extract_fox_bone_to_rig_unit_type_mapping(layout_action: bpy.types.Action,
     # Parse all track metadata properties (auto-filters by 'track_' prefix)
     for _, fox_track_name, metadata_str in iter_track_properties(layout_action):
         try:
-            if not isinstance(metadata_str, str) or not metadata_str.startswith('@track'):
+            if not isinstance(metadata_str, str):
                 continue
-            
+
             # Parse rig unit type using lightweight parser
             rig_unit_type = parse_track_type_from_metadata(metadata_str)
             
@@ -663,12 +649,12 @@ def extract_fox_bone_to_rig_unit_type_mapping(layout_action: bpy.types.Action,
 
 
 def parse_action_track_metadata(metadata_value: str) -> Optional[dict]:
-    """Parse @track metadata stored on actions (GANI file properties).
+    """Parse track metadata stored on actions (GANI file properties).
 
-    Format: @track <name> : type=<type> ; [flags=<flags>] ; [bits=<bits>]
-    
+    Format: name=<name> ; type=<type> ; [flags=<flags>] ; [bits=<bits>]
+
     Uses the unified parse_track_metadata_generic() parser internally.
-    
+
     Returns:
         Dictionary with 'track_name', 'component_bit_sizes', 'flags', 'type' keys
     """
@@ -824,7 +810,7 @@ class TrackMetaData:
         across all animations in the MTAR file.
         
         Property key format: track_<padded_idx>_<fox_track_name>
-        Property value format: @track <name> : segments=<segments> ; flags=<flags> ; hash=<hash> ; type=<type> ; bits=<bits> ; count=<n>
+        Property value format: name=<name> ; segments=<segments> ; flags=<flags> ; hash=<hash> ; type=<type> ; bits=<bits> ; count=<n>
 
         This function now uses the unified parse_track_metadata_generic() parser.
         
@@ -852,8 +838,8 @@ class TrackMetaData:
             return None
         
         # Validate format
-        if not isinstance(metadata_str, str) or not metadata_str.startswith('@track'):
-            Debug.log_warning(f"      Warning: Custom property '{property_key}' is not in @track format")
+        if not isinstance(metadata_str, str):
+            Debug.log_warning(f"      Warning: Custom property '{property_key}' is not valid metadata")
             return None
         
         # Use unified parser

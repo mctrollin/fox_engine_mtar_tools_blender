@@ -516,17 +516,18 @@ def parse_track_mapping_file(filepath: str) -> TrackMappingData:
     including renaming, rotation transformations, and adding data from other tracks.
     
     File format:
-    @track <name> : segments=<segment_list> ; [flags=<flags>] ; [type=<rig_type>] ; [bits=<compression>]
+    @meta name=<name> ; type=<rig_type> ; [count=<n>] ; [flags=<flags>] ; [bits=<compression>]
     from_name : to_name
     or with transformation parameters:
     from_name : to_name ; param1=value1 ; param2=value2
     
-    Track metadata (@track directives):
-    - segments: Pipe-separated segment types (e.g., "q|v|q" or "rotation:quat|position:vec3")
-      Shorthand: q=rotation:quat, qd=rotation:quatdiff, v=position:vec3, vd=position:vec3diff, f=scale:float
-    - flags: Comma-separated flags (e.g., "static", "animated", "compressed")
-    - type: Rig unit type hint (e.g., ROOT, ARM, ORIENTATION) - for documentation
-    - bits: Quaternion compression bits (12, 14, or 16, default: 16)
+    Track metadata (@meta directives):
+    - type (required): Rig unit type - determines segment structure automatically
+                       Valid types: ROOT, ORIENTATION, LOCAL_ORIENTATION, TWO_BONE,
+                                   TRANSFORM, LOCAL_TRANSFORM, ARM, LIST, MULTI_LOCAL_ORIENTATION
+    - count (required for MULTI_LOCAL_ORIENTATION): Number of rotation segments
+    - flags (optional): Comma-separated flags (e.g., IS_STATIC)
+    - bits (optional): Compression bits (12, 14, 16, 18, 20, 22, 24), default: 16
     
     Supported transformation parameters:
     - offset_r: Rotation offset as euler_x,euler_y,euler_z,order (e.g., offset_r=90,0,0,xyz)
@@ -544,10 +545,10 @@ def parse_track_mapping_file(filepath: str) -> TrackMappingData:
     Only one rotation track and one location track can map to the same target bone.
     
     Examples:
-    @track Root : segments=qd|vd ; type=ROOT
+    @meta name=Root ; type=ROOT
     Root : torso_root ; offset_r=90,0,0,xyz ; map_r=y,x,z
     
-    @track LArm : segments=q|v|q ; type=ARM ; bits=14
+    @meta name=LArm ; type=ARM ; bits=14
     LArm_0 : shoulder.L ; space_r=custom,torso_root
     LArm_1 : hand_ik.L ; space_l=world
     LArm_2 : upper_arm_ik_target.L ; as_ik_up=upper_arm_ik.L,x,1

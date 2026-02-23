@@ -53,10 +53,10 @@ def store_track_metadata_on_action(
 ) -> None:
     """Store track metadata from TrackMetaData objects as custom properties on an action.
     
-    Stores metadata in @track format matching the mapping file syntax.
+    Stores metadata in unified key=value format.
     
-    Layout track format: @track <name> : segments=<segments> ; bits=<bit_sizes> ; flags=<flags> ; hash=<hash>
-    GANI track format:   @track <name> : bits=<bit_sizes> ; flags=<flag_names>
+    Layout track format: name=<name> ; segments=<segments> ; bits=<bit_sizes> ; flags=<flags> ; hash=<hash>
+    GANI track format:   name=<name> ; bits=<bit_sizes> ; flags=<flag_names>
     
     Args:
         action: The Blender action to store metadata on
@@ -119,8 +119,8 @@ def store_track_metadata_on_action(
         if track_meta.rig_unit_type is not None:
             metadata_parts.append(f"type={track_meta.rig_unit_type.name}")
         
-        # Build final @track format string
-        metadata_value = f"@track {track_name} : {' ; '.join(metadata_parts)}"
+        # Build unified name=value metadata string
+        metadata_value = f"name={track_name} ; {' ; '.join(metadata_parts)}"
         
         # Store metadata as custom property using standardized key format
         property_key = make_track_property_key(track_idx, track_name)
@@ -128,7 +128,7 @@ def store_track_metadata_on_action(
         
         # Set custom property metadata for UI display
         action.id_properties_ui(property_key).update(
-            description=f"Track metadata for {track_name} in @track format"
+            description=f"Track metadata for {track_name}"
         )
         
         if include_segments:

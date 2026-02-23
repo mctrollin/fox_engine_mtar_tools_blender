@@ -27,7 +27,7 @@ def store_motion_events_on_action(action: 'bpy.types.Action', motion_events: Opt
     - <event_name>_end at end_frame
 
     Stores event parameters as custom properties in format:
-    @event <category>_<event_name> : ints=<i1,i2> ; floats=<f1,f2> ; strings=<s1,s2>
+    name=<event_name> ; category=<category> ; ints=<i1,i2> ; floats=<f1,f2> ; strings=<s1,s2> ; format=<n>
 
     Args:
         action: The Blender action to store motion events on
@@ -82,10 +82,10 @@ def store_motion_events_on_action(action: 'bpy.types.Action', motion_events: Opt
             format_str = f"format={event.format}"
             params_parts.append(format_str)
 
-            # Build final @event property value
-            metadata_value = f"@event {category_name}_{event_name}"
-            if params_parts:
-                metadata_value += f" : {' ; '.join(params_parts)}"
+            # Build unified metadata value: name=X ; category=Y ; ints=... ; floats=... ; strings=... ; format=N
+            all_parts = [f"name={event_name}", f"category={category_name}"]
+            all_parts.extend(params_parts)
+            metadata_value = ' ; '.join(all_parts)
 
             # Store as custom property using standardized key format
             property_key = make_event_property_key(event_index, category_name)
@@ -154,34 +154,29 @@ def read_motion_events_from_action(action: 'bpy.types.Action') -> Optional[EvpHe
     # Group events by category
     categories: Dict[str, List[tuple]] = {}  # category -> list of (event_name, params, frames)
 
-    for _event_idx, category_name, metadata_str in event_properties_list:
-        if not isinstance(metadata_str, str) or not metadata_str.startswith('@event'):
+    for _event_idx, category_name_from_key, metadata_str in event_properties_list:
+        if not isinstance(metadata_str, str):
             continue
 
-        # Parse @event format: @event <category>_<event_name> : ints=... ; floats=... ; strings=... ; format=...
-        rest = metadata_str[len('@event'):].strip()
+        # Parse unified key=value format: name=X ; category=Y ; ints=... ; floats=... ; strings=... ; format=N
+        kv: dict = {}
+        for part in metadata_str.split(';'):
+            part = part.strip()
+            if not part or '=' not in part:
+                continue
+            k, v = part.split('=', 1)
+            kv[k.strip()] = v.strip()
 
-        if ':' in rest:
-            name_part, params_part = rest.split(':', 1)
-            name_part = name_part.strip()
-            params_part = params_part.strip()
-        else:
-            name_part = rest.strip()
-            params_part = ""
-
-        # Split category_eventname
-        if '_' not in name_part:
+        event_name = kv.get('name', '')
+        if not event_name:
             continue
 
-        parts = name_part.split('_', 1)
-        category_name = parts[0]
-        event_name = parts[1] if len(parts) > 1 else name_part
+        # Category from value; fall back to the key-derived category name
+        category_name = kv.get('category', category_name_from_key)
 
-        # event_name may be an enum member; convert to its integer string so that
-        # StrCode32.from_string() can succeed later.  If it's already numeric,
-        # the conversion below will just parse the int.  Unknown names are left
-        # untouched and handled by StrCode32.from_string, which will raise if it
-        # doesn't know what to do.
+        # Keep the readable event name for NLA marker lookup; convert to integer
+        # string for binary export (StrCode32.from_string requires numeric input).
+        event_name_for_marker = event_name
         if not event_name.isdigit():
             try:
                 enum_val = EventUnitInfoName_StrCode32Alias[event_name]
@@ -197,23 +192,17 @@ def read_motion_events_from_action(action: 'bpy.types.Action') -> Optional[EvpHe
         string_params = []
         format_type = 0
 
-        if params_part:
-            for param in params_part.split(';'):
-                param = param.strip()
-                if not param or '=' not in param:
-                    continue
-                key, value = param.split('=', 1)
-                key = key.strip()
-                value = value.strip()
-
-                if key == 'ints' and value:
-                    int_params = [int(i.strip()) for i in value.split(',') if i.strip()]
-                elif key == 'floats' and value:
-                    float_params = [float(f.strip()) for f in value.split(',') if f.strip()]
-                elif key == 'strings' and value:
-                    string_params = [int(s.strip()) for s in value.split(',') if s.strip()]
-                elif key == 'format' and value:
-                    format_type = int(value)
+        if kv.get('ints'):
+            int_params = [int(i.strip()) for i in kv['ints'].split(',') if i.strip()]
+        if kv.get('floats'):
+            float_params = [float(f.strip()) for f in kv['floats'].split(',') if f.strip()]
+        if kv.get('strings'):
+            string_params = [int(s.strip()) for s in kv['strings'].split(',') if s.strip()]
+        if kv.get('format'):
+            try:
+                format_type = int(kv['format'])
+            except (ValueError, TypeError):
+                pass
 
         # Find corresponding markers to get frame ranges
         # Look for markers matching pattern:
@@ -222,8 +211,8 @@ def read_motion_events_from_action(action: 'bpy.types.Action') -> Optional[EvpHe
         # (or with section index: <category>_<event_name>_<idx>_start / <category>_<event_name>_<idx>)
         time_sections = []
 
-        # Build base marker name
-        base_marker_name = f"{category_name}_{event_name}"
+        # Build base marker name using the readable event name (before integer conversion)
+        base_marker_name = f"{category_name}_{event_name_for_marker}"
 
         # Find all matching marker pairs or single markers
         section_idx = 0

@@ -1,75 +1,75 @@
 # Track 0 (qd, vd)
-@track Root : type=ROOT
+@meta name=Root ; type=ROOT
 Root : torso_root               ; offset_r=0,0,180,zyx
 
 # Track 1 (q, v)
-@track Waist : type=TRANSFORM
+@meta name=Waist ; type=TRANSFORM
 Waist : torso                   ; space_r=custom,torso_root ; space_l=custom,torso_root
 
 # Track 2 (q)
-@track Spine : type=ORIENTATION
+@meta name=Spine ; type=ORIENTATION
 Spine : spine_fk.001            ; space_r=custom,torso_root
 
 # Track 3 (q)
-@track Chest : type=ORIENTATION
+@meta name=Chest ; type=ORIENTATION
 Chest : spine_fk.002            ; space_r=custom,torso_root
 
 # Track 4 (q)
-@track Neck : type=ORIENTATION
+@meta name=Neck ; type=ORIENTATION
 Neck : neck                     ; space_r=custom,torso_root
 
 # Track 5 (q)
-@track Head : type=ORIENTATION
+@meta name=Head ; type=ORIENTATION
 Head : head                     ; space_r=custom,torso_root
 
 # Track 6 (q, v, q)
-@track LArm : type=ARM
+@meta name=LArm ; type=ARM
 LArm_0 : shoulder.L             ; space_r=custom,torso_root
 LArm_1 : hand_ik.L              ; space_l=world
 LArm_2 : upper_arm_ik_target.L  ; space_ik=custom,torso_root ; as_ik_up=upper_arm_parent.L,x
 
 # Track 7 (q)
-@track LHand : type=ORIENTATION
+@meta name=LHand ; type=ORIENTATION
 LHand : hand_ik.L               ; space_r=custom,torso_root
 
 # Track 8 (q, v, q)
-@track RArm : type=ARM
+@meta name=RArm ; type=ARM
 RArm_0 : shoulder.R             ; space_r=custom,torso_root
 RArm_1 : hand_ik.R              ; space_l=world
 RArm_2 : upper_arm_ik_target.R  ; space_ik=custom,torso_root ; as_ik_up=upper_arm_parent.R,x
 
 # Track 9 (q)
-@track RHand : type=ORIENTATION
+@meta name=RHand ; type=ORIENTATION
 RHand : hand_ik.R               ; space_r=custom,torso_root
 
 # Track 10 (v, q)
-@track LLeg : type=TWO_BONE
+@meta name=LLeg ; type=TWO_BONE
 LLeg_0 : foot_ik.L              ; space_l=world
 LLeg_1 : thigh_ik_target.L      ; space_ik=custom,torso_root ; as_ik_up=thigh_parent.L,x
 
 # Track 11 (q)
-@track LFoot : type=ORIENTATION
+@meta name=LFoot ; type=ORIENTATION
 LFoot : foot_ik.L               ; space_r=custom,torso_root
 
 # Track 12 (v, q)
-@track RLeg : type=TWO_BONE
+@meta name=RLeg ; type=TWO_BONE
 RLeg_0 : foot_ik.R              ; space_l=world
 RLeg_1 : thigh_ik_target.R      ; space_ik=custom,torso_root ; as_ik_up=thigh_parent.R,x
 
 # Track 13 (q)
-@track RFoot : type=ORIENTATION
+@meta name=RFoot ; type=ORIENTATION
 RFoot : foot_ik.R               ; space_r=custom,torso_root
 
 # Track 14 (q)
-@track LToe : type=LOCAL_ORIENTATION
+@meta name=LToe ; type=LOCAL_ORIENTATION
 LToe : toe.L
 
 # Track 15 (q)
-@track RToe : type=LOCAL_ORIENTATION
+@meta name=RToe ; type=LOCAL_ORIENTATION
 RToe : toe.R
 
 # Track 16 (q * 16)
-@track LFingers : type=MULTI_LOCAL_ORIENTATION ; count=16
+@meta name=LFingers ; type=MULTI_LOCAL_ORIENTATION ; count=16
 LFingers_0 : thumb.01.L         
 LFingers_1 : thumb.02.L         
 LFingers_2 : thumb.03.L         
@@ -88,7 +88,7 @@ LFingers_14 : f_pinky.02.L
 LFingers_15 : f_pinky.03.L      
 
 # Track 17 (q * 16)
-@track RFingers : type=MULTI_LOCAL_ORIENTATION ; count=16
+@meta name=RFingers ; type=MULTI_LOCAL_ORIENTATION ; count=16
 RFingers_0 : thumb.01.R         
 RFingers_1 : thumb.02.R         
 RFingers_2 : thumb.03.R         

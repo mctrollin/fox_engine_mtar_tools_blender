@@ -10,8 +10,8 @@
 # 
 # ===== TRACK METADATA DIRECTIVES =====
 #
-# @track directives define the structure of animation tracks for export.
-# Format: @track <name> : type=<TYPE> ; [count=<n>] ; [flags=<flags>] ; [bits=<bits>]
+# @meta directives define the structure of animation tracks for export.
+# Format: @meta name=<name> ; type=<TYPE> ; [count=<n>] ; [flags=<flags>] ; [bits=<bits>]
 #
 # Parameters:
 #   type (required): Track type - determines segment structure automatically
@@ -34,13 +34,13 @@
 #
 # Examples:
 #   # Track 0 (qd, vd)
-#   @track Root : type=ROOT
+#   @meta name=Root ; type=ROOT
 #
 #   # Track 5 (q)
-#   @track Head : type=ORIENTATION ; bits=14
+#   @meta name=Head ; type=ORIENTATION ; bits=14
 #
 #   # Track 16 (q * 16)
-#   @track LeftFingers : type=MULTI_LOCAL_ORIENTATION ; count=16
+#   @meta name=LeftFingers ; type=MULTI_LOCAL_ORIENTATION ; count=16
 #
 # ===== BONE MAPPING =====
 #
@@ -110,11 +110,11 @@
 #
 # Track metadata with bone mappings:
 # # Track 0 (qd, vd)
-# @track Root : type=ROOT
+# @meta name=Root ; type=ROOT
 # Root : torso_root ; offset_r=0,0,180,zyx
 #
 # # Track 6 (q, v, q)
-# @track LArm : type=ARM ; bits=14
+# @meta name=LArm ; type=ARM ; bits=14
 # LArm_0 : shoulder.L ; space_r=custom,torso_root ; offset_r=0,0,-90,zyx
 # LArm_1 : hand_ik.L ; space_l=world
 # LArm_2 : upper_arm_ik_target.L ; space_ik=custom,torso_root ; as_ik_up=upper_arm_ik.L,x,1
