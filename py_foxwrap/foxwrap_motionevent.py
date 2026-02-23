@@ -16,6 +16,7 @@ from ..py_fox import fox_gani_constants as gani_const
 
 from ..py_fox.fox_gani_types import EvpHeader, EvpData, EventUnitInfo, TimeSection
 from ..py_fox.fox_misc_types import StrCode32
+from ..py_fox.fox_gani_enums import EventUnitInfoName_StrCode32Alias
 
 
 def store_motion_events_on_action(action: 'bpy.types.Action', motion_events: Optional[EvpHeader]) -> None:
@@ -50,7 +51,14 @@ def store_motion_events_on_action(action: 'bpy.types.Action', motion_events: Opt
         Debug.log(f"  Category '{category_name}': {category_data.unit_count} event(s)")
 
         for event in category_data.events:
-            event_name = str(event.name)
+            # Prefer the enum name if the code is recognized; otherwise fall back
+            # to the raw integer string.  This makes stored custom properties
+            # easier to read while still round‑tripping correctly.
+            enum_val = getattr(event, 'name_enum', None)
+            if enum_val is not None:
+                event_name = enum_val.name
+            else:
+                event_name = str(event.name)
 
             # Build parameter strings
             params_parts = []
@@ -146,7 +154,7 @@ def read_motion_events_from_action(action: 'bpy.types.Action') -> Optional[EvpHe
     # Group events by category
     categories: Dict[str, List[tuple]] = {}  # category -> list of (event_name, params, frames)
 
-    for event_idx, category_name, metadata_str in event_properties_list:
+    for _event_idx, category_name, metadata_str in event_properties_list:
         if not isinstance(metadata_str, str) or not metadata_str.startswith('@event'):
             continue
 
@@ -168,6 +176,20 @@ def read_motion_events_from_action(action: 'bpy.types.Action') -> Optional[EvpHe
         parts = name_part.split('_', 1)
         category_name = parts[0]
         event_name = parts[1] if len(parts) > 1 else name_part
+
+        # event_name may be an enum member; convert to its integer string so that
+        # StrCode32.from_string() can succeed later.  If it's already numeric,
+        # the conversion below will just parse the int.  Unknown names are left
+        # untouched and handled by StrCode32.from_string, which will raise if it
+        # doesn't know what to do.
+        if not event_name.isdigit():
+            try:
+                enum_val = EventUnitInfoName_StrCode32Alias[event_name]
+            except KeyError:
+                # not in enum; leave as-is (may be a custom or rig-type name)
+                pass
+            else:
+                event_name = str(enum_val.value)
 
         # Parse parameters
         int_params = []
@@ -273,8 +295,20 @@ def read_motion_events_from_action(action: 'bpy.types.Action') -> Optional[EvpHe
         unit_offsets = []
 
         for event_name, int_params, float_params, string_params, format_type, time_sections in events:
+            # Convert name string to StrCode32, handling both numeric and enum names.
+            try:
+                name_code = StrCode32.from_string(event_name)
+            except ValueError:
+                # Fallback: try simple integer conversion; if that also fails, log and
+                # default to zero so export still succeeds.
+                try:
+                    name_code = StrCode32(int(event_name))
+                except (ValueError, TypeError):
+                    Debug.log_warning(f"Unrecognized event name '{event_name}' in action; using 0")
+                    name_code = StrCode32(0)
+
             event_unit = EventUnitInfo(
-                name=StrCode32.from_string(event_name),
+                name=name_code,
                 time_section_count=len(time_sections),
                 format=format_type,
                 int_param_count=len(int_params),

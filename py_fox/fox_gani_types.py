@@ -30,7 +30,7 @@ from ..py_utilities.utilities_binary_write import (
 from ..py_utilities.utilities_logging import Debug
 
 from .fox_misc_types import StrCode32
-from .fox_gani_enums import SegmentType, TrackUnitFlags
+from .fox_gani_enums import SegmentType, TrackUnitFlags, EventUnitInfoName_StrCode32Alias
 
 
 @dataclass
@@ -831,6 +831,28 @@ class EventUnitInfo:
     int_params: List[int]
     float_params: List[float]
     string_params: List[int]  # List of StrCode64 (stored as uint64)
+
+    # convenience property to convert between the raw StrCode32 value and the
+    # more readable enum defined in fox_gani_enums.py.  Keeping the underlying
+    # field as StrCode32 preserves current serialization behavior, but callers
+    # can work with the enum when they prefer.
+    @property
+    def name_enum(self) -> 'EventUnitInfoName_StrCode32Alias | None':
+        """Return the name as an EventUnitInfoName_StrCode32Alias, or None if
+        the hash isn't in the enumeration."""
+        try:
+            return EventUnitInfoName_StrCode32Alias(self.name.to_int())
+        except ValueError:
+            return None
+
+    @name_enum.setter
+    def name_enum(self, enum_val: 'EventUnitInfoName_StrCode32Alias') -> None:
+        """Set the event name via its enum value, updating the underlying
+        StrCode32 field."""
+        if isinstance(enum_val, EventUnitInfoName_StrCode32Alias):
+            self.name = StrCode32(enum_val.value)
+        else:
+            raise TypeError("EventUnitInfo.name_enum must be set to an EventUnitInfoName_StrCode32Alias")
 
     @classmethod
     def read(cls, br: BinaryIO) -> 'EventUnitInfo':
