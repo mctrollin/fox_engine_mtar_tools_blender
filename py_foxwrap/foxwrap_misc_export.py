@@ -407,6 +407,57 @@ class TrackSegmentBoneMapping:
 
 # Helper utilities for motion-point action matching ################################
 
+# Helper utilities for motion-point action matching ################################
+
+def extract_gani_metadata(name: str) -> Optional[Tuple[int, str]]:
+    """Extract (index, type) from action/strip name using new schema.
+    
+    Schema: <mtar-name>.<animation-parts>.<index>.<type>.(gani|strip)
+    Handles both new and old formats with backward compatibility.
+    
+    Args:
+        name: Action or strip name
+        
+    Returns:
+        Tuple of (index, type) where type is 'track' or 'motionpoints'
+        Returns None if name doesn't match expected schema
+    """
+    # Remove file extension
+    if name.endswith('.gani'):
+        name_no_ext = name[:-5]
+    elif name.endswith('.strip'):
+        name_no_ext = name[:-6]
+    else:
+        # Try old format detection: look for .motionpoints suffix
+        if '.motionpoints.' in name:
+            name_no_ext = name.replace('.gani', '').replace('.strip', '')
+        else:
+            return None
+    
+    parts = name_no_ext.split('.')
+    if len(parts) < 4:  # At minimum: mtar, animation, index, type
+        return None
+    
+    try:
+        # Last two components are index and type
+        gani_type = parts[-1]
+        index = int(parts[-2])
+        
+        # Validate type
+        if gani_type not in ('track', 'motionpoints'):
+            # Backward compatibility: old format has no explicit type
+            # Try to detect old .motionpoints suffix
+            if '.motionpoints' in name:
+                return (index, 'motionpoints')
+            return None
+        
+        return (index, gani_type)
+    except (ValueError, IndexError):
+        pass
+    
+    return None
+
+
 def build_motion_point_action_maps(motion_point_actions: List[ExportActionData]) -> Dict[int, ExportActionData]:
     """Build lookup map for motion point actions indexed by extracted GANI index.
 
@@ -416,18 +467,17 @@ def build_motion_point_action_maps(motion_point_actions: List[ExportActionData])
     by_gani_index: Dict[int, ExportActionData] = {}
 
     for a in motion_point_actions:
-        # Extract running index as digits immediately following the first dot in the name
-        # Example: 'player2.0.h340_d278.motionpoints.gani' -> capture '0'
-        match = re.search(r'^[^.]*\.(\d+)(?:\.|$)', a.action.name)
-        if match:
-            try:
-                idx = int(match.group(1))
+        # Extract index and type using robust parser
+        result = extract_gani_metadata(a.action.name)
+        if result:
+            idx, gani_type = result
+            if gani_type == 'motionpoints':
                 if idx not in by_gani_index:
                     by_gani_index[idx] = a
-            except ValueError:
-                Debug.log_warning(f"Warning: Invalid GANI index in motion point action name '{a.action.name}'")
+            else:
+                Debug.log_warning(f"Warning: Motion point action '{a.action.name}' has type '{gani_type}', expected 'motionpoints' - this action will be skipped")
         else:
-            Debug.log(f"Note: No GANI index found in motion point action name '{a.action.name}'")
+            Debug.log_warning(f"Warning: No GANI index found in motion point action name '{a.action.name}' - this action will be skipped")
 
     return by_gani_index
 
@@ -437,14 +487,16 @@ def find_motion_point_action_for_gani(gani_name: str, by_gani_index: Dict[int, E
 
     Returns the ExportActionData if a motion-point action exists for the given index, else None.
     """
-    # Extract running index as digits immediately following the first dot in the name
-    match = re.search(r'^[^.]*\.(\d+)(?:\.|$)', gani_name)
-    if match:
-        try:
-            idx = int(match.group(1))
+    # Extract index and type using robust parser
+    result = extract_gani_metadata(gani_name)
+    if result:
+        idx, gani_type = result
+        if gani_type == 'track':
             return by_gani_index.get(idx)
-        except ValueError:
-            return None
+        else:
+            Debug.log_warning(f"Warning: GANI '{gani_name}' has type '{gani_type}', expected 'track' - motion points will be skipped for this GANI")
+    else:
+        Debug.log_warning(f"Warning: No GANI index could be extracted from GANI name '{gani_name}' - motion points will be skipped for this GANI")
     return None
 
 

@@ -56,17 +56,29 @@ def _format_gani_name(
 ) -> str:
     """Shared formatting logic for action and strip names.
 
+    New naming schema: <mtar-name>.<animation-parts>.<index>.<type>.<ext>
+    Where animation-parts can include resolved name and optional verbose hash.
+
     Args:
         ext: File extension suffix without leading dot, e.g. "gani" or "strip"
     """
     if is_layout:
-        return f"{base_name}.layout.{ext}"
+        # Layout uses index -1 and type 'track'
+        return f"{base_name}.layout.-1.track.{ext}"
 
-    index = f"{running_idx}.h{h_idx}_d{d_idx}" if verbose else f"{running_idx}"
-    type_suffix = ".motionpoints" if is_motion_points else ""
-    gani_name = f".{gani_name}" if gani_name is not None else ""
+    # Build animation component: can include resolved name and verbose hash parts
+    animation_parts = []
+    if gani_name is not None:
+        animation_parts.append(gani_name)
+    if verbose:
+        animation_parts.append(f"h{h_idx}_d{d_idx}")
+    animation_str = ".".join(animation_parts) if animation_parts else str(running_idx)
+    
+    # Type is either 'track' or 'motionpoints'
+    gani_type = "motionpoints" if is_motion_points else "track"
 
-    return f"{base_name}.{gani_name}.{index}{type_suffix}.{ext}"
+    # Format: <base>.<animation-parts>.<index>.<type>.<ext>
+    return f"{base_name}.{animation_str}.{running_idx}.{gani_type}.{ext}"
 
 
 def format_action_name(

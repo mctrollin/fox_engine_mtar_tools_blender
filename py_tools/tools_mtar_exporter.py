@@ -1698,6 +1698,8 @@ def export_mtar(context: bpy.types.Context,
                 Debug.log(f"    Exported {len(motion_point_tracks)} motion point track(s)")
             else:
                 Debug.log_warning(f"    Warning: Motion point action '{motion_point_action_data.action.name}' matched GANI '{gani_name}' but exported 0 motion point tracks")
+        elif motion_point_actions_data:
+            Debug.log_warning(f"  Warning: Motion point actions exist but none matched GANI '{gani_name}' - motion points will be missing for this GANI")
         else:
             Debug.log(f"    No motion point action for GANI '{gani_name}'")
         

@@ -23,6 +23,7 @@ from .foxwrap_gani_writer import Gani2Writer
 from .foxwrap_misc import Tracks, TrackUnitWrapper
 from .foxwrap_misc_export import GaniData
 from .foxwrap_metadata import read_track_header_properties_from_action
+from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox import fox_mtar_constants as mtar_const
 
 from ..py_tools.tools_hash_generator import hash_animation_name_from_blender_context
@@ -720,15 +721,15 @@ class MtarWriter:
         header_props = read_track_header_properties_from_action(action)
         
         # Create TrackHeader
-        # Use header_props['frame_rate'] from action metadata instead of passed frame_rate parameter
+        # Use header_props[gani_const.TRKH_*] from action metadata instead of passed frame_rate parameter
         track_header = TrackHeader(
             unit_count=len(track_units),
             segment_count=total_segment_count,
-            t_id=header_props['t_id'],
-            unknown_a=header_props['unknown_a'],
-            unknown_b=header_props['unknown_b'],
+            t_id=header_props[gani_const.TRKH_ID],
+            unknown_a=header_props[gani_const.TRKH_UNKNOWN_A],
+            unknown_b=header_props[gani_const.TRKH_UNKNOWN_B],
             frame_count=frame_count,
-            frame_rate=header_props['frame_rate'],  # Use frame_rate from action metadata
+            frame_rate=header_props[gani_const.TRKH_FRAME_RATE],  # Use frame_rate from action metadata
             unit_offsets=[]  # Will be calculated by Tracks.write()
         )
         
