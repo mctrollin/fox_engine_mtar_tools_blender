@@ -539,3 +539,62 @@ def hash_file_name_with_ext(file_path: str) -> int:
 
     path_hash = hash_file_name(hashable_part)  # 50-bit + possible META_FLAG
     return _u64((type_id << 51) | path_hash)
+
+
+def strcode32(text: str, remove_extension: bool = True) -> int:
+    """Fox Engine StrCode32 animation name hashing (48-bit via CityHash64 with custom seeds).
+    
+    Used to hash animation track names, event names, bone names, and other animation-related
+    identifiers in GANI and MTAR animation binary formats. Removes extension at first '.',
+    constructs seed0 and seed1 from input metadata (first character + length), calls CityHash64WithSeeds,
+    masks to 48-bit, and casts to 32-bit for StrCode32 compatibility.
+    
+    This implements the HashWrangler.FoxEngine.StrCode() algorithm:
+    https://github.com/TinManTex/HashWrangler/blob/main/HashWrangler/Hashing/FoxEngine.cs
+    
+    Args:
+        text: String to hash (animation name, track name, bone name, event name, etc.).
+              May contain a file extension; if so, strip before hashing (controlled by remove_extension).
+        remove_extension: If True (default), strip at first '.' before hashing.
+                         Matches HashWrangler C# default behavior.
+    
+    Returns:
+        32-bit hash value (cast from 48-bit CityHash64WithSeeds result).
+    
+    Example:
+        strcode32("waist") → uint32 hash of "waist" animation track
+        strcode32("track.ext") → uint32 hash of "track" (ext stripped)
+        strcode32("track.ext", remove_extension=False) → uint32 hash of "track.ext" (no strip)
+    
+    Note:
+        seed0 is always K2 (0x9ae16a3b2f90404f, the CityHash constant).
+        seed1 encodes: (first_char << 16) | string_length for non-empty strings, else 0.
+        Input is null-terminated before hashing (C# default behavior).
+    """
+    # Step 1: Remove extension if requested
+    if remove_extension:
+        dot_idx = text.find('.')
+        if dot_idx >= 0:
+            text = text[:dot_idx]
+    
+    # Step 2: Prepare seeds for CityHash64WithSeeds
+    # seed0 is always K2 (CityHash constant)
+    seed0 = _K2  # 0x9ae16a3b2f90404f
+    
+    # seed1: (first_char << 16) | string_length
+    if text:
+        seed1 = _u64((ord(text[0]) << 16) | len(text))
+    else:
+        seed1 = 0
+    
+    # Step 3: Encode string with latin-1, append null terminator (matches C# behavior)
+    data = _encode(text + "\0")
+    
+    # Step 4: Hash using CityHash64WithSeeds
+    hash64 = city_hash_64_with_seeds(data, seed0, seed1)
+    
+    # Step 5: Mask to 48-bit (Fox Engine compatibility), then cast to 32-bit
+    hash48 = hash64 & 0xFFFFFFFFFFFF
+    hash32 = hash48 & 0xFFFFFFFF
+    
+    return hash32

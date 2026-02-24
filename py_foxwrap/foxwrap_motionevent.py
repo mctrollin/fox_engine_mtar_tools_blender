@@ -8,6 +8,7 @@ This module provides functions to store motion events from MTAR files as:
 from typing import List, Dict, Optional
 
 from ..py_utilities.utilities_logging import Debug
+from ..py_utilities.utilities_hashing_cityhash import strcode32
 from .foxwrap_metadata import (
     make_event_property_key,
     iter_event_properties,
@@ -16,7 +17,6 @@ from ..py_fox import fox_gani_constants as gani_const
 
 from ..py_fox.fox_gani_types import EvpHeader, EvpData, EventUnitInfo, TimeSection
 from ..py_fox.fox_misc_types import StrCode32
-from ..py_fox.fox_gani_enums import EventUnitInfoName_StrCode32Alias
 
 
 def store_motion_events_on_action(action: 'bpy.types.Action', motion_events: Optional[EvpHeader]) -> None:
@@ -37,7 +37,6 @@ def store_motion_events_on_action(action: 'bpy.types.Action', motion_events: Opt
         return
 
     Debug.log(f"Storing {motion_events.count} motion event categor(ies) on action '{action.name}'")
-
     # Store version as a custom property
     action[gani_const.EVPH_VERSION] = motion_events.version
     action.id_properties_ui(gani_const.EVPH_VERSION).update(
@@ -51,14 +50,8 @@ def store_motion_events_on_action(action: 'bpy.types.Action', motion_events: Opt
         Debug.log(f"  Category '{category_name}': {category_data.unit_count} event(s)")
 
         for event in category_data.events:
-            # Prefer the enum name if the code is recognized; otherwise fall back
-            # to the raw integer string.  This makes stored custom properties
-            # easier to read while still round‑tripping correctly.
-            enum_val = getattr(event, 'name_enum', None)
-            if enum_val is not None:
-                event_name = enum_val.name
-            else:
-                event_name = str(event.name)
+            # Get event name from name_enum property (returns string: name if in dict, else hash string)
+            event_name = getattr(event, 'name_enum', str(event.name))
 
             # Build parameter strings
             params_parts = []
@@ -174,17 +167,11 @@ def read_motion_events_from_action(action: 'bpy.types.Action') -> Optional[EvpHe
         # Category from value; fall back to the key-derived category name
         category_name = kv.get('category', category_name_from_key)
 
-        # Keep the readable event name for NLA marker lookup; convert to integer
-        # string for binary export (StrCode32.from_string requires numeric input).
+        # Keep the readable event name for NLA marker lookup; compute hash for binary export.
         event_name_for_marker = event_name
         if not event_name.isdigit():
-            try:
-                enum_val = EventUnitInfoName_StrCode32Alias[event_name]
-            except KeyError:
-                # not in enum; leave as-is (may be a custom or rig-type name)
-                pass
-            else:
-                event_name = str(enum_val.value)
+            # Compute StrCode32 hash for the event name to use during export
+            event_name = str(strcode32(event_name, remove_extension=False))
 
         # Parse parameters
         int_params = []

@@ -15,7 +15,8 @@ from ..py_utilities.utilities_logging import Debug
 from ..py_utilities.utilities_hashing_cityhash import (hash_file_name_with_ext,
                                                        hash_file_name,
                                                        hash_file_extension,
-                                                       hash_file_name_legacy)
+                                                       hash_file_name_legacy,
+                                                       strcode32)
 
 
 def resolve_executable_path(exe_path: str) -> Path:
@@ -494,4 +495,56 @@ def build_gani_hash_dictionary(dictionary_path: str) -> Dict[int, str]:
             failed += 1
     Debug.stop_timer("Build GANI hash dict: hash generation")
     Debug.log(f"  Built {len(result)} hash entries ({failed} failed) from '{dictionary_path}'")
+    return result
+
+
+def build_event_hash_dictionary(dictionary_path: str) -> Dict[int, str]:
+    """Build an event name hash dictionary from events_dictionary.txt using StrCode32 hashing.
+
+    Reads plain event names from the dictionary file and computes StrCode32 hashes,
+    creating a hash → name lookup table for animation event identification.
+
+    For each event name in the dictionary file, computes its StrCode32 hash and
+    maps hash → name in the result dict. This enables runtime lookup of event names
+    by their binary hash values without maintaining hardcoded enum definitions.
+
+    Args:
+        dictionary_path: Path to events_dictionary.txt (one plain event name per line)
+
+    Returns:
+        Dict mapping StrCode32 hash (32-bit int) to event name string
+        (e.g., {312449893: "FX_CREATE_EFFECT_WITH_SKL", ...})
+    """
+    result: Dict[int, str] = {}
+
+    dict_file = Path(dictionary_path)
+    if not dict_file.exists():
+        Debug.log_warning(f"Event dictionary not found: {dictionary_path}")
+        return result
+
+    # Phase 1: read the plain-text event name dictionary file
+    Debug.start_timer("Build event hash dict: read file")
+    try:
+        event_names = [
+            line.strip()
+            for line in dict_file.read_text(encoding='utf-8').splitlines()
+            if line.strip() and not line.strip().startswith('#')  # skip blank lines and comments
+        ]
+    except Exception as e:
+        Debug.log_warning(f"Failed to read event dictionary: {e}")
+        return result
+    Debug.stop_timer("Build event hash dict: read file")
+    Debug.log(f"  Read {len(event_names)} event names from '{dictionary_path}'")
+
+    # Phase 2: hash every event name with StrCode32
+    Debug.start_timer("Build event hash dict: hash generation")
+    failed = 0
+    for event_name in event_names:
+        try:
+            hash_value = strcode32(event_name, remove_extension=False)
+            result[hash_value] = event_name
+        except Exception:
+            failed += 1
+    Debug.stop_timer("Build event hash dict: hash generation")
+    Debug.log(f"  Built {len(result)} event hash entries ({failed} failed) from '{dictionary_path}'")
     return result

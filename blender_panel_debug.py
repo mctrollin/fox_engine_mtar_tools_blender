@@ -26,6 +26,9 @@ from .blender_operators_debug import (
     MTAR_OT_GenerateHash,
     MTAR_OT_CopyHashGeneratorOutput,
     MTAR_OT_ClearHashGeneratorResults,
+    MTAR_OT_ComputeStrCode32,
+    MTAR_OT_ClearStrCode32Results,
+    MTAR_OT_CopyStrCode32Result,
 )
 
 
@@ -366,6 +369,41 @@ class MTAR_PG_DebugHashProperties(PropertyGroup):
         maxlen=4096
     )
 
+    # StrCode32 animation name hashing
+    strcode32_input: StringProperty(
+        name="Input",
+        description="Animation/track name to hash (e.g., bone name, event name)",
+        default="",
+        maxlen=4096
+    )
+
+    strcode32_remove_extension: bpy.props.BoolProperty(
+        name="Remove Extension",
+        description="If True, strip extension at first '.' before hashing",
+        default=True
+    )
+
+    strcode32_result: StringProperty(
+        name="StrCode32 Result",
+        description="Computed StrCode32 hash value",
+        default="",
+        maxlen=4096
+    )
+
+    strcode32_result_dec: StringProperty(
+        name="StrCode32 Result (dec)",
+        description="Decimal representation of StrCode32 hash",
+        default="",
+        maxlen=4096
+    )
+
+    strcode32_error: StringProperty(
+        name="StrCode32 Error",
+        description="Error message if hash computation failed",
+        default="",
+        maxlen=4096
+    )
+
 
 class MTAR_PT_DebugHashPanel(Panel):
     """N-Panel for external hash generator tool."""
@@ -397,14 +435,15 @@ class MTAR_PT_DebugHashPanel(Panel):
             info_box.label(text="Exe not configured — Python only", icon='INFO')
             info_box.label(text="Configure path above for exe column")
 
+        pathcode_box = layout.box()
         # Input
-        input_box = layout.box()
+        input_box = pathcode_box.box()
         input_box.label(text="Filename", icon='IMPORT')
         col = input_box.column(align=True)
         col.prop(props, "hash_generator_input", text="")
 
         # Action buttons
-        button_box = layout.box()
+        button_box = pathcode_box.box()
         col = button_box.column(align=True)
         col.scale_y = 1.3
 
@@ -413,7 +452,7 @@ class MTAR_PT_DebugHashPanel(Panel):
         row.operator("mtar.clear_hash_generator_results", text="Clear", icon='X')
 
         # Results
-        results_box = layout.box()
+        results_box = pathcode_box.box()
         results_box.label(text="Hash Results", icon='INFO')
 
         has_py_results = bool(
@@ -492,6 +531,50 @@ class MTAR_PT_DebugHashPanel(Panel):
                 error_box.alert = True
                 error_box.label(text=f"{err_label}:", icon='ERROR')
                 for line in err_val.split(';'):
+                    error_box.label(text=line.strip(), icon='NONE')
+
+        # StrCode32 animation name hashing
+        strcode_box = layout.box()
+        strcode_box.label(text="StrCode32 Animation Names", icon='FILE_CACHE')
+
+        # Input
+        strcode_input_box = strcode_box.box()
+        strcode_input_box.label(text="Bone/Track Name", icon='IMPORT')
+        col = strcode_input_box.column(align=True)
+        col.prop(props, "strcode32_input", text="")
+        
+        # Remove extension toggle
+        col.prop(props, "strcode32_remove_extension")
+
+        # Action button
+        button_box = strcode_box.box()
+        col = button_box.column(align=True)
+        col.scale_y = 1.3
+        row = col.row(align=True)
+        row.operator("mtar.compute_strcode32", text="Compute StrCode32", icon='PLAY')
+        row.operator("mtar.clear_strcode32_results", text="Clear", icon='X')
+
+        # Results
+        if props.strcode32_result or props.strcode32_error:
+            results_box = strcode_box.box()
+            results_box.label(text="Results", icon='INFO')
+            
+            if props.strcode32_result:
+                result_row = results_box.row(align=True)
+                result_row.label(text=f"Hex: {props.strcode32_result}")
+                op = result_row.operator("mtar.copy_strcode32_result", text="", icon='COPYDOWN')
+                op.is_decimal = False
+                if props.strcode32_result_dec:
+                    op_dec = result_row.operator("mtar.copy_strcode32_result", text="", icon='SORTBYEXT')
+                    op_dec.is_decimal = True
+                if props.strcode32_result_dec:
+                    results_box.label(text=f"Dec: {props.strcode32_result_dec}", icon='NONE')
+            
+            if props.strcode32_error:
+                error_box = results_box.box()
+                error_box.alert = True
+                error_box.label(text="Error:", icon='ERROR')
+                for line in props.strcode32_error.split(';'):
                     error_box.label(text=line.strip(), icon='NONE')
 
     def _draw_comparison_row(
@@ -574,6 +657,9 @@ classes = (
     MTAR_OT_GenerateHash,
     MTAR_OT_CopyHashGeneratorOutput,
     MTAR_OT_ClearHashGeneratorResults,
+    MTAR_OT_ComputeStrCode32,
+    MTAR_OT_ClearStrCode32Results,
+    MTAR_OT_CopyStrCode32Result,
     MTAR_PT_DebugHashPanel,
 )
 

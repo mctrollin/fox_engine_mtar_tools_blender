@@ -25,6 +25,7 @@ from .py_utilities.utilities_hashing_cityhash import (
     hash_file_name_legacy,
     hash_file_extension,
     hash_file_name_with_ext,
+    strcode32,
 )
 # Import bake helpers from tools module (keep top-level to prevent import loops)
 from .py_tools.tools_animation_bake import (
@@ -821,4 +822,96 @@ class MTAR_OT_DebugSetupGraphContext(Operator):
         Debug.report_and_log(self, 'INFO', f"Graph context setup complete for '{armature.name}' / '{action.name}'")
         Debug.report_and_log(self, 'INFO', "Check console for diagnostics. Try: bpy.ops.graph.decimate(mode='ERROR', error=0.01)")
         
+        return {'FINISHED'}
+
+
+# StrCode32 Animation Name Hashing Operators ##############################################
+
+class MTAR_OT_ComputeStrCode32(Operator):
+    """Compute StrCode32 hash for an animation track/bone name."""
+    bl_idname = "mtar.compute_strcode32"
+    bl_label = "Compute StrCode32"
+    bl_description = "Compute StrCode32 hash for animation track names, bone names, event names, etc."
+    
+    def execute(self, context: Context) -> set:
+        """Execute the hash computation."""
+        props = context.scene.mtar_debug_hash_properties
+        
+        # Get input
+        input_text = props.strcode32_input.strip()
+        remove_ext = props.strcode32_remove_extension
+        
+        # Clear previous results
+        props.strcode32_result = ""
+        props.strcode32_result_dec = ""
+        props.strcode32_error = ""
+        
+        if not input_text:
+            props.strcode32_error = "Input is empty"
+            Debug.report_and_log(self, 'WARNING', "StrCode32: Input is empty")
+            return {'FINISHED'}
+        
+        try:
+            # Compute StrCode32
+            hash_val = strcode32(input_text, remove_extension=remove_ext)
+            
+            # Format as hex (32-bit, 8 digits)
+            props.strcode32_result = f"0x{hash_val:08X}"
+            props.strcode32_result_dec = str(hash_val)
+            
+            Debug.report_and_log(self, 'INFO', 
+                f"StrCode32('{input_text}', remove_ext={remove_ext}) = {props.strcode32_result} ({props.strcode32_result_dec})")
+            
+        except Exception as e:
+            props.strcode32_error = f"Exception: {str(e)}"
+            Debug.report_and_log(self, 'ERROR', f"StrCode32 computation failed: {e}")
+        
+        return {'FINISHED'}
+
+
+class MTAR_OT_ClearStrCode32Results(Operator):
+    """Clear StrCode32 results."""
+    bl_idname = "mtar.clear_strcode32_results"
+    bl_label = "Clear StrCode32 Results"
+    bl_description = "Clear all StrCode32 results"
+    
+    def execute(self, context: Context) -> set:
+        """Clear the results."""
+        props = context.scene.mtar_debug_hash_properties
+        
+        props.strcode32_input = ""
+        props.strcode32_result = ""
+        props.strcode32_result_dec = ""
+        props.strcode32_error = ""
+        
+        Debug.report_and_log(self, 'INFO', "StrCode32 results cleared")
+        return {'FINISHED'}
+
+
+class MTAR_OT_CopyStrCode32Result(Operator):
+    """Copy StrCode32 result to clipboard."""
+    bl_idname = "mtar.copy_strcode32_result"
+    bl_label = "Copy StrCode32 Result"
+    bl_description = "Copy the StrCode32 result to clipboard"
+    
+    is_decimal: bpy.props.BoolProperty(
+        name="Is Decimal",
+        description="If True, copy decimal; if False, copy hexadecimal",
+        default=False
+    )
+    
+    def execute(self, context: Context) -> set:
+        """Copy to clipboard."""
+        props = context.scene.mtar_debug_hash_properties
+        
+        text_to_copy = props.strcode32_result_dec if self.is_decimal else props.strcode32_result
+        
+        if not text_to_copy:
+            Debug.report_and_log(self, 'WARNING', "StrCode32: No result to copy")
+            return {'FINISHED'}
+        
+        # Copy to clipboard
+        context.window_manager.clipboard = text_to_copy
+        
+        Debug.report_and_log(self, 'INFO', f"Copied to clipboard: {text_to_copy}")
         return {'FINISHED'}
