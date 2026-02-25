@@ -9,6 +9,7 @@ from typing import List, Dict, Optional
 
 from ..py_utilities.utilities_logging import Debug
 from ..py_utilities.utilities_hashing_cityhash import strcode32
+from ..py_utilities.utilities_hashing import unhash_event_name
 from .foxwrap_metadata import (
     make_event_property_key,
     iter_event_properties,
@@ -37,6 +38,7 @@ def store_motion_events_on_action(action: 'bpy.types.Action', motion_events: Opt
         return
 
     Debug.log(f"Storing {motion_events.count} motion event categor(ies) on action '{action.name}'")
+
     # Store version as a custom property
     action[gani_const.EVPH_VERSION] = motion_events.version
     action.id_properties_ui(gani_const.EVPH_VERSION).update(
@@ -50,8 +52,12 @@ def store_motion_events_on_action(action: 'bpy.types.Action', motion_events: Opt
         Debug.log(f"  Category '{category_name}': {category_data.unit_count} event(s)")
 
         for event in category_data.events:
-            # Get event name from name_enum property (returns string: name if in dict, else hash string)
-            event_name = getattr(event, 'name_enum', str(event.name))
+            # Look up event name from the events dictionary
+            hash_val = event.name.to_int()
+            event_name = unhash_event_name(hash_val)
+            if event_name is None:
+                event_name = str(hash_val)
+                Debug.log(f"StrCode32 hash {hash_val} not found in events dictionary, using hash as name")
 
             # Build parameter strings
             params_parts = []

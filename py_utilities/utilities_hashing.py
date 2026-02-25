@@ -2,60 +2,130 @@
 Utilities for handling Fox Engine hash values and rig type name mappings.
 """
 import os
-from typing import Optional, Dict
+from typing import Optional, Dict, Set
 
-# Mapping of hash values to rig type names
-RIG_TYPE_HASH_TO_NAME = {
-    3552837520: "Root",
-    2832076631: "Waist",
-    538406145: "Spine",
-    1382944449: "Chest",
-    12750096: "Neck",
-    1833209204: "Head",
-    4069048318: "LArm",
-    1626172505: "LHand",
-    2063241216: "RArm",
-    4246335734: "RHand",
-    1587345382: "LLeg",
-    2318116707: "LFoot",
-    1917416821: "RLeg",
-    3730058848: "RFoot",
-    657792596: "LToe",
-    2688182121: "RToe",
-    3930921867: "LFingers",
-    2376760760: "RFingers"
-}
+from .utilities_hashing_cityhash import strcode32
+from .utilities_logging import Debug
 
-# Reverse mapping: rig type names to hash values
-RIG_TYPE_NAME_TO_HASH = {name: hash_val for hash_val, name in RIG_TYPE_HASH_TO_NAME.items()}
+# Unified StrCode32 cache: hash value → name string
+_strcode32_cache: Dict[int, str] = {}
+
+# Set of already-loaded dictionary absolute paths (to prevent redundant re-loading)
+_loaded_dict_paths: Set[str] = set()
 
 
-def unhash_rig_type(hash_value: int) -> str:
-    """Convert a rig type hash to its corresponding name.
-    
-    A rig here means one limb (e.g. shoulder, upper arm, lower arm), 
-    all fingers of the hand or just a foot.
-    It does not mean the same as a bone in blender.
-    
+def load_strcode32_dictionary(dict_path: str) -> None:
+    """Load a StrCode32 name dictionary into the unified cache.
+
+    Reads plain name strings from a .txt file (one name per line, blank lines
+    and lines starting with '#' are skipped), hashes each with strcode32(), and
+    merges the results into the shared in-memory cache.  Calling this function
+    more than once with the same path is a no-op.
+
     Args:
-        hash_value: The integer hash value of the rig type name
-        
-    Returns:
-        The resolved rig type name string, or None if not found in the mapping
+        dict_path: Absolute path to the dictionary text file.
     """
-    return RIG_TYPE_HASH_TO_NAME.get(hash_value)
+    abs_path = os.path.abspath(dict_path)
+    if abs_path in _loaded_dict_paths:
+        return
+
+    if not os.path.exists(abs_path):
+        Debug.log_warning(f"StrCode32 dictionary not found: {abs_path}")
+        return
+
+    try:
+        with open(abs_path, encoding='utf-8') as f:
+            names = [
+                line.strip()
+                for line in f
+                if line.strip() and not line.strip().startswith('#')
+            ]
+    except OSError as e:
+        Debug.log_warning(f"Failed to read StrCode32 dictionary '{abs_path}': {e}")
+        return
+
+    loaded_count = 0
+    for name in names:
+        hash_val = strcode32(name, remove_extension=False)
+        _strcode32_cache[hash_val] = name
+        loaded_count += 1
+
+    _loaded_dict_paths.add(abs_path)
+    Debug.log(f"Loaded {loaded_count} StrCode32 entries from '{abs_path}'")
+
+
+def lookup_strcode32(hash_val: int) -> Optional[str]:
+    """Look up a StrCode32 hash value in the unified cache.
+
+    The caller is responsible for loading the relevant dictionaries first via
+    :func:`load_strcode32_dictionary`.
+
+    Args:
+        hash_val: The 32-bit StrCode32 hash to look up.
+
+    Returns:
+        The name string if found in the cache, ``None`` otherwise.
+    """
+    return _strcode32_cache.get(hash_val)
+
+
+def _get_rig_dict_path() -> str:
+    """Return the absolute path to dic/rig_dictionary.txt."""
+    addon_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(addon_dir, 'dic', 'rig_dictionary.txt')
+
+
+def unhash_rig_type(hash_value: int) -> Optional[str]:
+    """Convert a rig type hash to its corresponding name.
+
+    A rig here means one limb (e.g. shoulder, upper arm, lower arm),
+    all fingers of the hand or just a foot.
+    It does not mean the same as a bone in Blender.
+
+    Lazily loads ``dic/rig_dictionary.txt`` on first call.
+
+    Args:
+        hash_value: The integer hash value of the rig type name.
+
+    Returns:
+        The resolved rig type name string, or ``None`` if not found.
+    """
+    load_strcode32_dictionary(_get_rig_dict_path())
+    return lookup_strcode32(hash_value)
+
+
+def _get_events_dict_path() -> str:
+    """Return the absolute path to dic/events_dictionary.txt."""
+    addon_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(addon_dir, 'dic', 'events_dictionary.txt')
+
+
+def unhash_event_name(hash_value: int) -> Optional[str]:
+    """Convert an event name hash to its corresponding string.
+
+    Lazily loads ``dic/events_dictionary.txt`` on first call.
+
+    Args:
+        hash_value: The 32-bit StrCode32 hash of the event name.
+
+    Returns:
+        The event name string (e.g. ``"FX_CREATE_EFFECT_WITH_SKL"``), or
+        ``None`` if the hash is not found in the dictionary.
+    """
+    load_strcode32_dictionary(_get_events_dict_path())
+    return lookup_strcode32(hash_value)
 
 
 def hash_rig_type(name: str) -> int:
     """Convert a rig type name to its corresponding hash value.
-    
+
     Args:
-        name: The rig type name (e.g., "Root", "LArm", etc.)
-        
+        name: The rig type name (e.g., "Root", "RIG_SKL_010_LSHLD", etc.)
+
     Returns:
-        The hash value for the rig type, or None if not found in the mapping
+        The StrCode32 hash value for the name.
     """
-    return RIG_TYPE_NAME_TO_HASH.get(name)
+    return strcode32(name, remove_extension=False)
 
 
 def load_gani_hash_dictionary(dict_path: str) -> Dict[int, str]:

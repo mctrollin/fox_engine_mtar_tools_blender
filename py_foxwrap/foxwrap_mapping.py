@@ -235,7 +235,7 @@ class TrackMappingData:
                              (e.g., 'pose.bones["hand_ik.R"].rotation_quaternion')
             
         Returns:
-            Fox base track name without segment suffix (e.g., "RHand"), or None if not found
+            Fox base track name without segment suffix (e.g., "RIG_SKL_023_RHAND"), or None if not found
         
         Example:
             >>> # Property-aware lookup (preferred for multi-property tracks)
@@ -243,11 +243,11 @@ class TrackMappingData:
             ...     "hand_ik.R", 
             ...     'pose.bones["hand_ik.R"].rotation_quaternion'
             ... )
-            "RHand"  # From RHand_0 (rotation property)
+            "RIG_SKL_023_RHAND"  # From RIG_SKL_023_RHAND_0 (rotation property)
             
             >>> # Simple lookup (fallback for single-property tracks)
-            >>> mapping.get_fox_base_name_for_blender_bone("head")
-            "Head"  # Works if only one property maps to this bone
+            >>> mapping.get_fox_base_name_for_blender_bone("head")  # e.g. returns "RIG_SKL_004_HEAD"
+            "RIG_SKL_004_HEAD"  # Works if only one property maps to this bone
         """
         if fcurve_data_path:
             # Property-specific lookup using F-curve property type
@@ -264,13 +264,13 @@ class TrackMappingData:
         """Get all Blender bones mapped from a Fox base track.
         
         Args:
-            fox_base_name: Fox base track name without segment suffix (e.g., "RHand")
+            fox_base_name: Fox base track name without segment suffix (e.g., "RIG_SKL_023_RHAND")
             
         Returns:
             List of Blender bone names mapped from this Fox track (may be empty)
         
         Example:
-            >>> mapping.get_blender_bones_for_fox_base("RHand")
+            >>> mapping.get_blender_bones_for_fox_base("RIG_SKL_023_RHAND")
             ["hand_ik.R"]  # Even if mapping has RHand_0, RHand_1 -> same bone
         """
         return self.fox_base_to_blender_names.get(fox_base_name, [])
@@ -314,7 +314,7 @@ class TrackMappingData:
         Single-segment tracks have no suffix and use segment index -1.
         
         Args:
-            fox_name: Fox bone name (e.g., "RHand_0", "RHand_1", "Head")
+            fox_name: Fox bone name (e.g., "RIG_SKL_023_RHAND_0", "RIG_SKL_023_RHAND_1", "RIG_SKL_004_HEAD")
             
         Returns:
             Tuple of (base_name, segment_index)
@@ -545,13 +545,13 @@ def parse_track_mapping_file(filepath: str) -> TrackMappingData:
     Only one rotation track and one location track can map to the same target bone.
     
     Examples:
-    @meta name=Root ; type=ROOT
-    Root : torso_root ; offset_r=90,0,0,xyz ; map_r=y,x,z
+    @meta name=RIG_ROOT ; type=ROOT
+    RIG_ROOT : torso_root ; offset_r=90,0,0,xyz ; map_r=y,x,z
     
-    @meta name=LArm ; type=ARM ; bits=14
-    LArm_0 : shoulder.L ; space_r=custom,torso_root
-    LArm_1 : hand_ik.L ; space_l=world
-    LArm_2 : upper_arm_ik_target.L ; as_ik_up=upper_arm_ik.L,x,1
+    @meta name=RIG_SKL_010_LSHLD ; type=ARM ; bits=14
+    RIG_SKL_010_LSHLD_0 : shoulder.L ; space_r=custom,torso_root
+    RIG_SKL_010_LSHLD_1 : hand_ik.L ; space_l=world
+    RIG_SKL_010_LSHLD_2 : upper_arm_ik_target.L ; as_ik_up=upper_arm_ik.L,x,1
     
     Args:
         filepath: Path to the .txt mapping file

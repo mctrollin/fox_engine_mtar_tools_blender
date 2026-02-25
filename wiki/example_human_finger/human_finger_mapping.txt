@@ -1,107 +1,107 @@
 # Track 0 (qd, vd)
-@meta name=Root ; type=ROOT
-Root : torso_root               ; offset_r=0,0,180,zyx
+@meta name=RIG_ROOT ; type=ROOT
+RIG_ROOT : torso_root               ; offset_r=0,0,180,zyx
 
 # Track 1 (q, v)
-@meta name=Waist ; type=TRANSFORM
-Waist : torso                   ; space_r=custom,torso_root ; space_l=custom,torso_root
+@meta name=RIG_SKL_000_WAIST ; type=TRANSFORM
+RIG_SKL_000_WAIST : torso                   ; space_r=custom,torso_root ; space_l=custom,torso_root
 
 # Track 2 (q)
-@meta name=Spine ; type=ORIENTATION
-Spine : spine_fk.001            ; space_r=custom,torso_root
+@meta name=RIG_SKL_001_SPINE ; type=ORIENTATION
+RIG_SKL_001_SPINE : spine_fk.001            ; space_r=custom,torso_root
 
 # Track 3 (q)
-@meta name=Chest ; type=ORIENTATION
-Chest : spine_fk.002            ; space_r=custom,torso_root
+@meta name=RIG_SKL_002_CHEST ; type=ORIENTATION
+RIG_SKL_002_CHEST : spine_fk.002            ; space_r=custom,torso_root
 
 # Track 4 (q)
-@meta name=Neck ; type=ORIENTATION
-Neck : neck                     ; space_r=custom,torso_root
+@meta name=RIG_SKL_003_NECK ; type=ORIENTATION
+RIG_SKL_003_NECK : neck                     ; space_r=custom,torso_root
 
 # Track 5 (q)
-@meta name=Head ; type=ORIENTATION
-Head : head                     ; space_r=custom,torso_root
+@meta name=RIG_SKL_004_HEAD ; type=ORIENTATION
+RIG_SKL_004_HEAD : head                     ; space_r=custom,torso_root
 
 # Track 6 (q, v, q)
-@meta name=LArm ; type=ARM
-LArm_0 : shoulder.L             ; space_r=custom,torso_root
-LArm_1 : hand_ik.L              ; space_l=world
-LArm_2 : upper_arm_ik_target.L  ; space_ik=custom,torso_root ; as_ik_up=upper_arm_parent.L,x
+@meta name=RIG_SKL_010_LSHLD ; type=ARM
+RIG_SKL_010_LSHLD_0 : shoulder.L             ; space_r=custom,torso_root
+RIG_SKL_010_LSHLD_1 : hand_ik.L              ; space_l=world
+RIG_SKL_010_LSHLD_2 : upper_arm_ik_target.L  ; space_ik=custom,torso_root ; as_ik_up=upper_arm_parent.L,x
 
 # Track 7 (q)
-@meta name=LHand ; type=ORIENTATION
-LHand : hand_ik.L               ; space_r=custom,torso_root
+@meta name=RIG_SKL_013_LHAND ; type=ORIENTATION
+RIG_SKL_013_LHAND : hand_ik.L               ; space_r=custom,torso_root
 
 # Track 8 (q, v, q)
-@meta name=RArm ; type=ARM
-RArm_0 : shoulder.R             ; space_r=custom,torso_root
-RArm_1 : hand_ik.R              ; space_l=world
-RArm_2 : upper_arm_ik_target.R  ; space_ik=custom,torso_root ; as_ik_up=upper_arm_parent.R,x
+@meta name=RIG_SKL_020_RSHLD ; type=ARM
+RIG_SKL_020_RSHLD_0 : shoulder.R             ; space_r=custom,torso_root
+RIG_SKL_020_RSHLD_1 : hand_ik.R              ; space_l=world
+RIG_SKL_020_RSHLD_2 : upper_arm_ik_target.R  ; space_ik=custom,torso_root ; as_ik_up=upper_arm_parent.R,x
 
 # Track 9 (q)
-@meta name=RHand ; type=ORIENTATION
-RHand : hand_ik.R               ; space_r=custom,torso_root
+@meta name=RIG_SKL_023_RHAND ; type=ORIENTATION
+RIG_SKL_023_RHAND : hand_ik.R               ; space_r=custom,torso_root
 
 # Track 10 (v, q)
-@meta name=LLeg ; type=TWO_BONE
-LLeg_0 : foot_ik.L              ; space_l=world
-LLeg_1 : thigh_ik_target.L      ; space_ik=custom,torso_root ; as_ik_up=thigh_parent.L,x
+@meta name=RIG_SKL_030_LTHIGH ; type=TWO_BONE
+RIG_SKL_030_LTHIGH_0 : foot_ik.L              ; space_l=world
+RIG_SKL_030_LTHIGH_1 : thigh_ik_target.L      ; space_ik=custom,torso_root ; as_ik_up=thigh_parent.L,x
 
 # Track 11 (q)
-@meta name=LFoot ; type=ORIENTATION
-LFoot : foot_ik.L               ; space_r=custom,torso_root
+@meta name=RIG_SKL_032_LFOOT ; type=ORIENTATION
+RIG_SKL_032_LFOOT : foot_ik.L               ; space_r=custom,torso_root
 
 # Track 12 (v, q)
-@meta name=RLeg ; type=TWO_BONE
-RLeg_0 : foot_ik.R              ; space_l=world
-RLeg_1 : thigh_ik_target.R      ; space_ik=custom,torso_root ; as_ik_up=thigh_parent.R,x
+@meta name=RIG_SKL_040_RTHIGH ; type=TWO_BONE
+RIG_SKL_040_RTHIGH_0 : foot_ik.R              ; space_l=world
+RIG_SKL_040_RTHIGH_1 : thigh_ik_target.R      ; space_ik=custom,torso_root ; as_ik_up=thigh_parent.R,x
 
 # Track 13 (q)
-@meta name=RFoot ; type=ORIENTATION
-RFoot : foot_ik.R               ; space_r=custom,torso_root
+@meta name=RIG_SKL_042_RFOOT ; type=ORIENTATION
+RIG_SKL_042_RFOOT : foot_ik.R               ; space_r=custom,torso_root
 
 # Track 14 (q)
-@meta name=LToe ; type=LOCAL_ORIENTATION
-LToe : toe.L
+@meta name=RIG_SKL_033_LTOE ; type=LOCAL_ORIENTATION
+RIG_SKL_033_LTOE : toe.L
 
 # Track 15 (q)
-@meta name=RToe ; type=LOCAL_ORIENTATION
-RToe : toe.R
+@meta name=RIG_SKL_043_RTOE ; type=LOCAL_ORIENTATION
+RIG_SKL_043_RTOE : toe.R
 
 # Track 16 (q * 16)
-@meta name=LFingers ; type=MULTI_LOCAL_ORIENTATION ; count=16
-LFingers_0 : thumb.01.L         
-LFingers_1 : thumb.02.L         
-LFingers_2 : thumb.03.L         
-LFingers_3 : f_index.01.L       
-LFingers_4 : f_index.02.L       
-LFingers_5 : f_index.03.L       
-LFingers_6 : f_middle.01.L      
-LFingers_7 : f_middle.02.L      
-LFingers_8 : f_middle.03.L      
-LFingers_9 : palm.L             
-LFingers_10 : f_ring.01.L       
-LFingers_11 : f_ring.02.L       
-LFingers_12 : f_ring.03.L       
-LFingers_13 : f_pinky.01.L      
-LFingers_14 : f_pinky.02.L      
-LFingers_15 : f_pinky.03.L      
+@meta name=RIG_SKL_101_LF10 ; type=MULTI_LOCAL_ORIENTATION ; count=16
+RIG_SKL_101_LF10_0 : thumb.01.L         
+RIG_SKL_101_LF10_1 : thumb.02.L         
+RIG_SKL_101_LF10_2 : thumb.03.L         
+RIG_SKL_101_LF10_3 : f_index.01.L       
+RIG_SKL_101_LF10_4 : f_index.02.L       
+RIG_SKL_101_LF10_5 : f_index.03.L       
+RIG_SKL_101_LF10_6 : f_middle.01.L      
+RIG_SKL_101_LF10_7 : f_middle.02.L      
+RIG_SKL_101_LF10_8 : f_middle.03.L      
+RIG_SKL_101_LF10_9 : palm.L             
+RIG_SKL_101_LF10_10 : f_ring.01.L       
+RIG_SKL_101_LF10_11 : f_ring.02.L       
+RIG_SKL_101_LF10_12 : f_ring.03.L       
+RIG_SKL_101_LF10_13 : f_pinky.01.L      
+RIG_SKL_101_LF10_14 : f_pinky.02.L      
+RIG_SKL_101_LF10_15 : f_pinky.03.L      
 
 # Track 17 (q * 16)
-@meta name=RFingers ; type=MULTI_LOCAL_ORIENTATION ; count=16
-RFingers_0 : thumb.01.R         
-RFingers_1 : thumb.02.R         
-RFingers_2 : thumb.03.R         
-RFingers_3 : f_index.01.R       
-RFingers_4 : f_index.02.R       
-RFingers_5 : f_index.03.R       
-RFingers_6 : f_middle.01.R      
-RFingers_7 : f_middle.02.R      
-RFingers_8 : f_middle.03.R      
-RFingers_9 : palm.R             
-RFingers_10 : f_ring.01.R       
-RFingers_11 : f_ring.02.R       
-RFingers_12 : f_ring.03.R       
-RFingers_13 : f_pinky.01.R      
-RFingers_14 : f_pinky.02.R      
-RFingers_15 : f_pinky.03.R      
+@meta name=RIG_SKL_201_RF10 ; type=MULTI_LOCAL_ORIENTATION ; count=16
+RIG_SKL_201_RF10_0 : thumb.01.R         
+RIG_SKL_201_RF10_1 : thumb.02.R         
+RIG_SKL_201_RF10_2 : thumb.03.R         
+RIG_SKL_201_RF10_3 : f_index.01.R       
+RIG_SKL_201_RF10_4 : f_index.02.R       
+RIG_SKL_201_RF10_5 : f_index.03.R       
+RIG_SKL_201_RF10_6 : f_middle.01.R      
+RIG_SKL_201_RF10_7 : f_middle.02.R      
+RIG_SKL_201_RF10_8 : f_middle.03.R      
+RIG_SKL_201_RF10_9 : palm.R             
+RIG_SKL_201_RF10_10 : f_ring.01.R       
+RIG_SKL_201_RF10_11 : f_ring.02.R       
+RIG_SKL_201_RF10_12 : f_ring.03.R       
+RIG_SKL_201_RF10_13 : f_pinky.01.R      
+RIG_SKL_201_RF10_14 : f_pinky.02.R      
+RIG_SKL_201_RF10_15 : f_pinky.03.R      

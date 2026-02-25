@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import struct
 import ctypes
 
-from ..py_utilities.utilities_hashing import hash_rig_type
+from ..py_utilities.utilities_hashing_cityhash import strcode32
 
 # Type aliases for clarity
 ubyte = ctypes.c_ubyte
@@ -42,13 +42,8 @@ class StrCode32:
             # Try to parse as integer string first
             return cls(int(text))
         except ValueError:
-            # If not an integer string, try to resolve using rig type name mapping
-            
-            hash_value = hash_rig_type(text)
-            if hash_value is not None:
-                return cls(hash_value)
-            # If still not found, raise an error
-            raise ValueError(f"Cannot convert '{text}' to StrCode32: not an integer and not a known rig type name")
+            # Hash any string using the StrCode32 algorithm
+            return cls(strcode32(text, remove_extension=False))
     
     def to_int(self) -> int:
         """Get the integer value."""

@@ -562,7 +562,7 @@ def strcode32(text: str, remove_extension: bool = True) -> int:
         32-bit hash value (cast from 48-bit CityHash64WithSeeds result).
     
     Example:
-        strcode32("waist") → uint32 hash of "waist" animation track
+        strcode32("RIG_ROOT") → uint32 hash of "RIG_ROOT" animation track
         strcode32("track.ext") → uint32 hash of "track" (ext stripped)
         strcode32("track.ext", remove_extension=False) → uint32 hash of "track.ext" (no strip)
     

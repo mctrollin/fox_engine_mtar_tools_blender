@@ -29,32 +29,10 @@ from ..py_utilities.utilities_binary_write import (
 )
 from ..py_utilities.utilities_logging import Debug
 
+
 from .fox_misc_types import StrCode32
 from .fox_gani_enums import SegmentType, TrackUnitFlags
 
-
-# Lazy-loaded event name dictionary (hash → name, built from dic/events_dictionary.txt)
-_event_hash_dict: Optional[dict] = None
-
-
-def _get_event_hash_dictionary() -> dict:
-    """Lazily load and cache the event hash dictionary.
-    
-    Returns a dict mapping StrCode32 hash (int) → event name (str).
-    Loaded on first access from dic/events_dictionary.txt.
-    """
-    global _event_hash_dict
-    if _event_hash_dict is None:
-        try:
-            from ..py_tools.tools_hash_generator import build_event_hash_dictionary
-            import os
-            addon_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            dict_path = os.path.join(addon_dir, 'dic', 'events_dictionary.txt')
-            _event_hash_dict = build_event_hash_dictionary(dict_path)
-        except Exception as e:
-            Debug.log_warning(f"Failed to load event hash dictionary: {e}")
-            _event_hash_dict = {}
-    return _event_hash_dict
 
 
 @dataclass
@@ -855,40 +833,6 @@ class EventUnitInfo:
     int_params: List[int]
     float_params: List[float]
     string_params: List[int]  # List of StrCode64 (stored as uint64)
-
-    # Convenience property to convert between the raw StrCode32 value and the
-    # readable event name from the events_dictionary. Returns the name string if
-    # found in the dictionary, otherwise returns the hash value as a string.
-    @property
-    def name_enum(self) -> str:
-        """Return the event name string from dictionary lookup, or the hash value
-        as a string if not found in the dictionary.
-        
-        Returns:
-            Event name string (e.g., "FX_CREATE_EFFECT_WITH_SKL") if found in
-            the event hash dictionary, otherwise returns the hash value as a
-            decimal string (e.g., "312449893").
-        """
-        hash_val = self.name.to_int()
-        event_dict = _get_event_hash_dictionary()
-        # Return event name if found, otherwise return hash as string
-        return event_dict.get(hash_val, str(hash_val))
-
-    @name_enum.setter
-    def name_enum(self, name_str: str) -> None:
-        """Set the event name via string, computing the StrCode32 hash.
-        
-        Args:
-            name_str: Event name string (e.g., "FX_CREATE_EFFECT_WITH_SKL").
-                     Will compute StrCode32 hash and store in the name field.
-        """
-        from ..py_utilities.utilities_hashing_cityhash import strcode32
-        
-        if not isinstance(name_str, str):
-            raise TypeError("EventUnitInfo.name_enum must be set to a string")
-        
-        hash_val = strcode32(name_str, remove_extension=False)
-        self.name = StrCode32(hash_val)
 
     @classmethod
     def read(cls, br: BinaryIO) -> 'EventUnitInfo':

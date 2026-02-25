@@ -98,7 +98,7 @@ def build_layout_track_from_metadata(track_segment_bone_mapping: TrackSegmentBon
         # Get the fox track name from the mapping params
         fox_track_name = fox_mapping_params.fox_name
         
-        # Strip segment suffix if present (e.g., "LArm_0" -> "LArm")
+        # Strip segment suffix if present (e.g., "RIG_SKL_010_LSHLD_0" -> "RIG_SKL_010_LSHLD")
         # Multi-segment tracks store metadata under the base track name
         base_fox_track_name = fox_track_name
         if '_' in fox_track_name:
@@ -811,7 +811,7 @@ def export_gani_track_from_action(armature: bpy.types.Object,
     unit flags from the animation action.
     
     For multi-segment tracks, each segment maps to a different Blender bone
-    (e.g., "LArm_0", "LArm_1", "LArm_2") as defined in the track mapping file.
+    (e.g., "RIG_SKL_010_LSHLD_0", "RIG_SKL_010_LSHLD_1", "RIG_SKL_010_LSHLD_2") as defined in the track mapping file.
     
     Args:
         armature: Armature object
@@ -862,7 +862,7 @@ def export_gani_track_from_action(armature: bpy.types.Object,
     # Get the fox track name from the base mapping params
     fox_track_name = base_fox_mapping_params.fox_name
     
-    # Strip segment suffix if present (e.g., "LArm_0" -> "LArm")
+    # Strip segment suffix if present (e.g., "RIG_SKL_010_LSHLD_0" -> "RIG_SKL_010_LSHLD")
     # Metadata is stored under the base track name for multi-segment tracks
     base_fox_track_name = fox_track_name
     if '_' in fox_track_name:
