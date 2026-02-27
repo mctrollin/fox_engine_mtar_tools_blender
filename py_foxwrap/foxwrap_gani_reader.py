@@ -5,7 +5,7 @@ import io
 from typing import List, Optional, Tuple
 
 from ..py_utilities.utilities_logging import Debug
-from ..py_utilities.utilities_hashing import unhash_rig_type
+from ..py_utilities.utilities_hashing import unhash_rig_type, unhash_param_name
 from ..py_utilities.utilities_binary_write import align_length
 
 from ..py_fox.fox_mtar_types import MtarTableList2
@@ -183,6 +183,9 @@ class Gani2Reader:
         # Includes UnitFlags and SegmentHeaders
         track_mini_header = TrackMiniHeader.read(br, unit_count=track_count, segment_count=layout_track.header.segment_count)
         Debug.log(f"        Read TrackMiniHeader: frame_count={track_mini_header.frame_count}, param_count={track_mini_header.param_count}")
+        for param_name_hash, param_value in track_mini_header.params:
+            param_name = unhash_param_name(param_name_hash) or str(param_name_hash)
+            Debug.log(f"          Param: {param_name} = {param_value}")
 
         # Calculate GANI2 animation_track data array start location
         param_end_ptr = track_header_ptr + TrackMiniHeader.BASE_SIZE + track_mini_header.param_count * 8 + track_count * 1

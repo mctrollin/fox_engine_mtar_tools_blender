@@ -4,6 +4,30 @@ Parsing utilities for user input.
 from typing import List, Set
 
 
+# Precision used when serializing float values to metadata strings
+# (e.g. motion event float_params, GANI params stored in Blender action custom properties).
+# Python's default str(float) can produce excessive digits for single-precision floats
+# (e.g. 0.30000001192092896). 6 significant digits matches IEEE 754 single-precision fidelity.
+FLOAT_SERIALIZATION_PRECISION = 6
+
+
+def format_float_for_metadata(value: float) -> str:
+    """Format a float value for storage in a metadata string.
+
+    Uses :data:`FLOAT_SERIALIZATION_PRECISION` significant digits to avoid the
+    excessive decimal places produced by ``str()`` on single-precision floats.
+
+    Args:
+        value: Float value to format.
+
+    Returns:
+        Compact string representation, e.g. ``"0.3"`` instead of
+        ``"0.30000001192092896"``.
+    """
+    return f"{value:.{FLOAT_SERIALIZATION_PRECISION}g}"
+
+
+
 def parse_index_selection(selection_str: str, max_index: int) -> List[int]:
     """Parse index selection string with ranges, individual indices, and exclusions.
     

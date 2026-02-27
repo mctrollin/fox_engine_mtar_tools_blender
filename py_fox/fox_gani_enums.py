@@ -87,7 +87,3 @@ class TrackUnitFlags(IntEnum):
         return flags
 
 
-class ParamName_StrCode32Alias(IntEnum):
-    SLOPE_ANGLE = 35201703
-    SLOPE_DIR = 3426329078
-

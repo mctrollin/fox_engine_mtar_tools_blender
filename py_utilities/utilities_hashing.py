@@ -116,6 +116,28 @@ def unhash_event_name(hash_value: int) -> Optional[str]:
     return lookup_strcode32(hash_value)
 
 
+def _get_param_dict_path() -> str:
+    """Return the absolute path to dic/param_dictionary.txt."""
+    addon_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(addon_dir, 'dic', 'param_dictionary.txt')
+
+
+def unhash_param_name(hash_value: int) -> Optional[str]:
+    """Convert a Gani2 param name hash to its corresponding string.
+
+    Lazily loads ``dic/param_dictionary.txt`` on first call.
+
+    Args:
+        hash_value: The 32-bit StrCode32 hash of the param name.
+
+    Returns:
+        The param name string (e.g. ``"SLOPE_ANGLE"``), or
+        ``None`` if the hash is not found in the dictionary.
+    """
+    load_strcode32_dictionary(_get_param_dict_path())
+    return lookup_strcode32(hash_value)
+
+
 def hash_rig_type(name: str) -> int:
     """Convert a rig type name to its corresponding hash value.
 

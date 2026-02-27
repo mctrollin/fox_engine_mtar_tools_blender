@@ -13,7 +13,7 @@ from ..py_utilities.utilities_logging import Debug
 
 from ..py_fox.fox_gani_types import TrackUnitFlags, EvpHeader
 
-from .foxwrap_metadata import TrackMetaData, merge_track_metadata
+from .foxwrap_metadata import TrackMetaData, merge_track_metadata, parse_gani_params_from_action
 from .foxwrap_misc import Tracks, TrackUnitWrapper
 from .foxwrap_gani_writer import Gani2Writer
 from .foxwrap_mapping import BoneParameters
@@ -171,7 +171,7 @@ class GaniData:
         writer.write_gani_to_buffer(
             buffer, self.tracks_data.gani_tracks, layout_track,
             self.frame_count, self.frame_rate,
-            params=None,
+            params=parse_gani_params_from_action(self.tracks_data.action),
             unit_flags_per_file=unit_flags_per_file,
             segment_bit_sizes_per_file=segment_bit_sizes_per_file
         )
@@ -389,7 +389,7 @@ class TrackSegmentBoneMapping:
             _, bone_parameters = base_mapping
             fox_track_name = bone_parameters.fox_name
             
-            # Strip segment suffix if present (e.g., "LArm_0" -> "LArm")
+            # Strip segment suffix if present (e.g., "RIG_SKL_010_LSHLD_0" -> "RIG_SKL_010_LSHLD")
             base_fox_track_name = fox_track_name
             if '_' in fox_track_name:
                 parts = fox_track_name.rsplit('_', 1)

@@ -10,6 +10,7 @@ from typing import List, Dict, Optional
 from ..py_utilities.utilities_logging import Debug
 from ..py_utilities.utilities_hashing_cityhash import strcode32
 from ..py_utilities.utilities_hashing import unhash_event_name
+from ..py_utilities.utilities_parsing import format_float_for_metadata
 from .foxwrap_metadata import (
     make_event_property_key,
     iter_event_properties,
@@ -69,7 +70,7 @@ def store_motion_events_on_action(action: 'bpy.types.Action', motion_events: Opt
 
             # Float parameters
             if event.float_params:
-                floats_str = ','.join(str(f) for f in event.float_params)
+                floats_str = ','.join(format_float_for_metadata(f) for f in event.float_params)
                 params_parts.append(f"floats={floats_str}")
 
             # String parameters (stored as uint64 hashes)

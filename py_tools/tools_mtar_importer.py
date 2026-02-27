@@ -29,6 +29,7 @@ from ..py_foxwrap.foxwrap_metadata import (
     TrackMetaData,
     store_track_header_properties_on_action,
     make_track_property_key,
+    store_gani_params_on_action,
 )
 from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper, TrackDataBlobWrapper, Tracks
@@ -637,6 +638,7 @@ def create_animation_actions(
         track_mini_header = all_track_mini_headers[gani_index]
         track_metadata_list = TrackMetaData.from_gani_tracks(gani_tracks, track_mini_header.segment_headers)
         store_track_metadata_on_action(action, track_metadata_list, include_segments=False, include_hash=False)
+        store_gani_params_on_action(action, track_mini_header.params)
         
         # Store mtar_const.TABL_PATH for re-export: full asset path if unhashed, raw decimal hash string otherwise
         if hasattr(file_header, 'path'):

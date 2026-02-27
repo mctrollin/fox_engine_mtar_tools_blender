@@ -13,13 +13,13 @@ import bpy
 
 from ..py_fox.fox_gani_types import SegmentType, TrackHeader, TrackUnitFlags, TrackUnit, Gani2TrackData
 from ..py_fox import fox_gani_constants as gani_const
-from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_fox.fox_frig_types import RigUnitType
 from ..py_fox.fox_misc_types import StrCode32
 from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper
 from ..py_utilities.utilities_logging import Debug
 from ..py_utilities.utilities_blender_animation import action_has_fcurves, iter_action_fcurves, build_data_path_for_bone
 from ..py_utilities.utilities_hashing import unhash_rig_type
+from ..py_utilities.utilities_parsing import format_float_for_metadata
 
 
 # Action property key constants -------------------------------------------------------------
@@ -29,6 +29,7 @@ from ..py_utilities.utilities_hashing import unhash_rig_type
 
 TRACK_PROP_PREFIX = "track_"  # used by make_/parse_track_property_key
 EVENT_PROP_PREFIX = "event_"  # used by make_/parse_event_property_key
+PROP_PARAMS = "params"        # used by store_/parse_gani_params_on_action
 
 
 # Custom Property Key Utilities #############################################################
@@ -130,6 +131,55 @@ def iter_track_properties(action: bpy.types.Action) -> List[Tuple[int, str, str]
     # Sort by track index
     results.sort(key=lambda x: x[0])
     return results
+
+
+def store_gani_params_on_action(action: bpy.types.Action, params: List[Tuple[int, float]]) -> None:
+    """Store Gani2 params as a single custom property on a Blender action.
+
+    Params are serialized as ``"<hash>:<value>,<hash>:<value>"`` using
+    :func:`format_float_for_metadata` for each float value.  Always writes the
+    property, even if ``params`` is empty (empty string value), so the key is
+    consistently present on every GANI action.
+
+    Args:
+        action: Blender action to store params on.
+        params: List of ``(name_hash, value)`` tuples from
+            :attr:`TrackMiniHeader.params <py_fox.fox_gani_types.TrackMiniHeader.params>`.
+    """
+    value_str = ','.join(
+        f"{name_hash}:{format_float_for_metadata(value)}"
+        for name_hash, value in params
+    )
+    action[PROP_PARAMS] = value_str
+    action.id_properties_ui(PROP_PARAMS).update(
+        description="Gani2 params: comma-separated hash:value pairs (e.g. SLOPE_ANGLE hash:0.5)"
+    )
+
+
+def parse_gani_params_from_action(action: bpy.types.Action) -> List[Tuple[int, float]]:
+    """Read Gani2 params back from a Blender action custom property.
+
+    Args:
+        action: Blender action to read params from.
+
+    Returns:
+        List of ``(name_hash, value)`` tuples, or empty list if the property is
+        absent or the action carries no params.
+    """
+    value_str = action.get(PROP_PARAMS)
+    if not value_str:
+        return []
+    result: List[Tuple[int, float]] = []
+    for pair in value_str.split(','):
+        pair = pair.strip()
+        if not pair or ':' not in pair:
+            continue
+        hash_str, val_str = pair.split(':', 1)
+        try:
+            result.append((int(hash_str.strip()), float(val_str.strip())))
+        except ValueError:
+            Debug.log_warning(f"parse_gani_params_from_action: skipping invalid pair '{pair}'")
+    return result
 
 
 def iter_event_properties(action: bpy.types.Action) -> List[Tuple[int, str, str]]:
@@ -816,7 +866,7 @@ class TrackMetaData:
         
         Args:
             layout_action: The layout action containing track structure metadata
-            fox_track_name: Fox track name to get metadata for (e.g., "LArm", "Root", "SKL_002_NECK1")
+            fox_track_name: Fox track name to get metadata for (e.g., "RIG_SKL_010_LSHLD", "Root", "SKL_002_NECK1")
             
         Returns:
             TrackMetaData object if found, None otherwise

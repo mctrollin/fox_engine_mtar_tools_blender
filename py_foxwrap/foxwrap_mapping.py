@@ -318,9 +318,9 @@ class TrackMappingData:
             
         Returns:
             Tuple of (base_name, segment_index)
-            - "RHand_0" -> ("RHand", 0) - rotation segment of multi-segment track
-            - "RHand_1" -> ("RHand", 1) - location segment of multi-segment track
-            - "Head" -> ("Head", -1) - single-segment track (no collision with segment 0)
+            - "RIG_SKL_023_RHAND_0" -> ("RIG_SKL_023_RHAND", 0) - rotation segment of multi-segment track
+            - "RIG_SKL_023_RHAND_1" -> ("RIG_SKL_023_RHAND", 1) - location segment of multi-segment track
+            - "RIG_SKL_004_HEAD" -> ("RIG_SKL_004_HEAD", -1) - single-segment track (no collision with segment 0)
         """
         if '_' in fox_name:
             parts = fox_name.rsplit('_', 1)
