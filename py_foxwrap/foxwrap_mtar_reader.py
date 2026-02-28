@@ -12,7 +12,7 @@ from ..py_fox.fox_mtar_types import (
     MtarTableList,
 )
 
-from .foxwrap_gani_reader import Gani2Reader
+from .foxwrap_gani2_reader import Gani2Reader
 from .foxwrap_misc import TrackUnitWrapper, Tracks
 from .foxwrap_misc_import import CommonInfo
 

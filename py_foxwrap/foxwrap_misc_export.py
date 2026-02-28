@@ -15,7 +15,7 @@ from ..py_fox.fox_gani_types import TrackUnitFlags, EvpHeader
 
 from .foxwrap_metadata import TrackMetaData, merge_track_metadata, parse_gani_params_from_action
 from .foxwrap_misc import Tracks, TrackUnitWrapper
-from .foxwrap_gani_writer import Gani2Writer
+from .foxwrap_gani2_writer import Gani2Writer
 from .foxwrap_mapping import BoneParameters
 
 
