@@ -16,7 +16,7 @@ from .py_foxwrap.foxwrap_misc_export import TrackSegmentBoneMapping
 from .py_foxwrap.foxwrap_mapping import parse_track_mapping_file
 from .py_foxwrap.foxwrap_metadata import iter_track_properties
 
-from .py_tools.tools_mtar_exporter import export_mtar, find_layout_track_action
+from .py_tools.tools_mtar_exporter import export_mtar, try_find_layout_track_action
 
 
 def build_track_segment_bone_mapping_from_file(mapping_filepath: str,
@@ -140,7 +140,7 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
             
             try:
                 # Get layout action to determine track indices
-                layout_action = find_layout_track_action()
+                layout_action = try_find_layout_track_action()
                 
                 if not layout_action:
                     Debug.report_and_log(self, 'ERROR', "No layout track action found. Cannot determine track indices for export.")
@@ -171,10 +171,7 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
                 Debug.stop_timer("Export Operator")
                 return {'CANCELLED'}
         else:
-            # No mapping file provided - require it for export
-            Debug.report_and_log(self, 'ERROR', "Export mapping file is required. Please provide a track mapping file.")
-            Debug.stop_timer("Export Operator")
-            return {'CANCELLED'}
+            Debug.log("No mapping file provided — synthetic mapping will be derived from armature bone order.")
         
         # Initialize progress bar
         wm = context.window_manager

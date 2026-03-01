@@ -28,8 +28,13 @@ from ..py_utilities.utilities_naming import format_action_name, format_strip_nam
 from ..py_foxwrap.foxwrap_metadata import (
     TrackMetaData,
     store_track_header_properties_on_action,
+    store_mtar_properties_on_action,
     make_track_property_key,
     store_gani_params_on_action,
+    store_foxdata_stringlist_on_action,
+    PROP_SKL_LIST,
+    PROP_MTP_LIST,
+    PROP_MTP_PARENT_LIST,
 )
 from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper, TrackDataBlobWrapper, Tracks
@@ -37,7 +42,7 @@ from ..py_foxwrap.foxwrap_motionevent import store_motion_events_on_action
 from ..py_foxwrap.foxwrap_mtar_reader import MtarReader
 from ..py_foxwrap.foxwrap_mapping import BoneParameters
 
-from ..py_fox.fox_mtar_types import MotionPointList2, MtarTableList2, MtarHeader
+from ..py_fox.fox_mtar_types import MotionPointList2, MtarTableList, MtarTableList2, MtarHeader
 from ..py_fox.fox_gani_types import SegmentType, TrackUnitFlags, TrackHeader, TrackMiniHeader, EvpHeader
 from ..py_fox.fox_frig_types import RigUnitType, FrigFile
 from ..py_fox.fox_misc_types import StrCode32
@@ -534,7 +539,12 @@ def create_animation_actions(
     all_motion_events: List[Optional[EvpHeader]],
     path_to_indices: Dict[int, Tuple[int, int]],
     use_verbose_naming: bool,
-    gani_hash_dict: Optional[Dict[int, str]] = None
+    gani_hash_dict: Optional[Dict[int, str]] = None,
+    mtar_version: int = 201403250,
+    mtar_flags: int = 0x1000,
+    all_skl_lists: Optional[List[Optional[List[str]]]] = None,
+    all_mtp_lists: Optional[List[Optional[List[str]]]] = None,
+    all_mtp_parent_lists: Optional[List[Optional[List[str]]]] = None,
 ) -> Tuple[Optional[bpy.types.Action], List[bpy.types.Action], int]:
     """Create Blender animation actions from MTAR data.
     
@@ -552,6 +562,11 @@ def create_animation_actions(
         context: Blender context (passed to import functions for settings access)
         path_to_indices: Mapping from path hash to (h_index, d_index) tuples
         use_verbose_naming: Whether to include h/d indices in names
+        mtar_version: MTAR version (e.g., 201304220 for old, 201403250 for new)
+        mtar_flags: MTAR flags (e.g., 0x1000 for new format, 0x0 for old)
+        all_skl_lists: Optional bone name lists per GANI (old-format only, for SKL_LIST round-trip)
+        all_mtp_lists: Optional motion point name lists per GANI (old-format only, for MTP_LIST round-trip)
+        all_mtp_parent_lists: Optional MTP parent name lists per GANI (old-format only, for MTP_PARENT_LIST round-trip)
         
     Returns:
         Tuple of (layout_action, gani_actions_list, max_frame_end)
@@ -582,6 +597,9 @@ def create_animation_actions(
         # Store header properties separately
         if layout_track.header:
             store_track_header_properties_on_action(layout_action, layout_track.header)
+        
+        # Store MTAR-level version and flags for export
+        store_mtar_properties_on_action(layout_action, mtar_version, mtar_flags)
         
         # Add dummy keyframes at frames -100 and -50
         add_dummy_keyframes_to_action(layout_action)
@@ -654,6 +672,25 @@ def create_animation_actions(
                     description="PathCode64 hash from MTAR file header (stored as decimal string)"
                 )
                 Debug.log(f"  Stored {mtar_const.TABL_PATH} (hash): 0x{file_header.path:016X}")
+
+        # M12: Store old-format MtarTableList.unknown for lossless re-export
+        if hasattr(file_header, 'unknown'):
+            action[mtar_const.TABL_UNKNOWN] = file_header.unknown
+            action.id_properties_ui(mtar_const.TABL_UNKNOWN).update(
+                description="Old-format MTAR file table 'unknown' field (ushort, typically 7)"
+            )
+            Debug.log(f"  Stored {mtar_const.TABL_UNKNOWN}: {file_header.unknown}")
+
+        # M10: Store FoxData StringData name lists (old-format only) for lossless re-export
+        if all_skl_lists and gani_index < len(all_skl_lists) and all_skl_lists[gani_index] is not None:
+            store_foxdata_stringlist_on_action(action, PROP_SKL_LIST, all_skl_lists[gani_index])
+            Debug.log(f"  Stored {PROP_SKL_LIST}: {len(all_skl_lists[gani_index])} entries")
+        if all_mtp_lists and gani_index < len(all_mtp_lists) and all_mtp_lists[gani_index] is not None:
+            store_foxdata_stringlist_on_action(action, PROP_MTP_LIST, all_mtp_lists[gani_index])
+            Debug.log(f"  Stored {PROP_MTP_LIST}: {len(all_mtp_lists[gani_index])} entries")
+        if all_mtp_parent_lists and gani_index < len(all_mtp_parent_lists) and all_mtp_parent_lists[gani_index] is not None:
+            store_foxdata_stringlist_on_action(action, PROP_MTP_PARENT_LIST, all_mtp_parent_lists[gani_index])
+            Debug.log(f"  Stored {PROP_MTP_PARENT_LIST}: {len(all_mtp_parent_lists[gani_index])} entries")
 
         # Store motion events if present
         if gani_index < len(all_motion_events):
@@ -1245,7 +1282,8 @@ def create_and_setup_armature(
     for gani_tracks in all_gani_tracks:
         for gani_track in gani_tracks:
             for keyframes_track in gani_track.segments_track_data:
-                all_bone_names.add(keyframes_track.name)
+                # keyframes_track.name can be an integer hash when unresolved — always coerce to str
+                all_bone_names.add(str(keyframes_track.name))
     
     Debug.log(f"Found {len(all_bone_names)} unique handle(s)")
 
@@ -1642,6 +1680,10 @@ def import_mtar_data(
     all_motion_point_layouts: List[Optional[Tracks]] = []  # List of Tracks objects (motion point track structures)
     all_file_headers: List[MtarTableList2] = []  # List of MtarTable2 objects with path hash
     all_motion_point_track_headers: List[Optional['TrackHeader']] = []  # List of TrackHeader objects for motion points
+    # FoxData StringData name lists (old-format only; None entries for new-format or unavailable GANIs)
+    all_skl_lists: List[Optional[List[str]]] = []
+    all_mtp_lists: List[Optional[List[str]]] = []
+    all_mtp_parent_lists: List[Optional[List[str]]] = []
 
     if gani_indices is not None:
         if gani_indices:
@@ -1657,6 +1699,9 @@ def import_mtar_data(
             all_motion_point_layouts = [results_dict[i][4] for i in sorted(results_dict.keys())]
             all_file_headers = [results_dict[i][5] for i in sorted(results_dict.keys())]
             all_motion_point_track_headers = [results_dict[i][6] for i in sorted(results_dict.keys())]
+            all_skl_lists = [results_dict[i][7] for i in sorted(results_dict.keys())]
+            all_mtp_lists = [results_dict[i][8] for i in sorted(results_dict.keys())]
+            all_mtp_parent_lists = [results_dict[i][9] for i in sorted(results_dict.keys())]
             Debug.log(f"Imported {len(all_gani_tracks)} GANI file(s)")
             Debug.log(f"List lengths: gani_tracks={len(all_gani_tracks)}, motion_point_tracks={len(all_motion_point_gani_tracks)}, "
                      f"motion_events={len(all_motion_events)}, track_mini_headers={len(all_track_mini_headers)}, "
@@ -1665,7 +1710,7 @@ def import_mtar_data(
     else:
         # Import all GANIs
         Debug.log("Importing all GANIs")
-        all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers = reader.read_all_ganies()
+        all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers, all_skl_lists, all_mtp_lists, all_mtp_parent_lists = reader.read_all_ganies()
         Debug.log(f"Found {len(all_gani_tracks)} GANI file(s)")
 
     # Reverse-sort GANIs to match the order of the data in the file instead of the order in the header
@@ -1686,11 +1731,16 @@ def import_mtar_data(
         )
 
     # Get layout track for metadata storage
+    # For new format, get from CommonInfo; for old format, get from reader.layout_track
     layout_track = None
     motion_points = None
     if reader.common_info and reader.common_info.layout_track:
         layout_track = reader.common_info.layout_track
         Debug.log(f"Layout track has {len(layout_track.track_units)} track units")
+    elif reader.layout_track:
+        # Old format: layout_track is set on reader from first GANI file
+        layout_track = reader.layout_track
+        Debug.log(f"Layout track (old format) has {len(layout_track.track_units)} track units")
     
     # Get motion points if present
     if reader.common_info and reader.common_info.motion_points:
@@ -1730,10 +1780,12 @@ def import_mtar_data(
     Debug.log("Building h/d index mapping for action/strip naming...")
     path_to_indices: Dict[int, Tuple[int, int]] = {}
     with open(filepath, 'rb') as f:
-        # Read MTAR header to get file count
+        # Read MTAR header to get file count and format
         header = MtarHeader.read(f)
-        # Read all file headers
-        all_headers_raw = [MtarTableList2.read(f) for _ in range(header.file_count)]
+        # Dispatch based on format: old format uses 16-byte MtarTableList, new format uses 32-byte MtarTableList2
+        is_new_format = (header.flags & 0x1000) != 0
+        read_func = MtarTableList2.read if is_new_format else MtarTableList.read
+        all_headers_raw = [read_func(f) for _ in range(header.file_count)]
     
     # Create sorted index list by tracks_offset to determine d_index
     sorted_h_indices = sorted(range(len(all_headers_raw)), key=lambda i: all_headers_raw[i].tracks_offset)
@@ -1763,7 +1815,12 @@ def import_mtar_data(
         all_motion_events,
         path_to_indices,
         use_verbose_naming,
-        gani_hash_dict=gani_hash_dict
+        gani_hash_dict=gani_hash_dict,
+        mtar_version=reader.mtar_version,
+        mtar_flags=reader.mtar_flags,
+        all_skl_lists=all_skl_lists,
+        all_mtp_lists=all_mtp_lists,
+        all_mtp_parent_lists=all_mtp_parent_lists,
     )
     
     # Create and setup the armature with animation data (optional secondary task)

@@ -47,7 +47,7 @@ class ExportActionData:
 
 
 @dataclass
-class GaniTracksData:
+class GaniExportTracksData:
     """Container for main animation track data in a GANI file.
     
     Attributes:
@@ -61,7 +61,7 @@ class GaniTracksData:
 
 
 @dataclass
-class GaniMotionPointsData:
+class GaniExportMotionPointsData:
     """Container for motion point track data in a GANI file.
     
     Attributes:
@@ -85,7 +85,7 @@ class GaniMotionEventsData:
 
 
 @dataclass
-class GaniData:
+class GaniExportData:
     """Container for GANI file data to be written to MTAR.
     
     This class holds all the necessary information for a single GANI file
@@ -107,8 +107,8 @@ class GaniData:
     frame_start: int
     frame_end: int
     
-    tracks_data: GaniTracksData
-    motion_points_data: Optional[GaniMotionPointsData] = None
+    tracks_data: GaniExportTracksData
+    motion_points_data: Optional[GaniExportMotionPointsData] = None
     motion_events_data: Optional[GaniMotionEventsData] = None
 
     
@@ -404,8 +404,6 @@ class TrackSegmentBoneMapping:
                 # Populate missing segments
                 self.populate_missing_segments(track_idx, expected_segment_count)
 
-
-# Helper utilities for motion-point action matching ################################
 
 # Helper utilities for motion-point action matching ################################
 

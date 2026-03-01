@@ -15,7 +15,7 @@ from .py_utilities.utilities_blender_state import nla_tweak_guard
 from .py_utilities.utilities_hashing import unhash_rig_type
 from .py_tools.tools_hash_generator import build_gani_hash_dictionary
 from .py_utilities.utilities_parsing import parse_index_selection
-from .py_utilities.utilities_blender_animation import find_layout_track_action
+from .py_utilities.utilities_blender_animation import try_find_layout_track_action
 
 from .py_fox.fox_mtar_types import MtarHeader
 from .py_fox.fox_frig_types import FrigFile, RigUnitDef
@@ -394,7 +394,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                             Debug.start_timer("Bake Operation")
                             try:
                                 # Delegate constraint-baking + optional fcurve decimation to shared utility
-                                layout_action = find_layout_track_action()
+                                layout_action = try_find_layout_track_action()
                                 bake_result = bake_constraints_and_decimate_fcurves(
                                     rig_armature=custom_rig,
                                     source_armature=imported_armature,

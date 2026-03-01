@@ -60,6 +60,9 @@ def draw_progress_bar(layout: UILayout, props: 'MTAR_PG_Properties', operation_t
         col.progress(factor=progress, text=status_text)
 
 
+def check_bake_during_import(import_props) -> bool:
+    return import_props.custom_rig and import_props.import_bake_constraints
+
 class MTAR_PT_ImportPanel(Panel):
     """N-Panel for MTAR animation import."""
     bl_label = "MTAR Animation Import"
@@ -158,11 +161,11 @@ class MTAR_PT_ImportPanel(Panel):
             # Hash dictionary for GANI name unhashing (advanced setting)
             draw_bool_prop_checkbox_icon(adv_box, import_props, "import_use_hash_dictionary")
             if import_props.import_use_hash_dictionary:
-                dict_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dic', 'mtar_hash_dictionary.txt')
+                dict_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dic', 'mtar_dictionary.txt')
                 if not os.path.exists(dict_path):
                     row = adv_box.row()
                     row.alert = True
-                    row.label(text="dic/mtar_hash_dictionary.txt not found", icon='ERROR')
+                    row.label(text="dic/mtar_dictionary.txt not found", icon='ERROR')
 
         # Strip padding (advanced setting)
         if settings_props.show_advanced_settings:
@@ -209,7 +212,7 @@ class MTAR_PT_ImportPanel(Panel):
         # Show a slim warning if the number of animations that will be processed (after applying the GANI filter)
         # exceeds the threshold; keep parse error shown only below the filter (do not duplicate it here).
         if header_info:
-            if selected_count is not None and selected_count > 100 and import_props.import_bake_constraints and not parse_error_msg:
+            if selected_count is not None and selected_count > 100 and check_bake_during_import(import_props) and not parse_error_msg:
                 warn_box = box_button.box()
                 warn_box.alert = True
                 warn_box.label(text=f"Importing + baking {selected_count} animations.")

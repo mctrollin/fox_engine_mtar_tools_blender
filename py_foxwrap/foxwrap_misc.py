@@ -8,7 +8,7 @@ from ..py_utilities.utilities_binary_write import write_padding, align_length
 
 from ..py_fox.fox_gani_types import TrackHeader, TrackUnit, TrackUnitFlags, TrackData, TrackDataBlob, AnimKeyframe
 from ..py_fox.fox_frig_types import RigUnitType
-
+from ..py_fox.fox_gani_enums import SegmentType
 
 
 @dataclass
@@ -18,7 +18,7 @@ class Tracks:
     track_units : list[TrackUnit]
 
     @classmethod
-    def read(cls, br: BinaryIO, file_data: Optional[bytes] = None, read_data_blobs: bool = False) -> "Tracks":
+    def read(cls, br: BinaryIO, file_data: Optional[bytes] = None, read_data_blobs: bool = False, endian: str = '<') -> "Tracks":
         """Read Tracks structure (TrackHeader + TrackUnits).
         
         Args:
@@ -26,17 +26,18 @@ class Tracks:
             file_data: Optional full file buffer (required if read_data_blobs=True)
             read_data_blobs: If True, read TrackDataBlob keyframes into TrackData.data_blob
                             If False, TrackData.data_blob remains None (for layout tracks)
+            endian: Endianness marker ('<' for LE, '>' for BE)
         
         Returns:
             Tracks object with header and track units
         """
         read_start: int = br.tell()
-        header = TrackHeader.read(br)
+        header = TrackHeader.read(br, endian)
 
         track_units: List[TrackUnit] = []
         for unit_index in range(header.unit_count):
             br.seek(read_start + header.unit_offsets[unit_index])
-            track_unit = TrackUnit.read(br)
+            track_unit = TrackUnit.read(br, endian)
             
             # Optionally read data blobs for this track unit
             if read_data_blobs and file_data is not None:
@@ -202,6 +203,67 @@ class Tracks:
             for blob_bytes in blob_data:
                 if blob_bytes:
                     bw.write(blob_bytes)
+
+    @staticmethod
+    def convert_to_gani_tracks(tracks: 'Tracks') -> 'List[TrackUnitWrapper]':
+        """Convert a Tracks structure (with populated data_blobs) to TrackUnitWrapper format.
+        
+        This method extracts the keyframe data from TrackData.data_blob and creates
+        the TrackUnitWrapper/TrackDataBlobWrapper structure expected by the importer.
+        
+        Args:
+            tracks: Tracks object with TrackData.data_blob populated
+            
+        Returns:
+            List of TrackUnitWrapper objects
+        """
+        if not tracks or not tracks.track_units:
+            return []
+        
+        
+        
+        gani_tracks: List['TrackUnitWrapper'] = []
+        
+        for track_unit in tracks.track_units:
+            keyframes_tracks: List['TrackDataBlobWrapper'] = []
+            
+            # Extract unit flags for this track
+            unit_flags_int = track_unit.unit_flags
+            unit_flags_list = TrackUnitFlags.int_to_track_unit_flags(unit_flags_int)
+            
+            # Convert each segment's data_blob to a TrackDataBlobWrapper
+            for segment_index, track_data in enumerate(track_unit.segments_data):
+                # Get keyframes from data_blob (may be None or empty for layout tracks)
+                keyframes = track_data.data_blob if track_data.data_blob is not None else []
+                
+                # Create TrackDataBlob
+                is_static = (unit_flags_int & TrackUnitFlags.IS_STATIC) != 0
+                data_blob = TrackDataBlob.from_keyframes(
+                    segment_type=SegmentType(track_data.td_type),
+                    component_bit_size=track_data.component_bit_size,
+                    is_static=is_static,
+                    keyframes=keyframes
+                )
+                
+                # Create TrackDataBlobWrapper for this segment
+                keyframes_track = TrackDataBlobWrapper(
+                    name=track_unit.name,  # Will be resolved to string later
+                    segment_index=segment_index,
+                    data_blob=data_blob
+                )
+                keyframes_tracks.append(keyframes_track)
+            
+            # Create GaniTrack containing all segments for this track
+            gani_track = TrackUnitWrapper(
+                name=track_unit.name,
+                segments_track_data=keyframes_tracks,
+                unit_flags=unit_flags_list,
+                rig_unit_type=None  # Will be filled in later for bone tracks
+            )
+            
+            gani_tracks.append(gani_track)
+        
+        return gani_tracks
 
 
 @dataclass

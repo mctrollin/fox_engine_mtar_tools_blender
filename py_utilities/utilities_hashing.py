@@ -138,6 +138,55 @@ def unhash_param_name(hash_value: int) -> Optional[str]:
     return lookup_strcode32(hash_value)
 
 
+def _get_gani_dict_path() -> str:
+    """Return the absolute path to dic/gani_dictionary.txt."""
+    addon_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(addon_dir, 'dic', 'gani_dictionary.txt')
+
+
+def unhash_gani_node(hash_value: int) -> Optional[str]:
+    """Convert a FoxData node name hash to its corresponding string.
+
+    Resolves hashes for old-format GANI node names such as ``ROOT``, ``MOTION``,
+    ``UNIT``, ``SKL_LIST``, ``EVP``, etc.
+
+    Lazily loads ``dic/gani_dictionary.txt`` on first call.
+
+    Args:
+        hash_value: The 32-bit StrCode32 hash of the node name.
+
+    Returns:
+        The node name string (e.g. ``"UNIT"``), or ``None`` if not found.
+    """
+    load_strcode32_dictionary(_get_gani_dict_path())
+    return lookup_strcode32(hash_value)
+
+
+def _get_shader_dict_path() -> str:
+    """Return the absolute path to dic/shader_dictionary.txt."""
+    addon_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(addon_dir, 'dic', 'shader_dictionary.txt')
+
+
+def unhash_shader_prop(hash_value: int) -> Optional[str]:
+    """Convert a SHADER child property hash to its corresponding name string.
+
+    Resolves hashes for facial animation property nodes that are children of the
+    SHADER node in old-format GANI files (e.g. ``TENSION_CHEEKL``).
+
+    Lazily loads ``dic/shader_dictionary.txt`` on first call.
+
+    Args:
+        hash_value: The 32-bit StrCode32 hash of the shader property name.
+
+    Returns:
+        The property name string (e.g. ``"TENSION_CHEEKL"``), or ``None`` if
+        not found.
+    """
+    load_strcode32_dictionary(_get_shader_dict_path())
+    return lookup_strcode32(hash_value)
+
+
 def hash_rig_type(name: str) -> int:
     """Convert a rig type name to its corresponding hash value.
 

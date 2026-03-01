@@ -15,7 +15,7 @@ MTAR_OBJECT_SLOT_NAME = 'mtar_import_object'
 
 # Layout Action Utilities #########################################################
 
-def find_layout_track_action() -> Optional[bpy.types.Action]:
+def try_find_layout_track_action() -> Optional[bpy.types.Action]:
     """Find the layout track action in the scene.
     
     Searches for an action with a name containing '.layout.'.
@@ -30,7 +30,6 @@ def find_layout_track_action() -> Optional[bpy.types.Action]:
             Debug.log(f"  Found layout track action: '{action.name}'")
             return action
     
-    Debug.log_warning("  Warning: No layout track action found")
     return None
 
 

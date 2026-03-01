@@ -7,7 +7,9 @@ from bpy.types import Panel, Context
 from .blender_operators_export import (
     MTAR_OT_ExportAnimationToMTAR,
 )
-from .py_utilities.utilities_blender_animation import is_relevant_strip
+from .py_utilities.utilities_blender_animation import is_relevant_strip, try_find_layout_track_action
+from .py_foxwrap.foxwrap_metadata import read_mtar_properties_from_action
+from .py_fox import fox_mtar_constants as mtar_const
 
 # Import shared utilities and properties from the import panel module
 # (This avoids duplication of the PropertyGroup and helper functions)
@@ -61,6 +63,38 @@ class MTAR_PT_ExportPanel(Panel):
             else:
                 export_count = 0
                 animinfo_box.label(text="No animation data", icon='ERROR')
+
+        # Show format info (detected from layout action properties)
+        # Only show if armature is selected (user is actively configuring an export)
+        if export_props.armature:
+            format_info_box = box_rig.box()
+            layout_action = try_find_layout_track_action()
+            if layout_action:
+                # Read MTAR properties from the layout action
+                mtar_props = read_mtar_properties_from_action(layout_action)
+                flags = mtar_props.get(mtar_const.MTAR_FLAGS, 0x1000)
+                is_new_format = bool(flags & 0x1000)  # UseMini flag
+                
+                # Check if properties are explicitly set (not defaults)
+                has_stored_props = (mtar_const.MTAR_VERSION in layout_action.keys() and 
+                                   mtar_const.MTAR_FLAGS in layout_action.keys())
+                
+                if is_new_format:
+                    format_info_box.label(text="Format: GANI2 (TPP)", icon='CHECKMARK')
+                else:
+                    format_info_box.label(text="Format: GANI (GZ/old)", icon='INFO')
+                
+                if not has_stored_props:
+                    # Warn if using defaults (layout action found but no stored props)
+                    warn_box = format_info_box.box()
+                    warn_box.alert = True
+                    warn_box.label(text="No MTAR version on layout action", icon='ERROR')
+                    warn_box.label(text="Defaulting to GANI2 (new format)")
+                    warn_box.label(text="Re-import an MTAR to preserve format")
+            else:
+                # No layout action found
+                format_info_box.label(text="No layout track action found", icon='INFO')
+
 
         # Mapping file (optional)
         box = box_export

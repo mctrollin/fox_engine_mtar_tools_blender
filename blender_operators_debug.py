@@ -18,7 +18,7 @@ from bpy.props import StringProperty
 from .py_utilities.utilities_transforms import get_world_space_transform, get_local_space_transform
 from .py_utilities.utilities_logging import Debug
 from .py_utilities.utilities_debug import create_or_update_dummy_object
-from .py_utilities.utilities_blender_animation import assign_action_to_datablock, find_layout_track_action, remove_action_from_datablock
+from .py_utilities.utilities_blender_animation import assign_action_to_datablock, try_find_layout_track_action, remove_action_from_datablock
 from .py_utilities.utilities_fcurve_processing import decimate_import_fcurves_to_bezier, debug_setup_graph_context_for_manual_test
 from .py_utilities.utilities_hashing_cityhash import (
     hash_file_name,
@@ -481,7 +481,7 @@ class MTAR_OT_DebugRunBake(Operator):
 
                                 # Decimate via decimate_import_fcurves_to_bezier (operates on armature level)
                                 if decimate_err > 0.0:
-                                    layout_action = find_layout_track_action()
+                                    layout_action = try_find_layout_track_action()
                                     dec_res = decimate_import_fcurves_to_bezier(
                                         armature=target_armature,
                                         bake_decimate_fcurve_error=decimate_err,

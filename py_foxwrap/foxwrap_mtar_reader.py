@@ -13,8 +13,9 @@ from ..py_fox.fox_mtar_types import (
 )
 
 from .foxwrap_gani2_reader import Gani2Reader
+from .foxwrap_gani_reader import GaniReader
 from .foxwrap_misc import TrackUnitWrapper, Tracks
-from .foxwrap_misc_import import CommonInfo
+from .foxwrap_misc_import import CommonInfo, GaniImportData
 
 
 @dataclass
@@ -35,8 +36,13 @@ class MtarHeaderInfo:
 class MtarReader:
     def __init__(self, filepath: str) -> None:
         self.filepath: str = filepath
-        self.gani_reader: Gani2Reader = Gani2Reader()
+        self.gani2_reader: Gani2Reader = Gani2Reader()
+        self.gani_reader: GaniReader = GaniReader()
         self.common_info: Optional[CommonInfo] = None
+        self.layout_track: Optional[Tracks] = None  # Set for both old and new formats
+        self.is_new_format: bool = False  # Determined after reading header
+        self.mtar_version: int = 0  # Version from MTAR header
+        self.mtar_flags: int = 0    # Flags from MTAR header
         self.motion_tracks = None
         self.motion_events = None
 
@@ -96,7 +102,9 @@ class MtarReader:
                 return False, f"{header.file_count} animations seems too large"
             
             # Check file size is large enough for header + file table
-            min_size = MtarHeader.SIZE + (header.file_count * MtarTableList2.SIZE)
+            # Calculate based on format version
+            entry_size = MtarTableList2.SIZE if (header.flags & 0x1000) else MtarTableList.SIZE
+            min_size = MtarHeader.SIZE + (header.file_count * entry_size)
             if file_size < min_size:
                 return False, f"File too small: {file_size} bytes (needs at least {min_size})"
             
@@ -110,7 +118,7 @@ class MtarReader:
         except Exception as e:
             return False, f"Error reading MTAR header: {str(e)}"
 
-    def read_all_ganies(self) -> Tuple[List[List[TrackUnitWrapper]], List[List[TrackUnitWrapper]], List[Optional[EvpHeader]], List[TrackMiniHeader], List[Optional[Tracks]], List[MtarTableList2], List[Optional[TrackHeader]]]:
+    def read_all_ganies(self) -> Tuple[List[List[TrackUnitWrapper]], List[List[TrackUnitWrapper]], List[Optional[EvpHeader]], List[TrackMiniHeader], List[Optional[Tracks]], List[MtarTableList2], List[Optional[TrackHeader]], List[Optional[List[str]]], List[Optional[List[str]]], List[Optional[List[str]]]]:
         """Read all animation tracks from the MTAR file.
         
         Returns:
@@ -122,6 +130,9 @@ class MtarReader:
             - all_motion_point_layouts: List of Tracks objects for each file (contains track units with segment data for motion points)
             - all_file_headers: List of MtarTableList2 objects for each file (contains path hash)
             - all_motion_point_track_headers: List of TrackHeader objects for each file (contains motion point track header metadata)
+            - all_skl_lists: List of bone name lists for SKL_LIST FoxData node (old-format only, None for new-format)
+            - all_mtp_lists: List of motion point name lists for MTP_LIST FoxData node (old-format only)
+            - all_mtp_parent_lists: List of motion point parent name lists for MTP_PARENT_LIST FoxData node (old-format only)
         """
         # Read all GANIs using selective reading
         with open(self.filepath, 'rb') as f:
@@ -138,9 +149,12 @@ class MtarReader:
         all_motion_point_layouts: List[Optional[Tracks]] = []
         all_file_headers: List[MtarTableList2] = []
         all_motion_point_track_headers: List[Optional[TrackHeader]] = []
+        all_skl_lists: List[Optional[List[str]]] = []
+        all_mtp_lists: List[Optional[List[str]]] = []
+        all_mtp_parent_lists: List[Optional[List[str]]] = []
         
         for idx in sorted(results_dict.keys()):
-            gani_tracks, motion_point_tracks, motion_events, track_mini_header, motion_point_layout, file_header, motion_point_track_header = results_dict[idx]
+            gani_tracks, motion_point_tracks, motion_events, track_mini_header, motion_point_layout, file_header, motion_point_track_header, skeleton_list, motion_point_list, motion_point_parent_list = results_dict[idx]
             all_gani_tracks.append(gani_tracks)
             all_motion_point_gani_tracks.append(motion_point_tracks)
             all_motion_events.append(motion_events)
@@ -148,8 +162,11 @@ class MtarReader:
             all_motion_point_layouts.append(motion_point_layout)
             all_file_headers.append(file_header)
             all_motion_point_track_headers.append(motion_point_track_header)
+            all_skl_lists.append(skeleton_list)
+            all_mtp_lists.append(motion_point_list)
+            all_mtp_parent_lists.append(motion_point_parent_list)
         
-        return all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers
+        return all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers, all_skl_lists, all_mtp_lists, all_mtp_parent_lists
 
     def read_selected_ganis(self, gani_indices: List[int]) -> dict:
         """Read specific GANI files by index from MTAR file.
@@ -180,6 +197,9 @@ class MtarReader:
         
         # Read header
         header = MtarHeader.read(br)
+        self.is_new_format = bool(header.flags & 0x1000)
+        self.mtar_version = header.version
+        self.mtar_flags = header.flags
         
         # Validate indices
         max_index = header.file_count
@@ -187,42 +207,76 @@ class MtarReader:
             if idx < 0 or idx >= max_index:
                 raise IndexError(f"GANI index {idx} out of range (file has {max_index} GANIs)")
         
-        # Read CommonInfo if present (shared across all GANIs)
+        # Read CommonInfo if present (new format only; old format embeds layout in each GANI)
         if header.common_info_offset != 0:
             br.seek(header.common_info_offset)
             self.common_info = CommonInfo.read(br, header)
+            if self.is_new_format and self.common_info and self.common_info.layout_track:
+                self.layout_track = self.common_info.layout_track
+        
+        # Guard: new-format MTAR must have CommonInfo
+        if self.is_new_format and self.common_info is None:
+            raise ValueError(
+                f"New-format MTAR (flags=0x{header.flags:04X}) has no CommonInfo — "
+                "cannot read without shared layout track"
+            )
         
         # Get file header size based on format version
-        file_header_size = (MtarTableList2.SIZE if header.flags & 0x1000 else MtarTableList.SIZE)
+        file_header_size = (MtarTableList2.SIZE if self.is_new_format else MtarTableList.SIZE)
         MTAR_HEADER_SIZE = MtarHeader.SIZE
         
         # Read selected GANIs
         results = {}
+        first_gani_read = False
         for gani_index in gani_indices:
             # Read file header for this GANI
             file_header_offset = MTAR_HEADER_SIZE + gani_index * file_header_size
             br.seek(file_header_offset)
-            file_header: MtarTableList2 = MtarTableList2.read(br) if header.flags & 0x1000 else MtarTableList.read(br)
-            is_new_format: bool = header.flags & 0x1000 and isinstance(file_header, MtarTableList2)
+            file_header = MtarTableList2.read(br) if self.is_new_format else MtarTableList.read(br)
             
-            # Use buffer-based reading (pass entire file_data)
-            gani_tracks, motion_point_gani_tracks, motion_events, track_mini_header, motion_point_layout, motion_point_track_header = self.gani_reader.read_gani(
-                file_data=file_data,
-                layout_track=self.common_info.layout_track,
-                file_header=file_header,
-                track_count=header.track_count,
-                is_new_format=is_new_format
-            )
+            # Dispatch to appropriate reader
+            if self.is_new_format:
+                # New format: use Gani2Reader with shared CommonInfo layout
+                gani_tracks, motion_point_gani_tracks, motion_events, track_mini_header, motion_point_layout, motion_point_track_header = self.gani2_reader.read_gani(
+                    file_data=file_data,
+                    layout_track=self.common_info.layout_track,
+                    file_header=file_header,
+                    track_count=header.track_count,
+                    is_new_format=True
+                )
+                import_data = GaniImportData(
+                    bone_tracks=gani_tracks,
+                    mtp_tracks=motion_point_gani_tracks,
+                    events=motion_events,
+                    layout_track=self.common_info.layout_track,  # Reference to shared layout
+                    track_mini_header=track_mini_header,
+                    motion_point_layout=motion_point_layout,
+                    motion_point_track_header=motion_point_track_header
+                )
+            else:
+                # Old format: use GaniReader with embedded FoxData layout
+                import_data = self.gani_reader.read_gani(
+                    file_data=file_data,
+                    gani_start=file_header.tracks_offset
+                )
+                
+                # Cache layout from first old-format file for importer
+                if not first_gani_read:
+                    self.layout_track = import_data.layout_track
+                    first_gani_read = True
             
-            # Store results for this GANI
+            # Extract tuple from GaniImportData for backward compatibility with existing pipeline
             results[gani_index] = (
-                gani_tracks,
-                motion_point_gani_tracks,
-                motion_events,
-                track_mini_header,
-                motion_point_layout,
+                import_data.bone_tracks,
+                import_data.mtp_tracks,
+                import_data.events,
+                import_data.track_mini_header,
+                import_data.motion_point_layout,
                 file_header,
-                motion_point_track_header
+                import_data.motion_point_track_header,
+                getattr(import_data, 'skeleton_list', None),
+                getattr(import_data, 'motion_point_list', None),
+                getattr(import_data, 'motion_point_parent_list', None),
             )
         
         return results

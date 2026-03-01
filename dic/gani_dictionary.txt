@@ -1,0 +1,26 @@
+# FoxData node name dictionary for old-format GANI files.
+# Strings must exactly match the bt template (anim_FoxData.bt ResolveHashFunc)
+# so that StrCode32 hashes match the values in fox_gani_constants.py.
+ROOT
+DEMO
+CAMERA
+MOVE
+CameraParam
+SI Frame
+SKEL
+MESH_EVENT
+MOTION
+UNIT
+MODEL
+SKELINFO
+MTPINFO
+MTEV
+MTP
+EVP
+SHADER
+MTP_LIST
+MTP_PARENT_LIST
+SKL_LIST
+LOCATOR
+GLOBALSRT
+FRAGMENT

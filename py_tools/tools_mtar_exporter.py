@@ -24,19 +24,20 @@ from ..py_utilities.utilities_transforms import (
     TransformsCache
 )
 from ..py_utilities.utilities_blender_animation import (
-    FCurveCache, action_has_fcurves, iter_action_fcurves, is_relevant_strip, find_layout_track_action,
+    FCurveCache, action_has_fcurves, iter_action_fcurves, is_relevant_strip, try_find_layout_track_action,
     build_data_path_for_bone, extract_bone_name_from_data_path
 )
 from ..py_utilities.utilities_fcurve_processing import bake_and_clean_export_fcurves
 
 from ..py_foxwrap.foxwrap_motionevent import read_motion_events_from_action
-from ..py_foxwrap.foxwrap_metadata import parse_action_track_metadata, read_track_header_properties_from_action
+from ..py_foxwrap.foxwrap_metadata import parse_action_track_metadata, read_track_header_properties_from_action, read_mtar_properties_from_action
 from ..py_fox import fox_gani_constants as gani_const
+from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_foxwrap.foxwrap_metadata import TrackMetaData, merge_track_metadata, iter_track_properties, get_all_track_metadata_from_action
 from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper, Tracks, TrackDataBlobWrapper
 from ..py_foxwrap.foxwrap_mtar_writer import MtarWriter
 from ..py_foxwrap.foxwrap_misc_export import (
-    GaniData, GaniTracksData, GaniMotionPointsData, GaniMotionEventsData,
+    GaniExportData, GaniExportTracksData, GaniExportMotionPointsData, GaniMotionEventsData,
     TrackSegmentBoneMapping, ExportActionData, create_synthetic_mapping, build_motion_point_action_maps, find_motion_point_action_for_gani
 )
 from ..py_foxwrap.foxwrap_mapping import BoneParameters
@@ -874,8 +875,8 @@ def export_gani_track_from_action(armature: bpy.types.Object,
     # layout_metadata is passed in directly (TrackMetaData instance for this track)
     
     if layout_metadata is None:
-        # No metadata found - cannot export this track
-        Debug.log_error(f"      Error: No layout metadata found for fox track '{base_fox_track_name}' (blender bone: '{base_blender_bone_name}') in layout action")
+        # No metadata found and FCurve fallback also produced nothing (bone has no animation)
+        Debug.log_warning(f"      Warning: No metadata for track '{base_fox_track_name}' (blender bone: '{base_blender_bone_name}') and no FCurves found — skipping track")
         return TrackUnitWrapper(
             name=base_blender_bone_name,
             segments_track_data=[],
@@ -1117,6 +1118,17 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
                 
                 if layout_metadata_dict and base_fox_track_name in layout_metadata_dict:
                     layout_metadata = layout_metadata_dict[base_fox_track_name]
+                elif action:
+                    # Fallback: layout action exists but has no matching entry for this bone.
+                    # Derive minimal metadata from FCurves so export can proceed.
+                    layout_metadata = TrackMetaData.from_fcurves(
+                        bone_name=_blender_bone_name, action=action
+                    )
+                    if layout_metadata:
+                        Debug.log_warning(
+                            f"      No layout metadata for track '{base_fox_track_name}' "
+                            f"(bone: '{_blender_bone_name}') — derived from FCurves"
+                        )
             
             gani_track = export_gani_track_from_action(
                 armature,
@@ -1512,7 +1524,7 @@ def export_mtar(context: bpy.types.Context,
 
     # Find and parse layout track action
     Debug.log("\nSearching for layout track action...")
-    layout_action = find_layout_track_action()
+    layout_action = try_find_layout_track_action()
     metadata_dict = None
     
     if layout_action:
@@ -1573,6 +1585,19 @@ def export_mtar(context: bpy.types.Context,
     
     # Set the layout track on the writer
     writer.set_layout_track(layout_track)
+    
+    # Set MTAR version and flags from layout action
+    # This determines whether to use new format (GANI2) or old format (FoxData)
+    mtar_props = read_mtar_properties_from_action(layout_action)
+    writer.set_mtar_version(
+        mtar_props.get(mtar_const.MTAR_VERSION, 201403250),
+        mtar_props.get(mtar_const.MTAR_FLAGS, 0x1000)
+    )
+    
+    Debug.log(f"MTAR format: {'New (GANI2)' if writer.is_new_format else 'Old (FoxData)'}")
+    Debug.log(f"MTAR version: {writer.version}")
+    Debug.log(f"MTAR flags: 0x{writer.flags:04X}")
+
 
     Debug.stop_timer("2. Meta Data")
 
@@ -1619,7 +1644,7 @@ def export_mtar(context: bpy.types.Context,
     # =============================
     # =============================
 
-    # Export each action as a GaniData object
+    # Export each action as a GaniExportData object
     Debug.log("\n4. Animations ++++++++++++++++++++++++++++++++++++++++++++")
     Debug.start_timer("4. Animations")
     Debug.update_progress(30, "Animations...")
@@ -1660,7 +1685,7 @@ def export_mtar(context: bpy.types.Context,
             force_highest_bit_encoding
         )
 
-        tracks_data = GaniTracksData(
+        tracks_data = GaniExportTracksData(
             gani_tracks=gani_tracks,
             action=gani_action,
             source=action_data.source
@@ -1699,14 +1724,14 @@ def export_mtar(context: bpy.types.Context,
             else:
                 Debug.log_warning(f"    Warning: Motion point action '{motion_point_action_data.action.name}' matched GANI '{gani_name}' but exported 0 motion point tracks")
         elif motion_point_actions_data:
-            Debug.log_warning(f"  Warning: Motion point actions exist but none matched GANI '{gani_name}' - motion points will be missing for this GANI")
+            Debug.log(f"  Motion point actions exist but none matched GANI '{gani_name}' - motion points will be skipped for this GANI")
         else:
             Debug.log(f"    No motion point action for GANI '{gani_name}'")
         
         motion_points_data = None
         total_units = 0
         if motion_point_tracks:
-            motion_points_data = GaniMotionPointsData(
+            motion_points_data = GaniExportMotionPointsData(
                 motion_point_tracks=motion_point_tracks,
                 action=motion_point_action_data.action if motion_point_action_data else None
             )
@@ -1739,8 +1764,8 @@ def export_mtar(context: bpy.types.Context,
 
         Debug.log(f"\n4.{action_idx}.4 Storing Data ----------------------------------------")
 
-        # Create GaniData object
-        gani_data: GaniData = GaniData(
+        # Create GaniExportData object
+        gani_data: GaniExportData = GaniExportData(
             name=gani_name,
             frame_count=frame_count,
             frame_rate=60,

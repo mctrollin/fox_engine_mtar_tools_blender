@@ -183,9 +183,15 @@ class Gani2Reader:
         # Includes UnitFlags and SegmentHeaders
         track_mini_header = TrackMiniHeader.read(br, unit_count=track_count, segment_count=layout_track.header.segment_count)
         Debug.log(f"        Read TrackMiniHeader: frame_count={track_mini_header.frame_count}, param_count={track_mini_header.param_count}")
+        # Convert parameter hashes to human-readable names and
+        # replace the list so downstream code (e.g. metadata storage) can
+        # use the unhashed string instead of raw integers.
+        named_params: list = []
         for param_name_hash, param_value in track_mini_header.params:
             param_name = unhash_param_name(param_name_hash) or str(param_name_hash)
             Debug.log(f"          Param: {param_name} = {param_value}")
+            named_params.append((param_name, param_value))
+        track_mini_header.params = named_params
 
         # Calculate GANI2 animation_track data array start location
         param_end_ptr = track_header_ptr + TrackMiniHeader.BASE_SIZE + track_mini_header.param_count * 8 + track_count * 1
@@ -328,57 +334,10 @@ class Gani2Reader:
     def convert_tracks_to_gani_tracks(self, tracks: Tracks) -> List[TrackUnitWrapper]:
         """Convert a Tracks structure (with populated data_blobs) to TrackUnitWrapper format.
         
-        This extracts the keyframe data from TrackData.data_blob and creates
-        the TrackUnitWrapper/TrackDataBlobWrapper structure expected by the importer.
-        
-        Args:
-            tracks: Tracks object with TrackData.data_blob populated
-            
-        Returns:
-            List of TrackUnitWrapper objects
+        DEPRECATED: Use Tracks.convert_to_gani_tracks() (static method) instead.
+        This method is kept for backward compatibility only.
         """
-        gani_tracks: List[TrackUnitWrapper] = []
-        
-        for track_unit in tracks.track_units:
-            keyframes_tracks: List[TrackDataBlobWrapper] = []
-            
-            # Extract unit flags for this track
-            unit_flags_int = track_unit.unit_flags
-            unit_flags_list = TrackUnitFlags.int_to_track_unit_flags(unit_flags_int)
-            
-            # Convert each segment's data_blob to a TrackDataBlobWrapper
-            for segment_index, track_data in enumerate(track_unit.segments_data):
-                # Get keyframes from data_blob (may be None or empty for layout tracks)
-                keyframes = track_data.data_blob if track_data.data_blob is not None else []
-                
-                # Create TrackDataBlob
-                is_static = (unit_flags_int & TrackUnitFlags.IS_STATIC) != 0
-                data_blob = TrackDataBlob.from_keyframes(
-                    segment_type=SegmentType(track_data.td_type),
-                    component_bit_size=track_data.component_bit_size,
-                    is_static=is_static,
-                    keyframes=keyframes
-                )
-                
-                # Create TrackDataBlobWrapper for this segment
-                keyframes_track = TrackDataBlobWrapper(
-                    name=track_unit.name,  # Will be resolved to string later
-                    segment_index=segment_index,
-                    data_blob=data_blob
-                )
-                keyframes_tracks.append(keyframes_track)
-            
-            # Create GaniTrack containing all segments for this track
-            gani_track = TrackUnitWrapper(
-                name=track_unit.name,
-                segments_track_data=keyframes_tracks,
-                unit_flags=unit_flags_list,
-                rig_unit_type=None  # Will be filled in later for bone tracks
-            )
-            
-            gani_tracks.append(gani_track)
-        
-        return gani_tracks
+        return Tracks.convert_to_gani_tracks(tracks)
 
     def read_all_motion_tracks(self, file_data: bytes, motion_tracks_ptr: int) -> List[TrackUnit]:
         """Read motion point tracks block and return a list of TrackUnit objects.

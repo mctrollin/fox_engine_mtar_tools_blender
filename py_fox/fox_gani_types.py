@@ -431,16 +431,16 @@ class TrackHeader:
     unit_offsets: List[int]
 
     @classmethod
-    def read(cls, br: BinaryIO) -> 'TrackHeader':
+    def read(cls, br: BinaryIO, endian: str = '<') -> 'TrackHeader':
 
         data = br.read(cls.BASE_SIZE)
         if len(data) < cls.BASE_SIZE:
             raise EOFError('Unexpected EOF while reading TrackHeader')
-        unit_count, segment_count, t_id, unknown_a, unknown_b, frame_count, frame_rate = struct.unpack('<IIHBBII', data)
+        unit_count, segment_count, t_id, unknown_a, unknown_b, frame_count, frame_rate = struct.unpack(endian + 'IIHBBII', data)
 
         unit_offsets: List[int] = []
         for _ in range(unit_count):
-            unit_offsets.append(struct.unpack('<I', br.read(4))[0])
+            unit_offsets.append(struct.unpack(endian + 'I', br.read(4))[0])
 
         return cls(
             unit_count=unit_count,
@@ -489,17 +489,17 @@ class TrackUnit:
 
 
     @classmethod
-    def read(cls, br: BinaryIO) -> 'TrackUnit':
+    def read(cls, br: BinaryIO, endian: str = '<') -> 'TrackUnit':
         # Read base fields
         base = br.read(cls.BASE_SIZE)
         if len(base) < cls.BASE_SIZE:
             raise EOFError('Unexpected EOF while reading TrackUnit base')
-        name_int, segment_count, unit_flags, padding = struct.unpack('<IBBH', base)
+        name_int, segment_count, unit_flags, padding = struct.unpack(endian + 'IBBH', base)
 
         track_data: List[TrackData] = []
         for _ in range(segment_count):
             # Delegate reading/parsing of a TrackData entry to TrackData.read
-            track_data.append(TrackData.read(br))
+            track_data.append(TrackData.read(br, endian))
 
         return cls(
             name=StrCode32(name_int),
@@ -539,7 +539,7 @@ class TrackData:
     ENTRY_SIZE = 8
 
     @classmethod
-    def read(cls, br: BinaryIO) -> 'TrackData':
+    def read(cls, br: BinaryIO, endian: str = '<') -> 'TrackData':
         """Read a TrackData entry (8 bytes) from the given BinaryIO and return a TrackData instance.
 
         The format is: data_offset (int32), motion_segment_id (int16), type_and_next (uint8), component_bit_size (uint8)
@@ -552,7 +552,7 @@ class TrackData:
         if len(seg_raw) < cls.ENTRY_SIZE:
             raise EOFError('Unexpected EOF while reading TrackData entry')
         
-        data_offset, ms_id, type_and_next, component_bit_size = struct.unpack('<ihBB', seg_raw)
+        data_offset, ms_id, type_and_next, component_bit_size = struct.unpack(endian + 'ihBB', seg_raw)
         td_type = type_and_next & 0x0F
         next_entry_offset = (type_and_next >> 4) & 0x0F
         
@@ -1004,7 +1004,7 @@ class EvpData:
     # cache: bytes | None = None  # Cache data (not fully implemented)
 
     @classmethod
-    def read(cls, br: BinaryIO) -> 'EvpData':
+    def read(cls, br: BinaryIO, endian: str = '<') -> 'EvpData':
         """Read a single EvpData structure."""
         evp_start = br.tell()
         
@@ -1012,7 +1012,7 @@ class EvpData:
         data = br.read(8)
         if len(data) < 8:
             raise EOFError('Unexpected EOF while reading EvpData')
-        category_name, unit_count, cache_offset = struct.unpack('<IHH', data)
+        category_name, unit_count, cache_offset = struct.unpack(endian + 'IHH', data)
 
         # Read unit offsets
         unit_offsets = []
@@ -1020,7 +1020,7 @@ class EvpData:
             offsets_data = br.read(unit_count * 4)
             if len(offsets_data) < unit_count * 4:
                 raise EOFError('Unexpected EOF while reading EvpData unit offsets')
-            unit_offsets = list(struct.unpack(f'<{unit_count}I', offsets_data))
+            unit_offsets = list(struct.unpack(f'{endian}{unit_count}I', offsets_data))
 
         # Read each EventUnitInfo
         events = []
@@ -1112,20 +1112,20 @@ class EvpHeader:
     data: List[EvpData]  # EvpData[count]
 
     @classmethod
-    def read(cls, br: BinaryIO) -> 'EvpHeader':
+    def read(cls, br: BinaryIO, endian: str = '<') -> 'EvpHeader':
         """Read EvpHeader from binary stream."""
         # Read header (version, count, padding)
         header_data = br.read(8)
         if len(header_data) < 8:
             raise EOFError('Unexpected EOF while reading EvpHeader')
-        version, count, padding = struct.unpack('<IhH', header_data)  # I=uint, h=short, H=ushort
+        version, count, padding = struct.unpack(endian + 'IhH', header_data)  # I=uint, h=short, H=ushort
 
         # Read entry offsets
         entry_offsets = []
         offsets_data = br.read(count * 4)
         if len(offsets_data) < count * 4:
             raise EOFError('Unexpected EOF while reading EvpHeader entry offsets')
-        entry_offsets = list(struct.unpack(f'<{count}I', offsets_data))
+        entry_offsets = list(struct.unpack(f'{endian}{count}I', offsets_data))
 
         # Read each EvpData entry
         evp_data_list = []
@@ -1133,7 +1133,7 @@ class EvpHeader:
         
         for offset in entry_offsets:
             br.seek(header_start + offset)
-            evp_data = EvpData.read(br)
+            evp_data = EvpData.read(br, endian)
             evp_data_list.append(evp_data)
 
         return cls(

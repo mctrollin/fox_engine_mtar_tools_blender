@@ -14,15 +14,22 @@ from ..py_utilities.utilities_logging import Debug
 from ..py_utilities.utilities_binary_write import align_buffer, write_padding
 from ..py_utilities.utilities_hashing import is_gani_path_a_hash, parse_gani_hash_str
 
-from ..py_fox.fox_mtar_types import MtarHeader, MtarTableList2, MtarFlags, MtarMiniDataNode, MotionPointList2
+from ..py_fox.fox_mtar_types import MtarHeader, MtarTableList2, MtarTableList, MtarFlags, MtarMiniDataNode, MotionPointList2
 from ..py_fox.fox_gani_enums import CommonInfoNodeType, TrackUnitFlags
 from ..py_fox.fox_gani_types import TrackHeader, TrackUnit, TrackData
 from ..py_fox.fox_misc_types import StrCode32
 
 from .foxwrap_gani2_writer import Gani2Writer
+from .foxwrap_gani_writer import GaniWriter
 from .foxwrap_misc import Tracks, TrackUnitWrapper
-from .foxwrap_misc_export import GaniData
-from .foxwrap_metadata import read_track_header_properties_from_action
+from .foxwrap_misc_export import GaniExportData
+from .foxwrap_metadata import (
+    read_track_header_properties_from_action,
+    parse_foxdata_stringlist_from_action,
+    PROP_SKL_LIST,
+    PROP_MTP_LIST,
+    PROP_MTP_PARENT_LIST,
+)
 from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox import fox_mtar_constants as mtar_const
 
@@ -57,14 +64,16 @@ class MtarWriter:
                 source fallbacks. Example: "/Assets/tpp/"
         """
         self.filepath = filepath
-        self.gani_writer = Gani2Writer()
+        self.gani2_writer = Gani2Writer()
+        self.gani_writer = GaniWriter()
         
         # Storage for GANI data to write  
-        self.gani_data_list: List['GaniData'] = []
+        self.gani_data_list: List['GaniExportData'] = []
         
         # MTAR metadata
         self.frame_rate: int = 60
         self.version: int = 201403250  # MTAR version of mgs5 tpp
+        self.flags: int = MtarFlags.UseMini  # 0x1000 for new format, 0 for old format
         
         # Layout track (shared across all GANI files)
         self.layout_track: Optional['Tracks'] = None
@@ -83,11 +92,11 @@ class MtarWriter:
         self.treat_hashes_as_names = treat_hashes_as_names
         self.export_custom_path_base = export_custom_path_base
         
-    def add_gani_data(self, gani_data: 'GaniData') -> None:
-        """Add a GaniData object to be included in the MTAR.
+    def add_gani_data(self, gani_data: 'GaniExportData') -> None:
+        """Add a GaniExportData object to be included in the MTAR.
         
         Args:
-            gani_data: GaniData object containing animation data
+            gani_data: GaniExportData object containing animation data
         """
         self.gani_data_list.append(gani_data)
     
@@ -123,7 +132,22 @@ class MtarWriter:
         """
         self.motion_point_header_count = count
     
-    def sort_file_table_by_hash(self, file_table_entries: List['MtarTableList2']) -> List['MtarTableList2']:
+    def set_mtar_version(self, version: int, flags: int) -> None:
+        """Set the MTAR version and format flags for the output file.
+        
+        Args:
+            version: MTAR version (e.g., 201403250 for MGSV:TPP)
+            flags: MTAR format flags (MtarFlags.UseMini for new format, 0 for old format)
+        """
+        self.version = version
+        self.flags = flags
+    
+    @property
+    def is_new_format(self) -> bool:
+        """Return True if this MTAR uses new format (GANI2 with CommonInfo)."""
+        return bool(self.flags & MtarFlags.UseMini)  # 0x1000
+    
+    def sort_file_table_by_hash(self, file_table_entries):
         """Sort file table entries by path hash in ascending order.
         
         The GANI data has already been written in Blender NLA strip order,
@@ -138,7 +162,7 @@ class MtarWriter:
         """
         return sorted(file_table_entries, key=lambda entry: entry.path)
     
-    def _resolve_gani_path_string(self, gani_data: 'GaniData') -> str:
+    def _resolve_gani_path_string(self, gani_data: 'GaniExportData') -> str:
         """Determine the canonical path string for a GANI, mirroring _compute_gani_path_hash logic.
 
         Returns paths with .gani extension for use in info files and path recording.
@@ -177,8 +201,8 @@ class MtarWriter:
         action_name = action.name if action else gani_data.name
         return action_name if action_name.endswith('.gani') else f"{action_name}.gani"
 
-    def get_animation_name_for_gani(self, gani_data: 'GaniData') -> str:
-        """Extract the animation name string from GaniData for the info file.
+    def get_animation_name_for_gani(self, gani_data: 'GaniExportData') -> str:
+        """Extract the animation name string from GaniExportData for the info file.
 
         Mirrors the path resolution logic of _compute_gani_path_hash:
         - Valid asset path from gani_path → used directly.
@@ -187,14 +211,14 @@ class MtarWriter:
         - Fallback → action name.
 
         Args:
-            gani_data: GaniData object containing animation data
+            gani_data: GaniExportData object containing animation data
 
         Returns:
             Animation name string (e.g., "/Assets/mgo/motion/walk_idle" or "player2.0.gani")
         """
         return self._resolve_gani_path_string(gani_data)
 
-    def _compute_gani_path_hash(self, gani_data: 'GaniData') -> int:
+    def _compute_gani_path_hash(self, gani_data: 'GaniExportData') -> int:
         """Compute the path hash for a GANI file.
 
         Reads the 'gani_path' custom property from the action:
@@ -206,7 +230,7 @@ class MtarWriter:
         - Raises ValueError if the hash cannot be determined or the property is missing.
 
         Args:
-            gani_data: GaniData object containing animation data
+            gani_data: GaniExportData object containing animation data
 
         Returns:
             Path hash value (64-bit integer)
@@ -321,21 +345,34 @@ class MtarWriter:
         Debug.log(f"  Segment count: {segment_count} (from layout track)")
         Debug.log(f"  Motion point header count: {motion_point_header_count} (max units across GANIs)")
         Debug.log(f"  Motion point CommonInfo count: {motion_point_commoninfo_count} (total bone definitions)")
+        Debug.log(f"  Format: {'New (GANI2)' if self.is_new_format else 'Old (FoxData)'}")
         
-        # Convert all GaniData to bytes using the layout track
+        # Convert all GaniExportData to bytes using the layout track
         Debug.log(f"  Converting {len(self.gani_data_list)} GANI data object(s) to bytes...")
         gani_bytes_list = []
-        for gani_data in self.gani_data_list:
-            gani_bytes = gani_data.to_bytes(self.layout_track)
-            gani_bytes_list.append(gani_bytes)
-            Debug.log(f"    {gani_data.name}: {len(gani_bytes)} bytes")
         
-        # Determine flags (TODO: find out how to retrieve the flag value)
-        flags = MtarFlags.UseMini
+        if self.is_new_format:
+            # New format: use Gani2Writer
+            for gani_data in self.gani_data_list:
+                gani_bytes = gani_data.to_bytes(self.layout_track)
+                gani_bytes_list.append(gani_bytes)
+                Debug.log(f"    {gani_data.name}: {len(gani_bytes)} bytes (GANI2)")
+        else:
+            # Old format: use GaniWriter
+            for gani_data in self.gani_data_list:
+                gani_bytes = self._write_old_gani_bytes(gani_data)
+                gani_bytes_list.append(gani_bytes)
+                Debug.log(f"    {gani_data.name}: {len(gani_bytes)} bytes (FoxData)")
+        
+        # Set flags based on format
+        flags = self.flags
+        
+        # Determine file table entry size based on format
+        file_table_entry_size = MtarTableList2.SIZE if self.is_new_format else MtarTableList.SIZE
         
         # Reserve space for header and file table
         header_size = MtarHeader.SIZE
-        file_table_size = file_count * MtarTableList2.SIZE
+        file_table_size = file_count * file_table_entry_size
         data_start = header_size + file_table_size
         
         # Write placeholder header (will update later)
@@ -349,27 +386,32 @@ class MtarWriter:
             shader_unit_count=0,
             motion_point_unit_count=motion_point_header_count,
             flags=flags,
-            common_info_offset=0,  # Will update
+            common_info_offset=0 if self.is_new_format else 0,  # Will update for new format, 0 for old
             padding=0
         )
         placeholder_header.write(buffer)
         
         # Reserve space for file table (will write later)
+        # File table size differs: MtarTableList (16 bytes) for old format, MtarTableList2 (32 bytes) for new
         file_table_offset = buffer.tell()
         for _ in range(file_count):
-            write_padding(buffer, MtarTableList2.SIZE)
+            write_padding(buffer, file_table_entry_size)
         
         # Position at data start
         buffer.seek(data_start)
         
-        # Write CommonInfo section (mirrors reading CommonInfo in read_all_tracks)
-        Debug.log("  Writing CommonInfo...")
-        common_info_offset = buffer.tell()
-        self._write_common_info(buffer)
+        # Write CommonInfo section only for new format
+        common_info_offset = 0
+        if self.is_new_format:
+            Debug.log("  Writing CommonInfo...")
+            common_info_offset = buffer.tell()
+            self._write_common_info(buffer)
+        else:
+            Debug.log("  Skipping CommonInfo (old format)")
         
         # Write all GANI files (mirrors processing file table in read_all_tracks)
         Debug.log(f"  Writing {file_count} GANI file(s)...")
-        file_table_entries = self._write_all_gani_files(buffer, gani_bytes_list)
+        file_table_entries = self._write_all_gani_files(buffer, gani_bytes_list, self.is_new_format)
         
         # ========== SORT FILE TABLE BY HASH (controlled by 'Sort GANI' setting) ==========
         try:
@@ -398,7 +440,7 @@ class MtarWriter:
         
         Debug.log(f"MTAR file written successfully: {len(buffer.getvalue())} bytes")
 
-    def _write_all_gani_files(self, buffer: io.BytesIO, gani_bytes_list: List[bytes]) -> List['MtarTableList2']:
+    def _write_all_gani_files(self, buffer: io.BytesIO, gani_bytes_list: List[bytes], is_new_format: bool = True):
         """Write all GANI files and create file table entries.
         
         Layout: Track Gani 0, Motion Points Gani 0, Track Gani 1, Motion Points Gani 1, ...,
@@ -417,7 +459,7 @@ class MtarWriter:
         Debug.log("  Phase 1: Writing Track and Motion Point GANIs (interleaved)...")
         for file_idx, gani_bytes in enumerate(gani_bytes_list):
             gani_name = self.gani_data_list[file_idx].name
-            gani_data: GaniData = self.gani_data_list[file_idx]
+            gani_data: GaniExportData = self.gani_data_list[file_idx]
             
             # =============================
             # Write Track GANI
@@ -476,49 +518,116 @@ class MtarWriter:
             # Compute path hash for this GANI file
             path_hash = self._compute_gani_path_hash(gani_data)
             
-            # Create file table entry (motion_events_offset will be set in second pass)
-            entry = MtarTableList2(
-                path=path_hash,
-                tracks_offset=gani_tracks_offset,
-                tracks_data_size=gani_tracks_data_size,
-                motion_point_tracks_offset=motion_point_tracks_offset,
-                motion_point_tracks_data_size=motion_point_tracks_data_size,
-                shader_tracks_offset=0,
-                shader_tracks_data_size=0,
-                padding0=0,
-                motion_events_offset=0,  # Will be set in second pass
-                padding1=0
-            )
+            # Create file table entry based on format
+            if is_new_format:
+                # New format: MtarTableList2 (32 bytes)
+                entry = MtarTableList2(
+                    path=path_hash,
+                    tracks_offset=gani_tracks_offset,
+                    tracks_data_size=gani_tracks_data_size,
+                    motion_point_tracks_offset=motion_point_tracks_offset,
+                    motion_point_tracks_data_size=motion_point_tracks_data_size,
+                    shader_tracks_offset=0,
+                    shader_tracks_data_size=0,
+                    padding0=0,
+                    motion_events_offset=0,  # Will be set in second pass
+                    padding1=0
+                )
+            else:
+                # Old format: MtarTableList (16 bytes)
+                # Data size must be stored as (value >> 4)
+                # M12: restore original 'unknown' field from action metadata if available
+                gani_action = gani_data.tracks_data.action if gani_data.tracks_data else None
+                mtar_unknown = 7  # default: observed value in real old-format files
+                if gani_action and mtar_const.TABL_UNKNOWN in gani_action:
+                    try:
+                        mtar_unknown = int(gani_action[mtar_const.TABL_UNKNOWN])
+                    except (TypeError, ValueError):
+                        Debug.log_warning(
+                            f"_write_all_gani_files: invalid {mtar_const.TABL_UNKNOWN} "
+                            f"on action '{getattr(gani_action, 'name', '<unknown>')}', "
+                            f"using default 7"
+                        )
+                entry = MtarTableList(
+                    path=path_hash,
+                    tracks_offset=gani_tracks_offset,
+                    tracks_data_size=gani_tracks_data_size,
+                    unknown=mtar_unknown
+                )
+            
             file_table_entries.append(entry)
         
-        # Second pass: Write all Motion Events GANIs
-        Debug.log("  Phase 2: Writing Motion Events GANIs...")
-        for file_idx, gani_data in enumerate(self.gani_data_list):
-            if gani_data.motion_events_data:
-                gani_name = gani_data.name
-                Debug.log(f"    Writing Motion Events GANI #{file_idx}: {gani_name}")
-                
-                # MotionEventsOffset is an ABSOLUTE offset
-                motion_events_start = buffer.tell()
-                motion_events_offset = motion_events_start
-                
-                # Write motion events as EvpHeader
-                evp_header = gani_data.motion_events_data.motion_events
-                evp_header.write(buffer)
-                
-                # Align to 16-byte boundary after motion events
-                align_buffer(buffer, 16)
-                
-                motion_events_end = buffer.tell()
-                motion_events_data_size = motion_events_end - motion_events_start
-                
-                Debug.log(f"      Motion Events offset: 0x{motion_events_start:08X} (absolute)")
-                Debug.log(f"      Motion Events size: {motion_events_data_size} bytes")
-                
-                # Update the file table entry with motion events offset
-                file_table_entries[file_idx].motion_events_offset = motion_events_offset
+        # Second pass: Write all Motion Events GANIs (new format only)
+        if is_new_format:
+            Debug.log("  Phase 2: Writing Motion Events GANIs...")
+            for file_idx, gani_data in enumerate(self.gani_data_list):
+                if gani_data.motion_events_data:
+                    gani_name = gani_data.name
+                    Debug.log(f"    Writing Motion Events GANI #{file_idx}: {gani_name}")
+                    
+                    # MotionEventsOffset is an ABSOLUTE offset
+                    motion_events_start = buffer.tell()
+                    motion_events_offset = motion_events_start
+                    
+                    # Write motion events as EvpHeader
+                    evp_header = gani_data.motion_events_data.motion_events
+                    evp_header.write(buffer)
+                    
+                    # Align to 16-byte boundary after motion events
+                    align_buffer(buffer, 16)
+                    
+                    motion_events_end = buffer.tell()
+                    motion_events_data_size = motion_events_end - motion_events_start
+                    
+                    Debug.log(f"      Motion Events offset: 0x{motion_events_start:08X} (absolute)")
+                    Debug.log(f"      Motion Events size: {motion_events_data_size} bytes")
+                    
+                    # Update the file table entry with motion events offset
+                    file_table_entries[file_idx].motion_events_offset = motion_events_offset
+        else:
+            Debug.log("  Phase 2: Skipping Motion Events GANIs (old format)")
         
         return file_table_entries
+
+    
+    def _write_old_gani_bytes(self, gani_data: 'GaniExportData') -> bytes:
+        """Convert GaniExportData to old-format FoxData GANI bytes.
+        
+        Uses GaniWriter to write animation tracks in FoxData container format
+        instead of the new GANI2 format.
+        
+        Args:
+            gani_data: Animation data to export
+            
+        Returns:
+            Binary blob of FoxData-formatted GANI data
+        """
+        buffer = io.BytesIO()
+        
+        # Call GaniWriter to write the old-format GANI blob
+        # This handles FoxData header, node structure, and track payload
+        frame_rate = gani_data.frame_rate or 60
+
+        # M10: Read FoxData StringData name lists from action metadata for lossless round-trip
+        action = gani_data.tracks_data.action if gani_data.tracks_data else None
+        skeleton_list = parse_foxdata_stringlist_from_action(action, PROP_SKL_LIST) if action else None
+        motion_point_list = parse_foxdata_stringlist_from_action(action, PROP_MTP_LIST) if action else None
+        motion_point_parent_list = parse_foxdata_stringlist_from_action(action, PROP_MTP_PARENT_LIST) if action else None
+
+        self.gani_writer.write_gani_to_buffer(
+            buffer=buffer,
+            gani_tracks=gani_data.tracks_data.gani_tracks,
+            frame_count=gani_data.frame_count,
+            frame_rate=frame_rate,
+            motion_point_tracks=gani_data.motion_points_data.motion_point_tracks if gani_data.motion_points_data else None,
+            motion_events=gani_data.motion_events_data.motion_events if gani_data.motion_events_data else None,
+            foxdata_version=self.version,
+            skeleton_list=skeleton_list,
+            motion_point_list=motion_point_list,
+            motion_point_parent_list=motion_point_parent_list,
+        )
+        
+        return buffer.getvalue()
 
     
     def _write_common_info(self, buffer: io.BytesIO) -> None:

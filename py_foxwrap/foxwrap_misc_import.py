@@ -3,12 +3,73 @@ Import-only fake types for MTAR importer.
 """
 from dataclasses import dataclass
 import io
-from typing import Optional
+from typing import Optional, List
 
-from .foxwrap_misc import Tracks
+from .foxwrap_misc import Tracks, TrackUnitWrapper
 
 from ..py_fox.fox_gani_enums import CommonInfoNodeType
+from ..py_fox.fox_gani_types import EvpHeader, TrackMiniHeader, TrackHeader
 from ..py_fox.fox_mtar_types import MotionPointList2, MtarHeader, MtarMiniDataNode
+
+
+@dataclass
+class ShaderTrackWrapper:
+    """Wrapper for a single SHADER child node's animation data.
+    
+    SHADER nodes in old-format GANI files contain facial/property animation tracks.
+    Each child property node (e.g., TENSION_CHEEKL, TENSION_CHEEKR) is a separate
+    animation track that can be imported as custom properties or shape key drivers.
+    
+    Attributes:
+        property_name: The resolved property name (StrCode32 hash) or hex fallback
+        tracks: Full Tracks object with TrackHeader + TrackUnits and keyframe data
+    """
+    property_name: str
+    tracks: Tracks
+
+
+@dataclass
+class GaniImportData:
+    """Unified wrapper for animation data returned by both old and new GANI readers.
+    
+    This dataclass encapsulates all the data that a single GANI file contains, whether
+    it's old-format (FoxData) or new-format (GANI2). It allows the importer to work
+    uniformly with both formats without needing to handle separate return tuples.
+    
+    Attributes:
+        bone_tracks: List of main animation tracks (bones, rotation/location/scale)
+        mtp_tracks: List of motion point animation tracks (optional, empty if not present)
+        events: Motion event data (optional, None if not present)
+        layout_track: The track layout structure defining bones/segments (mandatory).
+            For GANI2: This is a reference (alias) to the shared CommonInfo layout.
+            For GANI (old): This is a unique Tracks object parsed from the MOTION node.
+        track_mini_header: Synthesized track header for segment info (component bit sizes, etc.)
+        motion_point_layout: Motion point Tracks object structure (optional)
+        motion_point_track_header: Motion point TrackHeader (optional)
+        shader_tracks: List of facial/shader property animation tracks (optional, empty if not present)
+    """
+    # TODO: make it clear (at least via comment) which vars are used for gani and which for gani2.
+    bone_tracks: List[TrackUnitWrapper]
+    mtp_tracks: List[TrackUnitWrapper]
+    events: Optional[EvpHeader]
+    layout_track: Tracks
+    track_mini_header: TrackMiniHeader
+    motion_point_layout: Optional[Tracks]
+    motion_point_track_header: Optional[TrackHeader]
+    shader_tracks: List[ShaderTrackWrapper] = None
+    skeleton_list: Optional[List[str]] = None
+    motion_point_list: Optional[List[str]] = None
+    motion_point_parent_list: Optional[List[str]] = None
+    
+    def __post_init__(self):
+        """Initialize shader_tracks to empty list if None."""
+        if self.shader_tracks is None:
+            self.shader_tracks = []
+    
+    @property
+    def has_events(self) -> bool:
+        """Check if this GANI has motion events."""
+        return self.events is not None
 
 
 @dataclass

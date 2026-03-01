@@ -1,0 +1,5 @@
+# SHADER child property name dictionary for old-format GANI facial animations.
+# Strings must exactly match the bt template (anim_FoxData.bt ResolveHashFunc).
+TENSION_CHEEKL
+TENSION_CHEEKR
+TENSION_NECK

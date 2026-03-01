@@ -120,10 +120,10 @@ class MtarTableList:
     SIZE = 16
 
     @classmethod
-    def read(cls, br: BinaryIO) -> 'MtarTableList2':
+    def read(cls, br: BinaryIO) -> 'MtarTableList':
         data = br.read(cls.SIZE)
         if len(data) < cls.SIZE:
-            raise EOFError('Unexpected EOF while reading MtarTableList2')
+            raise EOFError('Unexpected EOF while reading MtarTableList')
         path, tracks_offset, tracks_data_size, unknown = struct.unpack('<QIHH', data)
         return cls(
             path=path,
@@ -131,6 +131,16 @@ class MtarTableList:
             tracks_data_size=tracks_data_size * 16,
             unknown=unknown,
         )
+    
+    def write(self, bw: BinaryIO) -> None:
+        """Write MtarTableList to binary stream (old-format MTAR, 16 bytes)."""
+        # Note: tracks_data_size is stored as (value >> 4)
+        bw.write(struct.pack('<QIHH',
+            self.path,
+            self.tracks_offset,
+            self.tracks_data_size >> 4,
+            self.unknown
+        ))
     
 
 @dataclass

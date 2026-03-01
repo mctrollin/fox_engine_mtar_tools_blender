@@ -13,14 +13,17 @@ import bpy
 
 from ..py_fox.fox_gani_types import SegmentType, TrackHeader, TrackUnitFlags, TrackUnit, Gani2TrackData
 from ..py_fox import fox_gani_constants as gani_const
+from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_fox.fox_frig_types import RigUnitType
 from ..py_fox.fox_misc_types import StrCode32
+
 from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper
+
 from ..py_utilities.utilities_logging import Debug
 from ..py_utilities.utilities_blender_animation import action_has_fcurves, iter_action_fcurves, build_data_path_for_bone
-from ..py_utilities.utilities_hashing import unhash_rig_type
+from ..py_utilities.utilities_hashing import unhash_rig_type, unhash_param_name
+from ..py_utilities.utilities_hashing_cityhash import strcode32
 from ..py_utilities.utilities_parsing import format_float_for_metadata
-
 
 # Action property key constants -------------------------------------------------------------
 # These strings are used as Blender action custom-property keys throughout the
@@ -30,6 +33,12 @@ from ..py_utilities.utilities_parsing import format_float_for_metadata
 TRACK_PROP_PREFIX = "track_"  # used by make_/parse_track_property_key
 EVENT_PROP_PREFIX = "event_"  # used by make_/parse_event_property_key
 PROP_PARAMS = "params"        # used by store_/parse_gani_params_on_action
+
+# FoxData StringData list action properties (old-format GANI round-trip)
+# Stored as comma-separated decimal hash integers.
+PROP_SKL_LIST        = "gfox_skl_list"         # SKL_LIST  node — bone name hashes
+PROP_MTP_LIST        = "gfox_mtp_list"         # MTP_LIST  node — motion point name hashes
+PROP_MTP_PARENT_LIST = "gfox_mtp_parent_list"  # MTP_PARENT_LIST node — motion point parent hashes
 
 
 # Custom Property Key Utilities #############################################################
@@ -146,10 +155,17 @@ def store_gani_params_on_action(action: bpy.types.Action, params: List[Tuple[int
         params: List of ``(name_hash, value)`` tuples from
             :attr:`TrackMiniHeader.params <py_fox.fox_gani_types.TrackMiniHeader.params>`.
     """
-    value_str = ','.join(
-        f"{name_hash}:{format_float_for_metadata(value)}"
-        for name_hash, value in params
-    )
+    # Convert parameter identifiers to readable strings if possible.
+    items: list[str] = []
+
+    for name, value in params:
+        # name may already be a string (unhashed) or an integer hash.
+        if isinstance(name, int):
+            name_str = unhash_param_name(name) or str(name)
+        else:
+            name_str = str(name)
+        items.append(f"{name_str}:{format_float_for_metadata(value)}")
+    value_str = ','.join(items)
     action[PROP_PARAMS] = value_str
     action.id_properties_ui(PROP_PARAMS).update(
         description="Gani2 params: comma-separated hash:value pairs (e.g. SLOPE_ANGLE hash:0.5)"
@@ -169,16 +185,95 @@ def parse_gani_params_from_action(action: bpy.types.Action) -> List[Tuple[int, f
     value_str = action.get(PROP_PARAMS)
     if not value_str:
         return []
+    # We stored human-readable names during import; when parsing back we must
+    # convert them to numeric hashes for export.
     result: List[Tuple[int, float]] = []
     for pair in value_str.split(','):
         pair = pair.strip()
         if not pair or ':' not in pair:
             continue
-        hash_str, val_str = pair.split(':', 1)
+        name_str, val_str = pair.split(':', 1)
         try:
-            result.append((int(hash_str.strip()), float(val_str.strip())))
+            value = float(val_str.strip())
         except ValueError:
             Debug.log_warning(f"parse_gani_params_from_action: skipping invalid pair '{pair}'")
+            continue
+        name_str = name_str.strip()
+        # Try interpreting as integer literal first (allows "0x1234" too)
+        try:
+            name_hash = int(name_str, 0)
+        except ValueError:
+            # Fallback: hash the string to StrCode32
+            name_hash = strcode32(name_str, remove_extension=False)
+        result.append((name_hash, value))
+    return result
+
+
+def store_foxdata_stringlist_on_action(
+    action: bpy.types.Action,
+    key: str,
+    names: List,
+) -> None:
+    """Store a FoxData StringData name list on a Blender action custom property.
+
+    Each entry in ``names`` may be a string bone/point name or an integer hash
+    (uint32).  String names are converted to StrCode32 hashes; integer values are
+    used directly.  The result is stored as a comma-separated decimal-integer
+    string so that it can be round-tripped losslessly without re-hashing.
+
+    Args:
+        action: Blender action to store the list on.
+        key:    Custom property key (e.g. ``PROP_SKL_LIST``).
+        names:  Bone/point names (str) or hash values (int).
+    """
+    hash_values: List[int] = []
+    for name in names:
+        if isinstance(name, int):
+            hash_values.append(name)
+        else:
+            s = str(name)
+            # Hex/decimal literal fallback (e.g. "0x8B7A2E4D" from reader)
+            try:
+                hash_values.append(int(s, 0))
+            except ValueError:
+                hash_values.append(strcode32(s, remove_extension=False))
+    action[key] = ",".join(str(h) for h in hash_values)
+    action.id_properties_ui(key).update(
+        description=f"FoxData StringData hash list for {key} (comma-separated decimal uint32 hashes)"
+    )
+
+
+def parse_foxdata_stringlist_from_action(
+    action: bpy.types.Action,
+    key: str,
+) -> Optional[List[int]]:
+    """Read a FoxData StringData hash list from a Blender action custom property.
+
+    Args:
+        action: Blender action to read from.
+        key:    Custom property key (e.g. ``PROP_SKL_LIST``).
+
+    Returns:
+        List of uint32 hash values, or ``None`` if the property is absent.
+        An empty list is returned for a property with an empty string value.
+    """
+    value_str = action.get(key)
+    if value_str is None:
+        return None
+    if not value_str:
+        return []
+    result: List[int] = []
+    for part in value_str.split(','):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            result.append(int(part))
+        except ValueError:
+            Debug.log_warning(
+                f"parse_foxdata_stringlist_from_action: skipping invalid entry '{part}' "
+                f"for key '{key}'"
+            )
     return result
 
 
@@ -277,6 +372,48 @@ def read_track_header_properties_from_action(action: Optional[bpy.types.Action])
         
         if gani_const.TRKH_FRAME_RATE in action.keys():
             result[gani_const.TRKH_FRAME_RATE] = int(action[gani_const.TRKH_FRAME_RATE])
+    
+    return result
+
+
+def store_mtar_properties_on_action(action: bpy.types.Action, version: int, flags: int) -> None:
+    """Store MTAR-level version and flags as custom properties on an action.
+    
+    These properties preserve the MTAR file format metadata, allowing export to
+    recreate files in the same format (old FoxData vs. new GANI2).
+    
+    Args:
+        action: The Blender action to store properties on
+        version: MTAR version number (e.g., 201304220 for old, 201403250 for new)
+        flags: MTAR flags (e.g., 0x1000 for new format, 0x0 for old)
+    """
+    action[mtar_const.MTAR_VERSION] = version
+    action[mtar_const.MTAR_FLAGS] = flags
+    Debug.log(f"Stored MTAR properties on action: version={version}, flags=0x{flags:04X}")
+
+
+def read_mtar_properties_from_action(action: Optional[bpy.types.Action]) -> Dict[str, int]:
+    """Read MTAR version and flags from action custom properties.
+    
+    Returns new-format defaults if properties are not present (for backward compatibility
+    with animations created before MTAR properties were stored).
+    
+    Args:
+        action: The Blender action to read properties from (can be None)
+        
+    Returns:
+        Dictionary with MTAR_VERSION and MTAR_FLAGS keys
+    """
+    result = {
+        mtar_const.MTAR_VERSION: 201403250,  # Default: new format (TPP)
+        mtar_const.MTAR_FLAGS: 0x1000         # Default: UseMini flag (new format)
+    }
+    
+    if action:
+        if mtar_const.MTAR_VERSION in action.keys():
+            result[mtar_const.MTAR_VERSION] = int(action[mtar_const.MTAR_VERSION])
+        if mtar_const.MTAR_FLAGS in action.keys():
+            result[mtar_const.MTAR_FLAGS] = int(action[mtar_const.MTAR_FLAGS])
     
     return result
 
