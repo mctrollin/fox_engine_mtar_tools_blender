@@ -36,7 +36,8 @@ class MTAR_PT_ExportPanel(Panel):
         # Armatures selector
         box_rig = box_export.box()
         box_rig.prop(export_props, "armature", text="", icon='ARMATURE_DATA')
-        box_rig.prop(export_props, "motion_points_armature", text="", icon='ARMATURE_DATA')
+        if export_props.armature:
+            box_rig.prop(export_props, "motion_points_armature", text="", icon='ARMATURE_DATA')
 
         if settings_props.show_advanced_settings:
             adv_box = box_rig.box()

@@ -92,6 +92,10 @@ def store_track_metadata_on_action(
                     segment_types.append('vd')
                 elif seg_type == SegmentType.FLOAT:
                     segment_types.append('f')
+                elif seg_type == SegmentType.VECTOR2:
+                    segment_types.append('v2')
+                elif seg_type == SegmentType.VECTOR4:
+                    segment_types.append('v4')
                 else:
                     segment_types.append('?')
             
@@ -504,7 +508,82 @@ def import_keyframes_track(
                 kf_point.interpolation = 'LINEAR'  # Always LINEAR - decimation creates bezier later
         
         Debug.log(f"    Added location keyframes (frames 0-{max_frame})")
-    
+
+    elif keyframes_track.data_blob.type == SegmentType.FLOAT:
+        # FLOAT segment: raw scalar stored directly as location[0] (no coordinate transform).
+        # Channel index convention: [0]=FLOAT. Since a bone never has both FLOAT and VECTOR2,
+        # the shared index-0 between them is not a practical ambiguity.
+        # See copilot/todos/segment_type_fcurve_inference.md for full rationale.
+        float_values = []
+        absolute_frame = 0
+        for keyframe in keyframes_track.data_blob.keyframes:
+            absolute_frame += keyframe.frame_count
+            # data.value is [scalar] — extract the single float
+            float_val = keyframe.data.value[0] if isinstance(keyframe.data.value, list) else keyframe.data.value
+            float_values.append((absolute_frame, float_val))
+            max_frame = max(max_frame, absolute_frame)
+
+        try:
+            data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
+            fcurve: bpy.types.FCurve = ensure_action_fcurve(
+                action,
+                data_path=data_path_str,
+                index=0,  # X channel only
+                action_group_name=group_name
+            )
+        except Exception as e:
+            data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
+            Debug.log_warning(f"Could not create fcurve '{data_path_str}[0]' on action '{getattr(action, 'name', '<unknown>')}': {e}")
+            return max_frame
+
+        for abs_frame, float_val in float_values:
+            kf_point: bpy.types.Keyframe = fcurve.keyframe_points.insert(abs_frame, float_val)
+            kf_point.interpolation = 'LINEAR'
+
+        Debug.log(f"    Added FLOAT keyframes as location[0] (frames 0-{max_frame})")
+
+    elif keyframes_track.data_blob.type == SegmentType.VECTOR2:
+        # VECTOR2 segment: raw [x, y] stored as location[0] and location[1] (no coordinate
+        # transform). Fox XY values are written directly without axis-swap.
+        # Channel index convention: [0]=X, [1]=Y.
+        # See copilot/todos/segment_type_fcurve_inference.md for full rationale.
+        vec2_values = []
+        absolute_frame = 0
+        for keyframe in keyframes_track.data_blob.keyframes:
+            absolute_frame += keyframe.frame_count
+            vec2_values.append((absolute_frame, keyframe.data.value))  # [x, y]
+            max_frame = max(max_frame, absolute_frame)
+
+        for i in range(2):  # X, Y channels only
+            try:
+                data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
+                fcurve: bpy.types.FCurve = ensure_action_fcurve(
+                    action,
+                    data_path=data_path_str,
+                    index=i,
+                    action_group_name=group_name
+                )
+            except Exception as e:
+                data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
+                Debug.log_warning(f"Could not create fcurve '{data_path_str}[{i}]' on action '{getattr(action, 'name', '<unknown>')}': {e}")
+                continue
+
+            for abs_frame, vec2 in vec2_values:
+                kf_point: bpy.types.Keyframe = fcurve.keyframe_points.insert(abs_frame, vec2[i])
+                kf_point.interpolation = 'LINEAR'
+
+        Debug.log(f"    Added VECTOR2 keyframes as location[0,1] (frames 0-{max_frame})")
+
+    elif keyframes_track.data_blob.type == SegmentType.VECTOR4:
+        # VECTOR4 has no Blender FCurve representation. Log a warning so the user
+        # knows data is lost. Round-trip requires the layout action to preserve the
+        # VECTOR4 segment type (the export will produce a zeroed segment from layout).
+        Debug.log_warning(
+            f"  Segment type VECTOR4 on track '{keyframes_track.name}' is not supported "
+            f"as Blender FCurves and will be lost. Round-trip fidelity requires the "
+            f"layout action to contain this track's segment types."
+        )
+
     return max_frame
 
 def import_gani_track(context: bpy.types.Context, action: bpy.types.Action, gani_track: TrackUnitWrapper) -> int:

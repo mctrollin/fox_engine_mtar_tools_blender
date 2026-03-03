@@ -128,17 +128,17 @@ class MtarTableList:
         return cls(
             path=path,
             tracks_offset=tracks_offset,
-            tracks_data_size=tracks_data_size * 16,
+            tracks_data_size=tracks_data_size,  # old format: raw value = FoxData FileSize (no ×16)
             unknown=unknown,
         )
     
     def write(self, bw: BinaryIO) -> None:
         """Write MtarTableList to binary stream (old-format MTAR, 16 bytes)."""
-        # Note: tracks_data_size is stored as (value >> 4)
+        # old format: tracks_data_size stored as raw FoxData FileSize (no >>4 shift)
         bw.write(struct.pack('<QIHH',
             self.path,
             self.tracks_offset,
-            self.tracks_data_size >> 4,
+            self.tracks_data_size,
             self.unknown
         ))
     

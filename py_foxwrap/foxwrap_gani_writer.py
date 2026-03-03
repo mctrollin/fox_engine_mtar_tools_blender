@@ -44,6 +44,7 @@ from ..py_utilities.utilities_hashing_cityhash import strcode32
 
 from ..py_fox.fox_foxdata_types import FoxDataHeader, FoxDataNode, FoxDataNodeType
 from ..py_fox.fox_gani_types import TrackHeader, TrackUnit, EvpHeader, TrackData, TrackUnitFlags
+from ..py_fox.fox_misc_types import StrCode32
 from ..py_fox.fox_gani_constants import (
     FOXDATA_HASH_ROOT,
     FOXDATA_HASH_MOTION,
@@ -53,6 +54,8 @@ from ..py_fox.fox_gani_constants import (
     FOXDATA_HASH_SKL_LIST,
     FOXDATA_HASH_MTP_LIST,
     FOXDATA_HASH_MTP_PARENT_LIST,
+    FOXDATA_HASH_PARAM_SLOPE_ANGLE,
+    FOXDATA_HASH_PARAM_SLOPE_DIR,
 )
 
 from .foxwrap_misc import TrackUnitWrapper, Tracks
@@ -66,6 +69,16 @@ _NODE_OFF_PARENT_NODE_OFFSET  = 20
 _NODE_OFF_CHILD_NODE_OFFSET   = 24
 _NODE_OFF_PREV_NODE_OFFSET    = 28
 _NODE_OFF_NEXT_NODE_OFFSET    = 32
+_NODE_OFF_PARAMETERS_OFFSET   = 36
+
+# Inline name string area appended after ROOT and MOTION node bodies (16 bytes, align-16)
+_CONTAINER_NAME_STRING_SIZE = 16  # null-terminated name + zero padding to 16-byte boundary
+
+# MOTION node FoxDataNodeParameter entries (SLOPE_ANGLE + SLOPE_DIR, both FLOAT 0.0)
+# Each entry: ushort type(2=FLOAT) + short next_off + uint name_hash + uint name_str_off(0) + uint value_bits
+# Entry size = 16 bytes
+_MOTION_PARAM_ENTRY_SIZE = 16
+_MOTION_PARAM_COUNT      = 2   # SLOPE_ANGLE then SLOPE_DIR
 
 
 class GaniWriter:
@@ -73,8 +86,8 @@ class GaniWriter:
 
     Emits:
         FoxDataHeader (32 bytes)
-        ROOT node     (48 bytes, container — no payload)
-          MOTION node (48 bytes, container — no payload)
+        ROOT node     (48 bytes body + 16 bytes inline name string = 64 bytes total)
+          MOTION node (48 bytes body + 16 bytes inline name string + 2×16 bytes params = 80 bytes total)
             [SKL_LIST node + StringData payload]  (optional)
             [MTP node     + TrackHeader payload]   (optional)
             UNIT node     + TrackHeader payload    (mandatory)
@@ -95,7 +108,7 @@ class GaniWriter:
         frame_rate: int = 30,
         motion_point_tracks: Optional[List[TrackUnitWrapper]] = None,
         motion_events: Optional[EvpHeader] = None,
-        foxdata_version: int = 201304220,
+        foxdata_version: int = 201106130,  # canonical old-format version (matches real MGS5 files)
         skeleton_list: Optional[List] = None,
         motion_point_list: Optional[List] = None,
         motion_point_parent_list: Optional[List] = None,
@@ -216,11 +229,23 @@ class GaniWriter:
 
         # ── ROOT node (container, no payload) ───────────────────────────────
         root_node_pos = buffer.tell()
-        self._write_placeholder_node(buffer, FOXDATA_HASH_ROOT, FoxDataNodeType.TRACKS)
+        self._write_placeholder_node(buffer, FOXDATA_HASH_ROOT, flags=0, name_string="ROOT")
 
-        # ── MOTION node (container, no payload) ─────────────────────────────
+        # ── MOTION node (container, no payload) ───────────────────────────────────
         motion_node_pos = buffer.tell()
-        self._write_placeholder_node(buffer, FOXDATA_HASH_MOTION, FoxDataNodeType.TRACKS)
+        self._write_placeholder_node(buffer, FOXDATA_HASH_MOTION, flags=0, name_string="MOTION")
+
+        # ── MOTION parameters: SLOPE_ANGLE and SLOPE_DIR (always present, both 0.0) ─────
+        # parameters_offset is relative to MOTION node start; name string area is 16 bytes
+        motion_params_offset = buffer.tell() - motion_node_pos
+        self._write_motion_parameters(buffer)
+
+        # Backfill MOTION.parameters_offset
+        self._backfill_int(
+            buffer,
+            motion_node_pos + _NODE_OFF_PARAMETERS_OFFSET,
+            motion_params_offset,
+        )
 
         # ── MOTION children in canonical order ──────────────────────────────
         # Each entry: (debug_name: str, node_pos: int, payload_end: int)
@@ -344,17 +369,23 @@ class GaniWriter:
         buffer: io.BytesIO,
         name_hash: int,
         flags: int = FoxDataNodeType.STRINGDATA,
+        name_string: Optional[str] = None,
     ) -> int:
         """Write a FoxDataNode with all offsets/sizes zeroed and return its position.
 
         Used for container nodes (ROOT, MOTION) that carry no payload.  All
         back-fill fields (child/parent/prev/next offsets, data_size) are written
         as zero; the caller fills them in via ``_backfill_*``.
+
+        If ``name_string`` is provided, the node body is followed by a 16-byte
+        area containing the null-terminated name padded to 16 bytes, and
+        ``name_string_offset`` is set to ``FoxDataNode.SIZE`` (48).
         """
         node_pos = buffer.tell()
+        name_string_offset = FoxDataNode.SIZE if name_string else 0
         FoxDataNode(
             name_hash=name_hash,
-            name_string_offset=0,
+            name_string_offset=name_string_offset,
             flags=flags,
             data_offset=0,   # container: no payload
             data_size=0,
@@ -364,7 +395,44 @@ class GaniWriter:
             next_node_offset=0,
             parameters_offset=0,
         ).write(buffer)
+        if name_string:
+            # Write null-terminated name, zero-padded to 16 bytes
+            encoded = name_string.encode('ascii') + b'\x00'
+            pad_len = _CONTAINER_NAME_STRING_SIZE - len(encoded)
+            if pad_len < 0:
+                # Truncate if somehow longer than 15 chars + null (shouldn't happen for ROOT/MOTION)
+                encoded = encoded[:_CONTAINER_NAME_STRING_SIZE]
+                pad_len = 0
+            buffer.write(encoded)
+            buffer.write(b'\x00' * pad_len)
         return node_pos
+
+    def _write_motion_parameters(self, buffer: io.BytesIO) -> None:
+        """Write the two MOTION node parameters: SLOPE_ANGLE and SLOPE_DIR (both FLOAT 0.0).
+
+        FoxDataNodeParameter layout (16 bytes each)::
+
+            ushort type            # 2 = FLOAT
+            short  next_param_off  # offset to next entry (16), or 0 if last
+            uint32 name_hash       # StrCode32
+            uint32 name_str_off    # 0 = no inline string
+            uint32 value_bits      # IEEE-754 bits of the float value
+
+        Both parameters have value 0.0 (0x00000000). This is universal across all
+        observed old-format GANI files.
+        """
+        # Param 1: SLOPE_ANGLE — NextParamOffset=16 (points to next entry)
+        buffer.write(struct.pack('<hhIII',
+            2, 16,
+            FOXDATA_HASH_PARAM_SLOPE_ANGLE, 0,
+            0,  # 0.0f bits
+        ))
+        # Param 2: SLOPE_DIR — NextParamOffset=0 (last)
+        buffer.write(struct.pack('<hhIII',
+            2, 0,
+            FOXDATA_HASH_PARAM_SLOPE_DIR, 0,
+            0,  # 0.0f bits
+        ))
 
     def _write_tracks_node(
         self,
@@ -410,7 +478,13 @@ class GaniWriter:
         StringData payload layout (from ``anim_common.bt``)::
 
             uint32 EntryCount
-            EntryCount x { uint32 hash; uint32 StringOffset (= 0); }
+            EntryCount x { uint32 hash; uint32 StringOffset; }
+            [null-terminated name strings, packed after the entry table]
+
+        ``StringOffset`` is relative to the entry's own StringOffset field position.
+        For string names (non-integer), the inline strings are written after all
+        entries, reproducing the original file layout exactly.  For integer-only
+        entries (no source string available), StringOffset is written as 0.
 
         Each name in ``names`` may be a string or an integer hash.  Strings are
         converted via ``strcode32``; integers are used directly.
@@ -433,20 +507,43 @@ class GaniWriter:
             parameters_offset=0,
         ).write(buffer)
 
-        # Write StringData payload
-        buffer.write(struct.pack('<I', len(names)))
+        # Resolve each name to (hash_val, name_str_or_None)
+        entries = []
         for name in names:
             if isinstance(name, int):
-                hash_val = name
+                entries.append((name, None))
             else:
                 s = str(name)
                 try:
-                    # Handles "0x..." hex literals stored by the reader as fallbacks
                     hash_val = int(s, 0)
+                    # Parsed as integer literal — no inline string available
+                    entries.append((hash_val, None))
                 except ValueError:
                     hash_val = strcode32(s, remove_extension=False)
-            # FoxDataName: uint32 hash + uint32 StringOffset (0 = no inline string)
-            buffer.write(struct.pack('<II', hash_val, 0))
+                    entries.append((hash_val, s))
+
+        # Write EntryCount
+        buffer.write(struct.pack('<I', len(entries)))
+
+        # Write all (hash, placeholder_string_offset) entries, recording positions
+        # of each StringOffset field so we can backfill them after writing strings.
+        entry_string_offset_positions = []  # abs file position of each StringOffset field
+        for hash_val, name_str in entries:
+            buffer.write(struct.pack('<I', hash_val))
+            str_off_pos = buffer.tell()
+            buffer.write(struct.pack('<I', 0))  # placeholder
+            entry_string_offset_positions.append((str_off_pos, name_str))
+
+        # Write inline name strings and backfill StringOffset fields.
+        # StringOffset = string_abs_pos - str_off_pos  (relative to the StringOffset field itself)
+        for str_off_pos, name_str in entry_string_offset_positions:
+            if name_str is not None:
+                string_abs_pos = buffer.tell()
+                string_offset = string_abs_pos - str_off_pos
+                # Backfill StringOffset
+                self._backfill_uint(buffer, str_off_pos, string_offset)
+                # Write null-terminated string (no per-string alignment — packed tightly)
+                buffer.write(name_str.encode('ascii') + b'\x00')
 
         payload_end = buffer.tell()
         align_buffer(buffer, 16)
@@ -502,20 +599,26 @@ class GaniWriter:
         by ``Tracks.write(write_data_blobs=True)``.
         """
         track_units: List[TrackUnit] = []
+        absolute_segment_index: int = 0
         for wrapper in track_wrappers:
             track_data_list: List[TrackData] = []
             if wrapper.segments_track_data:
-                for blob_wrapper in wrapper.segments_track_data:
+                segment_count = len(wrapper.segments_track_data)
+                for seg_idx, blob_wrapper in enumerate(wrapper.segments_track_data):
+                    # next_entry_offset: 8 (TrackData.ENTRY_SIZE) for non-last, 0 for last
+                    is_last = (seg_idx == segment_count - 1)
+                    next_entry_offset = 0 if is_last else TrackData.ENTRY_SIZE
                     track_data_list.append(
                         TrackData(
-                            data_offset=0,       # calculated by Tracks.write()
-                            ms_id=0,
+                            data_offset=0, # calculated by Tracks.write()
+                            ms_id=absolute_segment_index,
                             td_type=blob_wrapper.data_blob.type,
-                            next_entry_offset=0,
+                            next_entry_offset=next_entry_offset,
                             component_bit_size=blob_wrapper.data_blob.component_bit_size,
                             data_blob=blob_wrapper.data_blob.keyframes,
                         )
                     )
+                    absolute_segment_index += 1
 
             unit_flags_int = (
                 TrackUnitFlags.track_unit_flags_to_int(wrapper.unit_flags)
@@ -524,7 +627,7 @@ class GaniWriter:
             )
             track_units.append(
                 TrackUnit(
-                    name=wrapper.name,
+                    name=StrCode32.from_string(wrapper.name),
                     segment_count=len(track_data_list),
                     unit_flags=unit_flags_int,
                     padding=0,

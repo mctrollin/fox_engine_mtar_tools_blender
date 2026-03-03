@@ -445,6 +445,10 @@ def _parse_segment_codes(segment_codes_str: str) -> List[SegmentType]:
             segment_types.append(SegmentType.VECTOR_DIFF)
         elif code == 'f':
             segment_types.append(SegmentType.FLOAT)
+        elif code == 'v2':
+            segment_types.append(SegmentType.VECTOR2)
+        elif code == 'v4':
+            segment_types.append(SegmentType.VECTOR4)
         else:
             Debug.log_warning(f"Unknown segment code '{code}', ignoring")
     
@@ -1084,29 +1088,50 @@ class TrackMetaData:
             fc.data_path in [rotation_quat_path, rotation_euler_path]
             for fc in iter_action_fcurves(action)
         )
-        has_location = any(
-            fc.data_path == location_path
-            for fc in iter_action_fcurves(action)
-        )
-        
+        location_fcurves = [
+            fc for fc in iter_action_fcurves(action)
+            if fc.data_path == location_path
+        ]
+        location_indices = {fc.array_index for fc in location_fcurves}
+
         # Build segment types list
         segment_types = []
         if has_rotation:
             segment_types.append(SegmentType.QUAT)
-        if has_location:
-            segment_types.append(SegmentType.VECTOR3)
+
+        # Infer location-family segment type from which channel indices have FCurves.
+        # For round-tripped data the importer always writes all 3 channels for VECTOR3
+        # (even constant zeros), so {0} alone unambiguously means FLOAT. For
+        # user-created animations {0} is ambiguous (could be a VECTOR3 with only X
+        # keyed) — add segments=q,v to the track's action custom property to force the
+        # correct type. See copilot/todos/segment_type_fcurve_inference.md.
+        if location_indices == {0}:
+            segment_types.append(SegmentType.FLOAT)       # X-only → FLOAT
+        elif location_indices == {0, 1}:
+            segment_types.append(SegmentType.VECTOR2)     # XY-only → VECTOR2
+        elif location_indices:                             # {0,1,2} or any superset
+            segment_types.append(SegmentType.VECTOR3)     # has location → VECTOR3
         
         # If no segments found, return None
         if not segment_types:
             return None
         
-        # Create minimal metadata
+        # Create minimal metadata with type-safe default bit sizes
+        # QUAT: 15 bits (max valid for Fox quaternion encoding)
+        # VECTOR3: 16 bits (standard half-float)
+        component_bit_sizes = []
+        for st in segment_types:
+            if st in [SegmentType.QUAT, SegmentType.QUAT_DIFF]:
+                component_bit_sizes.append(15)
+            else:
+                component_bit_sizes.append(16)
+
         return TrackMetaData(
             track_name=bone_name,
             segment_types=segment_types,
             unit_flags=0,  # No special flags
             name_hash=StrCode32.from_string(bone_name).to_int(),
-            component_bit_sizes=None,  # Use defaults
+            component_bit_sizes=component_bit_sizes,
             rig_unit_type=None
         )
 
@@ -1296,6 +1321,14 @@ def merge_track_metadata(layout_meta: TrackMetaData, action_meta: Optional[Track
     # Override flags: prefer explicit integer if available, otherwise flags list
     # Edit: unit flags are a special case. The action always (!) overrides the layout
     result.unit_flags = action_meta.unit_flags
+
+    # Override segment types if explicitly specified in action metadata.
+    # Users can add segments=q,f (or any segment code) to a GANI action's track
+    # custom property to force specific segment types, overriding the layout and
+    # FCurve-presence inference. This is the escape hatch for ambiguous cases
+    # (e.g. user-created FLOAT animation that only keys location[0]).
+    if action_meta.segment_types:
+        result.segment_types = action_meta.segment_types
 
     # Override rig unit type if provided
     if action_meta.rig_unit_type:

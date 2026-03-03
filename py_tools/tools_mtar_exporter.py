@@ -68,6 +68,50 @@ def get_highest_bit_size_for_segment(segment_type: SegmentType) -> int:
     return 0
 
 
+def get_default_bit_size_for_segment(segment_type: SegmentType) -> int:
+    """Return the safe default component bit size for a given segment type.
+
+    Quaternion types only support 12, 13, or 15 bits. Using 16 (a common
+    vector default) would cause a ValueError in write_unaligned_quaternion.
+    This function returns a type-correct default so callers never accidentally
+    use an invalid size.
+
+    Returns:
+        - QUAT/QUAT_DIFF: 15
+        - Everything else: 16
+    """
+    if segment_type in [SegmentType.QUAT, SegmentType.QUAT_DIFF]:
+        return 15
+    return 16
+
+
+def clamp_bit_size_for_segment(segment_type: SegmentType, component_bit_size: int) -> int:
+    """Validate and clamp component_bit_size to a value supported by the writer.
+
+    Fox Engine quaternion encoding only supports 12, 13, or 15 bits.
+    If a stored metadata value (e.g. 32 from a VECTOR track mis-classified
+    during import, or 16 from a legacy default) is passed for a QUAT segment
+    the writer will raise a ValueError.  This function silently clamps the
+    value and emits a warning.
+
+    Args:
+        segment_type: The segment type that will be written.
+        component_bit_size: The requested bit size (possibly invalid).
+
+    Returns:
+        A valid component_bit_size for the given segment type.
+    """
+    if segment_type in [SegmentType.QUAT, SegmentType.QUAT_DIFF]:
+        if component_bit_size not in (12, 13, 15):
+            valid = 15
+            Debug.log_warning(
+                f"  Warning: component_bit_size {component_bit_size} is not valid for QUAT "
+                f"(must be 12, 13 or 15) — clamping to {valid}"
+            )
+            return valid
+    return component_bit_size
+
+
 # Layout and MetaData #############################################################
 
 def build_layout_track_from_metadata(track_segment_bone_mapping: TrackSegmentBoneMapping, 
@@ -414,8 +458,9 @@ def get_bone_keyframe_numbers_from_action(action: bpy.types.Action, bone_name: s
     elif segment_type in [SegmentType.QUAT, SegmentType.QUAT_DIFF]:
         # Rotation - check rotation_quaternion or rotation_euler
         property_names = ['rotation_quaternion', 'rotation_euler']
-    elif segment_type in [SegmentType.VECTOR3, SegmentType.VECTOR_DIFF]:
-        # Location
+    elif segment_type in [SegmentType.VECTOR3, SegmentType.VECTOR_DIFF,
+                          SegmentType.FLOAT, SegmentType.VECTOR2]:
+        # Location (FLOAT and VECTOR2 share the same location data_path)
         property_names = ['location']
     else:
         return []
@@ -578,10 +623,38 @@ def export_keyframes_track(armature: bpy.types.Object,
             rig_unit_type,
             transform_cache
         )
-    
+
+    elif segment_type == SegmentType.FLOAT:
+        # Raw scalar channel stored as location[0] — no axis-swap, local space only.
+        return export_location_segment(
+            armature, blender_bone_name, bone_params,
+            export_frames, frame_start, is_static,
+            rig_unit_type, transform_cache,
+            no_coordinate_transform=True, num_components=1
+        )
+
+    elif segment_type == SegmentType.VECTOR2:
+        # Raw [x, y] channel stored as location[0,1] — no axis-swap, local space only.
+        return export_location_segment(
+            armature, blender_bone_name, bone_params,
+            export_frames, frame_start, is_static,
+            rig_unit_type, transform_cache,
+            no_coordinate_transform=True, num_components=2
+        )
+
     else:
         # Unsupported segment type
-        Debug.log_warning(f"    Warning: Unsupported segment type {segment_type}")
+        if segment_type == SegmentType.VECTOR4:
+            # VECTOR4 has no FCurve representation; export produces a zeroed segment.
+            # Round-trip fidelity requires the layout action to preserve the VECTOR4
+            # segment type so the exporter knows to include it.
+            Debug.log_warning(
+                f"    Segment type VECTOR4 on bone '{blender_bone_name}' is not supported "
+                f"as Blender FCurves. Exporting zeroed segment. Round-trip fidelity "
+                f"requires the layout action to contain this track's VECTOR4 segment type."
+            )
+        else:
+            Debug.log_warning(f"    Warning: Unsupported segment type {segment_type}")
         return []
 
 def _get_rotation_transform_fn(bone_params: BoneParameters, armature: bpy.types.Object,
@@ -721,11 +794,24 @@ def export_location_segment(armature: bpy.types.Object, blender_bone_name: str,
                             bone_params: BoneParameters, export_frames: List[int],
                             frame_start: int, is_static: bool,
                             rig_unit_type: Optional[RigUnitType] = None,
-                            transform_cache: Optional[TransformsCache] = None) -> List['AnimKeyframe']:
+                            transform_cache: Optional[TransformsCache] = None,
+                            no_coordinate_transform: bool = False,
+                            num_components: int = 3) -> List['AnimKeyframe']:
     """Export location segment keyframes.
-    
-    Note: When space_l=custom,<custom_bone> is used, the import creates a Copy Location constraint
-    with X and Y axes inverted. During export, we need to reverse this by inverting X and Y again.
+
+    Args:
+        no_coordinate_transform: When True (used for FLOAT and VECTOR2 segment types),
+            skips the Blender↔Fox axis-swap, always uses local space, and returns only
+            the first ``num_components`` raw channel values. This is correct because
+            FLOAT/VECTOR2 are auxiliary data channels (e.g. blend weights, parameters)
+            stored without any coordinate-system conversion during import.
+        num_components: Number of output components to include in each keyframe value
+            when ``no_coordinate_transform=True``. 1 for FLOAT, 2 for VECTOR2, 3 for
+            VECTOR3 (default).
+
+    Note: When space_l=custom,<custom_bone> is used, the import creates a Copy Location
+    constraint with X and Y axes inverted. During export we reverse this by inverting
+    X and Y again. This does NOT apply when no_coordinate_transform=True.
     """
     keyframes = []
     Debug.start_timer("export_location_segment")
@@ -733,14 +819,20 @@ def export_location_segment(armature: bpy.types.Object, blender_bone_name: str,
     # Get custom space if specified (constant across all frames)
     # Use the same extraction logic as rotation export for consistency
     space_bone = TrackMetaData.extract_space_bone(bone_params.space_l)
-    
-    # Check if we need to invert X and Y (when using custom space bone)
-    # Import creates constraint with invert_x=True, invert_y=True when custom_bone is specified
-    # So we need to reverse that during export
-    invert_xy = space_bone is not None
-    
-    # is_world_space result is constant across all frames
-    use_world_space = RigUnitType.is_world_space_unit_type(rig_unit_type)
+
+    # For FLOAT/VECTOR2 (no_coordinate_transform=True): raw channel, always local
+    # space, no axis-swap, no custom-space or invert-XY correction.
+    if no_coordinate_transform:
+        use_world_space = False
+        invert_xy = False
+        space_bone = None
+    else:
+        # Check if we need to invert X and Y (when using custom space bone)
+        # Import creates constraint with invert_x=True, invert_y=True when custom_bone is specified
+        # So we need to reverse that during export
+        invert_xy = space_bone is not None
+        # is_world_space result is constant across all frames
+        use_world_space = RigUnitType.is_world_space_unit_type(rig_unit_type)
     
     # For regular location: read and convert per frame
     prev_frame = frame_start  # Track previous frame for relative delta computation
@@ -768,9 +860,12 @@ def export_location_segment(armature: bpy.types.Object, blender_bone_name: str,
             blender_location = blender_location.copy()
             blender_location.x = -blender_location.x
             blender_location.y = -blender_location.y
-        
-        # Convert to Fox Engine coordinate system
-        fox_location = blender_to_fox_vector(blender_location)
+
+        # Convert to Fox Engine coordinate system (or take raw channels for FLOAT/VECTOR2)
+        if no_coordinate_transform:
+            fox_location = list(blender_location)[:num_components]
+        else:
+            fox_location = blender_to_fox_vector(blender_location)
         
         # Create keyframe with relative frame delta from previous frame
         if is_static:
@@ -792,6 +887,54 @@ def export_location_segment(armature: bpy.types.Object, blender_bone_name: str,
     
     Debug.stop_timer("export_location_segment")
     return keyframes
+
+
+def bone_has_fcurves_for_segment(
+        bone_name: str,
+        segment_type: SegmentType,
+        bone_params: Optional[BoneParameters],
+        fcurve_cache: Optional[FCurveCache]) -> bool:
+    """Return True if the FCurve cache contains curves for the expected property
+    of a segment type on the given bone.
+
+    Used to detect per-GANI segment variation in old-format MTARs: if the layout
+    defines a segment but this particular action has no FCurves for it, the segment
+    should be omitted from the exported GANI.
+
+    Note: FLOAT and VECTOR2 both use the 'location' property (like VECTOR3) and are
+    distinguished only by which channel indices are present. For *presence* detection
+    (does this segment exist in this action?) we only need to know whether ANY location
+    FCurve exists — the segment type is already known from the layout metadata.
+
+    Args:
+        bone_name: Blender bone name to check.
+        segment_type: Expected segment type from layout metadata.
+        bone_params: BoneParameters for the bone (used to detect as_ik_up special case).
+        fcurve_cache: Cache to query. Returns True when cache is None (can't determine).
+
+    Returns:
+        True if FCurves are present (or cache unavailable); False if definitely absent.
+    """
+    if fcurve_cache is None:
+        return True  # Can't determine — assume present to avoid false-negatives
+
+    if segment_type in (SegmentType.QUAT, SegmentType.QUAT_DIFF):
+        # IK-up bones store rotation data as location FCurves
+        if bone_params and bone_params.as_ik_up:
+            return bool(fcurve_cache.get_fcurves_for_bone(bone_name, 'location'))
+        return (
+            bool(fcurve_cache.get_fcurves_for_bone(bone_name, 'rotation_quaternion')) or
+            bool(fcurve_cache.get_fcurves_for_bone(bone_name, 'rotation_euler'))
+        )
+
+    elif segment_type in (SegmentType.VECTOR3, SegmentType.VECTOR_DIFF,
+                          SegmentType.FLOAT, SegmentType.VECTOR2):
+        return bool(fcurve_cache.get_fcurves_for_bone(bone_name, 'location'))
+
+    elif segment_type == SegmentType.VECTOR4:
+        return False  # Never stored as FCurves — always pass through from layout
+
+    return False
 
 
 def export_gani_track_from_action(armature: bpy.types.Object,
@@ -886,12 +1029,17 @@ def export_gani_track_from_action(armature: bpy.types.Object,
     Debug.start_timer(f"export_gani_track_from_action(track={track_idx})")
 
     # Merge per-action overrides into layout metadata (if any)
+    action_meta = None
     merged_metadata = layout_metadata
     if action:
         action_meta = TrackMetaData.from_action(action, base_fox_track_name)
         if action_meta:
             Debug.log(f"      Applying action-level overrides for track '{base_fox_track_name}' from action '{action.name}'")
             merged_metadata = merge_track_metadata(layout_metadata, action_meta)
+
+    # Track whether the action explicitly overrides segment types (segments= in custom prop).
+    # When True, skip FCurve-presence filtering so user-forced types are always exported.
+    has_segment_override = bool(action_meta and action_meta.segment_types)
 
     # Use merged unit_flags in layout_metadata (action overrides applied if present)
     unit_flags_int = int(merged_metadata.unit_flags) if merged_metadata.unit_flags is not None else 0
@@ -923,7 +1071,24 @@ def export_gani_track_from_action(armature: bpy.types.Object,
                 # Fallback to base bone (should not happen with proper mapping)
                 segment_bone_name, segment_fox_mapping_params = base_blender_bone_name, base_fox_mapping_params
                 Debug.log_warning(f"        Warning: Missing mapping. Segment {segment_idx}: '{segment_bone_name}' (fallback to base (track) bone)")
-        
+
+        # Skip segments absent from this action (per-GANI variation in old-format MTARs).
+        # VECTOR4 is always included since it has no FCurve representation — its
+        # presence is purely determined by layout metadata.
+        # Static tracks are also exempt: they are sampled from the rest pose, not FCurves.
+        # When the action has an explicit segments= override, skip filtering entirely.
+        if (not is_static
+                and fcurve_cache
+                and not has_segment_override
+                and segment_type != SegmentType.VECTOR4):
+            if not bone_has_fcurves_for_segment(
+                    segment_bone_name, segment_type, segment_fox_mapping_params, fcurve_cache):
+                Debug.log(
+                    f"        Skipping segment {segment_idx} ({segment_type.name}) "
+                    f"for '{segment_bone_name}': no FCurves in this action"
+                )
+                continue
+
         # Check if this bone exists in the armature
         if segment_bone_name and segment_bone_name in armature.pose.bones:
             Debug.start_timer(f"export_keyframes_track(segment_bone_name={segment_bone_name})")
@@ -942,8 +1107,8 @@ def export_gani_track_from_action(armature: bpy.types.Object,
             )
             Debug.stop_timer(f"export_keyframes_track(segment_bone_name={segment_bone_name})")
 
-            # Get component_bit_size from metadata if available, otherwise use default
-            component_bit_size = 16  # Default for export
+            # Get component_bit_size from metadata if available, otherwise use a type-safe default
+            component_bit_size = get_default_bit_size_for_segment(segment_type)
             if merged_metadata.component_bit_sizes and segment_idx < len(merged_metadata.component_bit_sizes):
                 component_bit_size = merged_metadata.component_bit_sizes[segment_idx]
 
@@ -952,6 +1117,9 @@ def export_gani_track_from_action(armature: bpy.types.Object,
                 highest_bits = get_highest_bit_size_for_segment(segment_type)
                 if highest_bits > 0:
                     component_bit_size = max(component_bit_size, highest_bits)
+
+            # Final validation: ensure bit size is valid for this segment type
+            component_bit_size = clamp_bit_size_for_segment(segment_type, component_bit_size)
 
             # Create TrackDataBlob
             data_blob = TrackDataBlob.from_keyframes(

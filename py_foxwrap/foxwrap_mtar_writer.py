@@ -330,8 +330,26 @@ class MtarWriter:
         
         # Get counts from layout track (shared across all GANI files)
         track_count = self.layout_track.header.unit_count
-        segment_count = self.layout_track.header.segment_count
         file_count = len(self.gani_data_list)
+
+        # For old format: MTAR header segment_count = max TrackHeader.segment_count across all GANIs.
+        # segment_count per GANI = total segments across all tracks in that GANI's tracks_data.
+        # For new format: the shared CommonInfo layout_track already has the canonical count.
+        if not self.is_new_format:
+            def _count_gani_segments(gd: 'GaniExportData') -> int:
+                if not gd.tracks_data or not gd.tracks_data.gani_tracks:
+                    return 0
+                return sum(
+                    len(w.segments_track_data)
+                    for w in gd.tracks_data.gani_tracks
+                    if w.segments_track_data
+                )
+            segment_count = max(
+                (_count_gani_segments(gd) for gd in self.gani_data_list),
+                default=self.layout_track.header.segment_count,
+            )
+        else:
+            segment_count = self.layout_track.header.segment_count
         
         # Get motion point counts
         # IMPORTANT: Header count is separate from CommonInfo count!
@@ -342,7 +360,7 @@ class MtarWriter:
         
         Debug.log(f"  File count: {file_count}")
         Debug.log(f"  Track count: {track_count} (from layout track)")
-        Debug.log(f"  Segment count: {segment_count} (from layout track)")
+        Debug.log(f"  Segment count: {segment_count} ({'max across GANIs' if not self.is_new_format else 'from layout track'})")
         Debug.log(f"  Motion point header count: {motion_point_header_count} (max units across GANIs)")
         Debug.log(f"  Motion point CommonInfo count: {motion_point_commoninfo_count} (total bone definitions)")
         Debug.log(f"  Format: {'New (GANI2)' if self.is_new_format else 'Old (FoxData)'}")
@@ -472,11 +490,11 @@ class MtarWriter:
             # Write GANI data
             buffer.write(gani_bytes)
             
-            # Add 12 bytes of padding after tracks data (before alignment)
-            write_padding(buffer, 12)
-            
-            # Align to 16-byte boundary after main tracks and padding
-            align_buffer(buffer, 16)
+            if is_new_format:
+                # New format: add 12 bytes of padding after tracks data + align to 16
+                write_padding(buffer, 12)
+                align_buffer(buffer, 16)
+            # Old format: FoxData blob is already 16-byte aligned internally; no extra padding
             
             # Record end offset after main tracks
             gani_end = buffer.tell()
@@ -614,6 +632,11 @@ class MtarWriter:
         motion_point_list = parse_foxdata_stringlist_from_action(action, PROP_MTP_LIST) if action else None
         motion_point_parent_list = parse_foxdata_stringlist_from_action(action, PROP_MTP_PARENT_LIST) if action else None
 
+        # Old-format round-trip: absent SKL_LIST metadata means original had no SKL_LIST.
+        # Pass [] to suppress (FoxDataHeader flags=1) instead of None which auto-derives.
+        if skeleton_list is None:
+            skeleton_list = []
+
         self.gani_writer.write_gani_to_buffer(
             buffer=buffer,
             gani_tracks=gani_data.tracks_data.gani_tracks,
@@ -621,7 +644,6 @@ class MtarWriter:
             frame_rate=frame_rate,
             motion_point_tracks=gani_data.motion_points_data.motion_point_tracks if gani_data.motion_points_data else None,
             motion_events=gani_data.motion_events_data.motion_events if gani_data.motion_events_data else None,
-            foxdata_version=self.version,
             skeleton_list=skeleton_list,
             motion_point_list=motion_point_list,
             motion_point_parent_list=motion_point_parent_list,
