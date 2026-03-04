@@ -32,7 +32,6 @@ from ..py_foxwrap.foxwrap_metadata import (
     make_track_property_key,
     store_gani_params_on_action,
     store_foxdata_stringlist_on_action,
-    PROP_SKL_LIST,
     PROP_MTP_LIST,
     PROP_MTP_PARENT_LIST,
 )
@@ -761,9 +760,8 @@ def create_animation_actions(
             Debug.log(f"  Stored {mtar_const.TABL_UNKNOWN}: {file_header.unknown}")
 
         # M10: Store FoxData StringData name lists (old-format only) for lossless re-export
-        if all_skl_lists and gani_index < len(all_skl_lists) and all_skl_lists[gani_index] is not None:
-            store_foxdata_stringlist_on_action(action, PROP_SKL_LIST, all_skl_lists[gani_index])
-            Debug.log(f"  Stored {PROP_SKL_LIST}: {len(all_skl_lists[gani_index])} entries")
+        # Note: SKL_LIST names are applied directly to bone track names during import
+        # (see foxwrap_gani_reader.py), so gfox_skl_list is no longer stored here.
         if all_mtp_lists and gani_index < len(all_mtp_lists) and all_mtp_lists[gani_index] is not None:
             store_foxdata_stringlist_on_action(action, PROP_MTP_LIST, all_mtp_lists[gani_index])
             Debug.log(f"  Stored {PROP_MTP_LIST}: {len(all_mtp_lists[gani_index])} entries")

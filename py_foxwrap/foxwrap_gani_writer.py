@@ -40,6 +40,7 @@ from typing import Optional, List
 
 from ..py_utilities.utilities_logging import Debug
 from ..py_utilities.utilities_binary_write import align_buffer
+from ..py_utilities.utilities_hashing import is_hash_string, parse_hash_string
 from ..py_utilities.utilities_hashing_cityhash import strcode32
 
 from ..py_fox.fox_foxdata_types import FoxDataHeader, FoxDataNode, FoxDataNodeType
@@ -507,6 +508,10 @@ class GaniWriter:
             parameters_offset=0,
         ).write(buffer)
 
+        # Sort names alphabetically (hash-string fallbacks sort before real names
+        # since ASCII digits precede uppercase letters, which is acceptable).
+        names = sorted(names, key=str)
+
         # Resolve each name to (hash_val, name_str_or_None)
         entries = []
         for name in names:
@@ -514,35 +519,41 @@ class GaniWriter:
                 entries.append((name, None))
             else:
                 s = str(name)
-                try:
-                    hash_val = int(s, 0)
-                    # Parsed as integer literal — no inline string available
-                    entries.append((hash_val, None))
-                except ValueError:
-                    hash_val = strcode32(s, remove_extension=False)
-                    entries.append((hash_val, s))
+                if is_hash_string(s):
+                    # Decimal or 0x-hex literal — no inline string available
+                    entries.append((parse_hash_string(s), None))
+                else:
+                    entries.append((strcode32(s), s))
 
         # Write EntryCount
         buffer.write(struct.pack('<I', len(entries)))
 
-        # Write all (hash, placeholder_string_offset) entries, recording positions
-        # of each StringOffset field so we can backfill them after writing strings.
-        entry_string_offset_positions = []  # abs file position of each StringOffset field
+        # Write all (hash, placeholder_string_offset) entries, recording each
+        # entry's start position (= Hash field = start of FoxDataName) and the
+        # position of its StringOffset field for later backfilling.
+        entry_data = []  # (entry_start_pos, str_off_pos, name_str)
         for hash_val, name_str in entries:
+            entry_start_pos = buffer.tell()           # start of FoxDataName (Hash field)
             buffer.write(struct.pack('<I', hash_val))
-            str_off_pos = buffer.tell()
-            buffer.write(struct.pack('<I', 0))  # placeholder
-            entry_string_offset_positions.append((str_off_pos, name_str))
+            str_off_pos = buffer.tell()               # position of StringOffset field
+            buffer.write(struct.pack('<I', 0))        # placeholder
+            entry_data.append((entry_start_pos, str_off_pos, name_str))
+
+        # Align to 8 bytes, then write 8 zero bytes of padding before the
+        # inline string area (matches observed original file layout).
+        align_buffer(buffer, 8)
+        buffer.write(b'\x00' * 8)
 
         # Write inline name strings and backfill StringOffset fields.
-        # StringOffset = string_abs_pos - str_off_pos  (relative to the StringOffset field itself)
-        for str_off_pos, name_str in entry_string_offset_positions:
+        # StringOffset is relative to the start of the FoxDataName (Hash field),
+        # i.e. startof(entry) + StringOffset == address of the null-terminated string.
+        for entry_start_pos, str_off_pos, name_str in entry_data:
             if name_str is not None:
                 string_abs_pos = buffer.tell()
-                string_offset = string_abs_pos - str_off_pos
+                string_offset = string_abs_pos - entry_start_pos  # relative to Hash field
                 # Backfill StringOffset
                 self._backfill_uint(buffer, str_off_pos, string_offset)
-                # Write null-terminated string (no per-string alignment — packed tightly)
+                # Write null-terminated string (packed tightly, no per-string alignment)
                 buffer.write(name_str.encode('ascii') + b'\x00')
 
         payload_end = buffer.tell()

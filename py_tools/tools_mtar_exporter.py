@@ -1932,11 +1932,15 @@ def export_mtar(context: bpy.types.Context,
 
         Debug.log(f"\n4.{action_idx}.4 Storing Data ----------------------------------------")
 
+        # Read frame rate from layout action header properties (stored during import); default 60.
+        header_props = read_track_header_properties_from_action(layout_action)
+        frame_rate = header_props.get(gani_const.TRKH_FRAME_RATE, 60)
+
         # Create GaniExportData object
         gani_data: GaniExportData = GaniExportData(
             name=gani_name,
             frame_count=frame_count,
-            frame_rate=60,
+            frame_rate=frame_rate,
             frame_start=frame_start,
             frame_end=frame_end,
             tracks_data=tracks_data,

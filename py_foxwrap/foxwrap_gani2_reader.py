@@ -41,8 +41,8 @@ def resolve_track_name(rig_hash: StrCode32, prefix: Optional[str] = None) -> str
     if bone_name:
         return bone_name
     else:
-        # Use prefix + hex format as fallback
-        hex_str = str(rig_hash)  # StrCode32.__str__() gives "0x{value:08X}"
+        # Use prefix + decimal format as fallback
+        hex_str = str(rig_hash)  # StrCode32.__str__() returns decimal (e.g. "4036034414")
         if prefix:
             return f"{prefix}_{hex_str}"
         else:

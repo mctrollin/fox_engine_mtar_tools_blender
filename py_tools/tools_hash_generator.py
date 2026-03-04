@@ -541,7 +541,7 @@ def build_event_hash_dictionary(dictionary_path: str) -> Dict[int, str]:
     failed = 0
     for event_name in event_names:
         try:
-            hash_value = strcode32(event_name, remove_extension=False)
+            hash_value = strcode32(event_name)
             result[hash_value] = event_name
         except Exception:
             failed += 1

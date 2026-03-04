@@ -178,7 +178,7 @@ def read_motion_events_from_action(action: 'bpy.types.Action') -> Optional[EvpHe
         event_name_for_marker = event_name
         if not event_name.isdigit():
             # Compute StrCode32 hash for the event name to use during export
-            event_name = str(strcode32(event_name, remove_extension=False))
+            event_name = str(strcode32(event_name))
 
         # Parse parameters
         int_params = []

@@ -43,7 +43,7 @@ class StrCode32:
             return cls(int(text))
         except ValueError:
             # Hash any string using the StrCode32 algorithm
-            return cls(strcode32(text, remove_extension=False))
+            return cls(strcode32(text))
     
     def to_int(self) -> int:
         """Get the integer value."""

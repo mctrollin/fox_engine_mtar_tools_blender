@@ -46,7 +46,7 @@ def load_strcode32_dictionary(dict_path: str) -> None:
 
     loaded_count = 0
     for name in names:
-        hash_val = strcode32(name, remove_extension=False)
+        hash_val = strcode32(name)
         _strcode32_cache[hash_val] = name
         loaded_count += 1
 
@@ -196,7 +196,7 @@ def hash_rig_type(name: str) -> int:
     Returns:
         The StrCode32 hash value for the name.
     """
-    return strcode32(name, remove_extension=False)
+    return strcode32(name)
 
 
 def load_gani_hash_dictionary(dict_path: str) -> Dict[int, str]:
@@ -284,6 +284,47 @@ def parse_gani_hash_str(s: str) -> int:
         return int(s, 0)
     except (ValueError, AttributeError) as e:
         raise ValueError(f"Invalid hash string: '{s}'") from e
+
+
+def parse_hash_string(s: str) -> int:
+    """Parse a decimal or 0x-prefixed hex string to an integer hash value.
+
+    Generic counterpart to ``parse_gani_hash_str`` for use outside the GANI
+    path context (e.g. bone name hashes, StringData entries).
+
+    Args:
+        s: String to parse (plain decimal or 0x-prefixed hex)
+
+    Returns:
+        The parsed integer value
+
+    Raises:
+        ValueError: If the string is not a valid integer representation
+    """
+    s = s.strip()
+    try:
+        return int(s, 0)
+    except (ValueError, AttributeError) as e:
+        raise ValueError(f"Invalid hash string: '{s}'") from e
+
+
+def is_hash_string(s: str) -> bool:
+    """Return True if *s* is a plain decimal or 0x-prefixed hex integer string.
+
+    Used to distinguish raw hash fallback names (e.g. ``"4036034414"`` or
+    ``"0xF08B256E"``) from real bone/node name strings.
+
+    Args:
+        s: String to check
+
+    Returns:
+        True if the string parses as an integer, False otherwise
+    """
+    try:
+        parse_hash_string(s)
+        return True
+    except ValueError:
+        return False
 
 
 def is_gani_path_a_hash(s: str) -> bool:

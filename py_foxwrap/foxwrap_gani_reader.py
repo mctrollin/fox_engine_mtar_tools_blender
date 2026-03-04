@@ -11,7 +11,8 @@ import struct
 from typing import Optional, List, BinaryIO, Tuple
 
 from ..py_utilities.utilities_logging import Debug
-from ..py_utilities.utilities_hashing import unhash_gani_node, unhash_shader_prop
+from ..py_utilities.utilities_hashing import unhash_gani_node, unhash_shader_prop, is_hash_string, parse_hash_string
+from ..py_utilities.utilities_hashing_cityhash import strcode32
 
 from ..py_fox.fox_foxdata_types import FoxDataHeader, FoxDataNode
 from ..py_fox.fox_gani_types import TrackMiniHeader, EvpHeader, Gani2TrackData
@@ -25,6 +26,63 @@ from .foxwrap_misc import Tracks, TrackUnitWrapper
 from .foxwrap_misc_import import GaniImportData, ShaderTrackWrapper
 
 from .foxwrap_gani2_reader import apply_track_naming
+
+
+def _apply_stringlist_names(
+    tracks: List[TrackUnitWrapper],
+    string_list: Optional[List[str]],
+    label: str,
+) -> None:
+    """Apply names from a FoxData StringData list (SKL_LIST / MTP_LIST) to *tracks*.
+
+    Builds a ``{hash: name}`` lookup from the real-string entries in *string_list*
+    (decimal-integer entries are hash-only fallbacks and contribute no real name).
+    Iterates *tracks* and for each:
+
+    - If the track already has a real name (dict-resolved) **and** the SKL entry
+      resolves to the same hash but a different string → log a warning, SKL wins.
+    - If the track has only a hash fallback name and SKL has a real string → apply it.
+    - If the track has only a hash fallback name and SKL has no entry → log a warning.
+
+    Size mismatches are warned but do not abort (lookup is hash-based, not positional).
+    """
+    if not string_list:
+        return
+
+    # Build hash → name from real-string entries only.
+    skl_lookup: dict = {}
+    for entry in string_list:
+        if not is_hash_string(entry):
+            h = strcode32(entry)
+            skl_lookup[h] = entry
+
+    for track in tracks:
+        name = track.name
+        is_hash_fallback = is_hash_string(name)
+
+        # Compute the hash of this track's current name.
+        if is_hash_fallback:
+            track_hash = parse_hash_string(name)
+        else:
+            track_hash = strcode32(name)
+
+        if track_hash in skl_lookup:
+            skl_name = skl_lookup[track_hash]
+            if not is_hash_fallback and name != skl_name:
+                Debug.log_warning(
+                    f"_apply_stringlist_names() [{label}]: hash 0x{track_hash:08X} — "
+                    f"dict resolved ('{name}') differs from ('{skl_name}') which will be used."
+                )
+            # Apply SKL name (silently for hash fallbacks, or after warning above).
+            track.name = skl_name
+            for seg in track.segments_track_data:
+                seg.name = skl_name
+        elif is_hash_fallback:
+            Debug.log_warning(
+                f"_apply_stringlist_names ({label}): hash 0x{track_hash:08X} ('{name}') "
+                f"has no list entry — keeping ('{name}')."
+            )
+
 
 class GaniReader:
     """Reader for old-format (FoxData) GANI animation files.
@@ -150,16 +208,16 @@ class GaniReader:
                 child_pos += child_node.next_node_offset
         
         # --- Convert UNIT tracks to TrackUnitWrapper list ---
-        bone_tracks = Tracks.convert_to_gani_tracks(unit_tracks)
-        apply_track_naming(bone_tracks, prefix=None)
-        
+        bone_tracks = apply_track_naming(Tracks.convert_to_gani_tracks(unit_tracks), prefix=None)
+        _apply_stringlist_names(bone_tracks, skeleton_list, label=f"Read gani @ (0x{gani_start}) SKL_LIST")
+
         # --- Convert MTP tracks if present ---
         mtp_tracks: List[TrackUnitWrapper] = []
         motion_point_layout: Optional[Tracks] = None
         motion_point_track_header = None
         if mtp_raw_tracks is not None:
-            mtp_tracks = Tracks.convert_to_gani_tracks(mtp_raw_tracks)
-            apply_track_naming(mtp_tracks, prefix="MotionPoint")
+            mtp_tracks = apply_track_naming(Tracks.convert_to_gani_tracks(mtp_raw_tracks), prefix="MotionPoint")
+            _apply_stringlist_names(mtp_tracks, motion_point_list, label=f"Read gani @ (0x{gani_start}) MTP_LIST")
             motion_point_layout = mtp_raw_tracks
             motion_point_track_header = mtp_raw_tracks.header
         

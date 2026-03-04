@@ -26,7 +26,6 @@ from .foxwrap_misc_export import GaniExportData
 from .foxwrap_metadata import (
     read_track_header_properties_from_action,
     parse_foxdata_stringlist_from_action,
-    PROP_SKL_LIST,
     PROP_MTP_LIST,
     PROP_MTP_PARENT_LIST,
 )
@@ -626,17 +625,12 @@ class MtarWriter:
         # This handles FoxData header, node structure, and track payload
         frame_rate = gani_data.frame_rate or 60
 
-        # M10: Read FoxData StringData name lists from action metadata for lossless round-trip
+        # SKL_LIST is auto-derived from gani_track names during write — names are the
+        # authoritative source (set during import via _apply_stringlist_names in GaniReader).
+        # MTP_LIST and MTP_PARENT_LIST are still stored as action properties.
         action = gani_data.tracks_data.action if gani_data.tracks_data else None
-        skeleton_list = parse_foxdata_stringlist_from_action(action, PROP_SKL_LIST) if action else None
         motion_point_list = parse_foxdata_stringlist_from_action(action, PROP_MTP_LIST) if action else None
         motion_point_parent_list = parse_foxdata_stringlist_from_action(action, PROP_MTP_PARENT_LIST) if action else None
-
-        # Old-format round-trip: absent SKL_LIST metadata means original had no SKL_LIST.
-        # Pass [] to suppress (FoxDataHeader flags=1) instead of None which auto-derives.
-        if skeleton_list is None:
-            skeleton_list = []
-
         self.gani_writer.write_gani_to_buffer(
             buffer=buffer,
             gani_tracks=gani_data.tracks_data.gani_tracks,
@@ -644,7 +638,7 @@ class MtarWriter:
             frame_rate=frame_rate,
             motion_point_tracks=gani_data.motion_points_data.motion_point_tracks if gani_data.motion_points_data else None,
             motion_events=gani_data.motion_events_data.motion_events if gani_data.motion_events_data else None,
-            skeleton_list=skeleton_list,
+            skeleton_list=None,  # auto-derived from gani_track names
             motion_point_list=motion_point_list,
             motion_point_parent_list=motion_point_parent_list,
         )

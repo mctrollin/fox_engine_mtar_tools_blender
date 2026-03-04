@@ -21,7 +21,7 @@ from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper
 
 from ..py_utilities.utilities_logging import Debug
 from ..py_utilities.utilities_blender_animation import action_has_fcurves, iter_action_fcurves, build_data_path_for_bone
-from ..py_utilities.utilities_hashing import unhash_rig_type, unhash_param_name
+from ..py_utilities.utilities_hashing import unhash_rig_type, unhash_param_name, is_hash_string, parse_hash_string
 from ..py_utilities.utilities_hashing_cityhash import strcode32
 from ..py_utilities.utilities_parsing import format_float_for_metadata
 
@@ -35,8 +35,9 @@ EVENT_PROP_PREFIX = "event_"  # used by make_/parse_event_property_key
 PROP_PARAMS = "params"        # used by store_/parse_gani_params_on_action
 
 # FoxData StringData list action properties (old-format GANI round-trip)
-# Stored as comma-separated decimal hash integers.
-PROP_SKL_LIST        = "gfox_skl_list"         # SKL_LIST  node — bone name hashes
+# SKL_LIST names are NOT stored here — they are applied directly to bone track names
+# during import (see GaniReader._apply_stringlist_names) and re-derived from track
+# names during export.
 PROP_MTP_LIST        = "gfox_mtp_list"         # MTP_LIST  node — motion point name hashes
 PROP_MTP_PARENT_LIST = "gfox_mtp_parent_list"  # MTP_PARENT_LIST node — motion point parent hashes
 
@@ -199,12 +200,11 @@ def parse_gani_params_from_action(action: bpy.types.Action) -> List[Tuple[int, f
             Debug.log_warning(f"parse_gani_params_from_action: skipping invalid pair '{pair}'")
             continue
         name_str = name_str.strip()
-        # Try interpreting as integer literal first (allows "0x1234" too)
-        try:
-            name_hash = int(name_str, 0)
-        except ValueError:
-            # Fallback: hash the string to StrCode32
-            name_hash = strcode32(name_str, remove_extension=False)
+        if is_hash_string(name_str):
+            name_hash = parse_hash_string(name_str)
+        else:
+            # Hash the string to StrCode32
+            name_hash = strcode32(name_str)
         result.append((name_hash, value))
     return result
 
@@ -216,45 +216,51 @@ def store_foxdata_stringlist_on_action(
 ) -> None:
     """Store a FoxData StringData name list on a Blender action custom property.
 
-    Each entry in ``names`` may be a string bone/point name or an integer hash
-    (uint32).  String names are converted to StrCode32 hashes; integer values are
-    used directly.  The result is stored as a comma-separated decimal-integer
-    string so that it can be round-tripped losslessly without re-hashing.
+    Each entry in ``names`` may be a real bone/point name string or an integer
+    hash (uint32).  Real string names are stored as-is so the writer can
+    reproduce inline name strings in the output file.  Integer hash values and
+    hash-literal strings (e.g. ``"0xF08B256E"`` from a dictionary miss) are
+    stored as decimal integers.  The entries are joined with commas.
 
     Args:
         action: Blender action to store the list on.
         key:    Custom property key (e.g. ``PROP_SKL_LIST``).
         names:  Bone/point names (str) or hash values (int).
     """
-    hash_values: List[int] = []
+    parts: List[str] = []
     for name in names:
         if isinstance(name, int):
-            hash_values.append(name)
+            parts.append(str(name))
         else:
             s = str(name)
-            # Hex/decimal literal fallback (e.g. "0x8B7A2E4D" from reader)
+            # Hash literal fallback (e.g. "0xF08B256E" — no inline string in source)
+            # → store as decimal integer so writer knows not to emit inline string.
             try:
-                hash_values.append(int(s, 0))
+                val = int(s, 0)
+                parts.append(str(val))
             except ValueError:
-                hash_values.append(strcode32(s, remove_extension=False))
-    action[key] = ",".join(str(h) for h in hash_values)
+                # Real bone name — preserve as-is for inline string round-trip.
+                parts.append(s)
+    action[key] = ",".join(parts)
     action.id_properties_ui(key).update(
-        description=f"FoxData StringData hash list for {key} (comma-separated decimal uint32 hashes)"
+        description=f"FoxData StringData name list for {key} (comma-separated; strings = inline names, integers = hash-only entries)"
     )
 
 
 def parse_foxdata_stringlist_from_action(
     action: bpy.types.Action,
     key: str,
-) -> Optional[List[int]]:
-    """Read a FoxData StringData hash list from a Blender action custom property.
+) -> Optional[List]:
+    """Read a FoxData StringData name list from a Blender action custom property.
 
     Args:
         action: Blender action to read from.
         key:    Custom property key (e.g. ``PROP_SKL_LIST``).
 
     Returns:
-        List of uint32 hash values, or ``None`` if the property is absent.
+        List of entries, or ``None`` if the property is absent.
+        Each entry is either a ``str`` (real bone name, will produce an inline
+        string in the output file) or an ``int`` (hash-only entry, no inline string).
         An empty list is returned for a property with an empty string value.
     """
     value_str = action.get(key)
@@ -262,7 +268,7 @@ def parse_foxdata_stringlist_from_action(
         return None
     if not value_str:
         return []
-    result: List[int] = []
+    result: List = []
     for part in value_str.split(','):
         part = part.strip()
         if not part:
@@ -270,10 +276,7 @@ def parse_foxdata_stringlist_from_action(
         try:
             result.append(int(part))
         except ValueError:
-            Debug.log_warning(
-                f"parse_foxdata_stringlist_from_action: skipping invalid entry '{part}' "
-                f"for key '{key}'"
-            )
+            result.append(part)  # real bone name string
     return result
 
 
@@ -1159,8 +1162,15 @@ class TrackMetaData:
                 resolved_name: Optional[str] = unhash_rig_type(name_hash)
                 if resolved_name:
                     track_name = resolved_name
+                elif gani_tracks and track_idx < len(gani_tracks):
+                    # The GANI track at the same index has already had its name resolved
+                    # via SKL_LIST (in GaniReader._apply_stringlist_names).  Prefer that
+                    # over the raw hash string so the layout action property key matches
+                    # the bone name used by the export lookup.
+                    gani_name = gani_tracks[track_idx].name
+                    track_name = gani_name if not is_hash_string(gani_name) else str(track_unit.name)
                 else:
-                    # If unhashing fails, use string representation of hash (matches bone creation)
+                    # Last resort: store raw hash string
                     track_name = str(track_unit.name)
             
             # Build segment types list

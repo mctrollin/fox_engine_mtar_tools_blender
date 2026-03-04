@@ -26,6 +26,7 @@ from .py_utilities.utilities_hashing_cityhash import (
     hash_file_extension,
     hash_file_name_with_ext,
     strcode32,
+    strcode32_path,
 )
 # Import bake helpers from tools module (keep top-level to prevent import loops)
 from .py_tools.tools_animation_bake import (
@@ -853,7 +854,7 @@ class MTAR_OT_ComputeStrCode32(Operator):
         
         try:
             # Compute StrCode32
-            hash_val = strcode32(input_text, remove_extension=remove_ext)
+            hash_val = strcode32_path(input_text, remove_extension=remove_ext)
             
             # Format as hex (32-bit, 8 digits)
             props.strcode32_result = f"0x{hash_val:08X}"
