@@ -335,16 +335,8 @@ class MtarWriter:
         # segment_count per GANI = total segments across all tracks in that GANI's tracks_data.
         # For new format: the shared CommonInfo layout_track already has the canonical count.
         if not self.is_new_format:
-            def _count_gani_segments(gd: 'GaniExportData') -> int:
-                if not gd.tracks_data or not gd.tracks_data.gani_tracks:
-                    return 0
-                return sum(
-                    len(w.segments_track_data)
-                    for w in gd.tracks_data.gani_tracks
-                    if w.segments_track_data
-                )
             segment_count = max(
-                (_count_gani_segments(gd) for gd in self.gani_data_list),
+                (gd.count_segments() for gd in self.gani_data_list),
                 default=self.layout_track.header.segment_count,
             )
         else:
@@ -493,11 +485,18 @@ class MtarWriter:
                 # New format: add 12 bytes of padding after tracks data + align to 16
                 write_padding(buffer, 12)
                 align_buffer(buffer, 16)
-            # Old format: FoxData blob is already 16-byte aligned internally; no extra padding
-            
+            # Old format: the FoxData blob already ends on a 16-byte boundary (trailing
+            # align_buffer is applied inside GaniWriter after capturing file_size).
+
             # Record end offset after main tracks
             gani_end = buffer.tell()
-            gani_tracks_data_size = gani_end - gani_tracks_offset
+            if is_new_format:
+                gani_tracks_data_size = gani_end - gani_tracks_offset
+            else:
+                # Old format: FoxDataHeader.file_size (at blob offset 8, uint LE) excludes
+                # the trailing alignment bytes written after EVP. Use it directly so that
+                # both MtarTableList.tracks_data_size and the on-disk FoxDataHeader agree.
+                gani_tracks_data_size = int.from_bytes(gani_bytes[8:12], 'little')
             
             Debug.log(f"      Track offset: 0x{gani_tracks_offset:08X}, Size: {gani_tracks_data_size} bytes")
             

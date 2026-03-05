@@ -59,7 +59,7 @@ from ..py_fox.fox_gani_constants import (
     FOXDATA_HASH_PARAM_SLOPE_DIR,
 )
 
-from .foxwrap_misc import TrackUnitWrapper, Tracks
+from .foxwrap_misc import TrackUnitWrapper, Tracks, is_root_motion_track
 
 # FoxDataHeader.flags bit 0: set when no SKL_LIST node is written
 _GANI_HEADER_FLAGS_NO_SKEL_LIST: int = 1
@@ -144,6 +144,32 @@ class GaniWriter:
         if not gani_tracks:
             raise ValueError("gani_tracks cannot be empty")
 
+        # ── Sort UNIT track order to match SKL_LIST ──────────────────────────
+        # _write_stringdata_node sorts the SKL_LIST alphabetically, so the UNIT
+        # node must carry the same order to keep track indices consistent.
+        #
+        # Tracks whose names are unresolved hash strings are *not* in the
+        # SKL_LIST (the canonical example is the root motion track, whose name
+        # hash was never resolved to a string).  Those tracks are placed first,
+        # preserving their original relative order.  Real-name tracks are sorted
+        # alphabetically to align with the SKL_LIST sort.
+        non_skl_tracks = [w for w in gani_tracks if is_hash_string(str(w.name))]
+        skl_tracks      = [w for w in gani_tracks if not is_hash_string(str(w.name))]
+
+        # Validate: every non-SKL track placed first should be a root motion
+        # track (all-DIFF segments).  Warn loudly if that assumption is violated.
+        for track in non_skl_tracks:
+            if not is_root_motion_track(track):
+                Debug.log_warning(
+                    f"write_gani_to_buffer: Non-SKL track '{track.name}' is placed "
+                    f"before SKL tracks but does not appear to be a root motion track "
+                    f"(expected exclusively DIFF segment types). "
+                    f"UNIT node order may be incorrect."
+                )
+
+        skl_tracks.sort(key=lambda w: str(w.name))
+        gani_tracks = non_skl_tracks + skl_tracks
+
         # Build UNIT (bone) and optional MTP Tracks structures
         unit_tracks = self._build_tracks_from_wrappers(gani_tracks, frame_count, frame_rate)
         mtp_tracks = (
@@ -154,8 +180,10 @@ class GaniWriter:
 
         # Resolve effective string lists ──────────────────────────────────────
         # SKL_LIST: None -> derive from gani_tracks; [] -> suppress (None means omit)
+        # Only real-name (SKL) tracks are included in the SKL_LIST; hash-string
+        # tracks (root motion etc.) are deliberately excluded.
         if skeleton_list is None:
-            effective_skl_list: Optional[List] = [w.name for w in gani_tracks]
+            effective_skl_list: Optional[List] = [w.name for w in skl_tracks]
         elif len(skeleton_list) == 0:
             effective_skl_list = None  # explicitly suppress
         else:
@@ -360,6 +388,9 @@ class GaniWriter:
             self._backfill_uint(buffer, child_pos + _NODE_OFF_DATA_SIZE, data_size)
 
         buffer.seek(file_end_pos)
+        # Trailing alignment is written AFTER file_size is captured so that
+        # FoxDataHeader.file_size excludes the padding bytes.
+        align_buffer(buffer, 16)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Node writing helpers
@@ -556,8 +587,8 @@ class GaniWriter:
                 # Write null-terminated string (packed tightly, no per-string alignment)
                 buffer.write(name_str.encode('ascii') + b'\x00')
 
-        payload_end = buffer.tell()
         align_buffer(buffer, 16)
+        payload_end = buffer.tell()
 
         return (node_pos, payload_end)
 
@@ -589,7 +620,6 @@ class GaniWriter:
 
         motion_events.write(buffer)
         payload_end = buffer.tell()
-        align_buffer(buffer, 16)
 
         return (node_pos, payload_start, payload_end)
 

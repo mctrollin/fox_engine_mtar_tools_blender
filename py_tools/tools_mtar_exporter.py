@@ -1075,10 +1075,8 @@ def export_gani_track_from_action(armature: bpy.types.Object,
         # Skip segments absent from this action (per-GANI variation in old-format MTARs).
         # VECTOR4 is always included since it has no FCurve representation — its
         # presence is purely determined by layout metadata.
-        # Static tracks are also exempt: they are sampled from the rest pose, not FCurves.
         # When the action has an explicit segments= override, skip filtering entirely.
-        if (not is_static
-                and fcurve_cache
+        if (fcurve_cache
                 and not has_segment_override
                 and segment_type != SegmentType.VECTOR4):
             if not bone_has_fcurves_for_segment(

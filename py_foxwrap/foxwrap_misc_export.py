@@ -111,6 +111,22 @@ class GaniExportData:
     motion_points_data: Optional[GaniExportMotionPointsData] = None
     motion_events_data: Optional[GaniMotionEventsData] = None
 
+    def count_segments(self) -> int:
+        """Count the total number of segments across all tracks in this GANI file.
+        
+        Used during export to determine per-GANI segment count for MTAR header.
+        For old format: MTAR header segment_count = max across all GANIs.
+        
+        Returns:
+            Total number of segments (sum of segment counts across all gani_tracks)
+        """
+        if not self.tracks_data or not self.tracks_data.gani_tracks:
+            return 0
+        return sum(
+            len(w.segments_track_data)
+            for w in self.tracks_data.gani_tracks
+            if w.segments_track_data
+        )
     
     def to_bytes(self, layout_track: 'Tracks') -> bytes:
         """Convert this GANI data to binary format.

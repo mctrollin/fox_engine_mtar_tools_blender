@@ -17,6 +17,8 @@ from .foxwrap_gani_reader import GaniReader
 from .foxwrap_misc import TrackUnitWrapper, Tracks
 from .foxwrap_misc_import import CommonInfo, GaniImportData
 
+from ..py_utilities.utilities_logging import Debug
+
 
 @dataclass
 class MtarHeaderInfo:
@@ -227,7 +229,6 @@ class MtarReader:
         
         # Read selected GANIs
         results = {}
-        first_gani_read = False
         for gani_index in gani_indices:
             # Read file header for this GANI
             file_header_offset = MTAR_HEADER_SIZE + gani_index * file_header_size
@@ -259,11 +260,22 @@ class MtarReader:
                     file_data=file_data,
                     gani_start=file_header.tracks_offset
                 )
-                
-                # Cache layout from first old-format file for importer
-                if not first_gani_read:
-                    self.layout_track = import_data.layout_track
-                    first_gani_read = True
+
+                # Cache the layout track with the most segments across all old-format GANIs.
+                # Different GANIs may have different segment counts for the same track
+                # (e.g. GANI[0] may have 23 total segments while GANI[1-6] have 24).
+                # Using the max-segment layout ensures the layout action captures all
+                # possible segment types; the FCurve-presence check in the exporter
+                # will then correctly filter out segments absent from individual GANIs.
+                candidate = import_data.layout_track
+                if candidate is not None:
+                    if (self.layout_track is None or
+                            candidate.header.segment_count > self.layout_track.header.segment_count):
+                        self.layout_track = candidate
+                        Debug.log(
+                            f"  [old-format] Updated layout track from GANI index {gani_index}: "
+                            f"segment_count={candidate.header.segment_count}"
+                        )
             
             # Extract tuple from GaniImportData for backward compatibility with existing pipeline
             results[gani_index] = (
@@ -278,5 +290,5 @@ class MtarReader:
                 getattr(import_data, 'motion_point_list', None),
                 getattr(import_data, 'motion_point_parent_list', None),
             )
-        
+
         return results

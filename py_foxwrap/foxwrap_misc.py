@@ -294,3 +294,37 @@ class TrackUnitWrapper:
     segments_track_data: List[TrackDataBlobWrapper]  # One per segment (rotation, position, etc.)
     unit_flags: List["TrackUnitFlags"]  # Track unit flags from GANI2 data
     rig_unit_type: Optional[RigUnitType] = None  # From FRIG file, can be None if no FRIG loaded
+
+
+_DIFF_SEGMENT_TYPES = frozenset((SegmentType.QUAT_DIFF, SegmentType.VECTOR_DIFF))
+
+
+def is_root_motion_track(wrapper: TrackUnitWrapper) -> bool:
+    """Return whether *wrapper* looks like a root motion track.
+
+    Root motion tracks encode cumulative / differential motion and exclusively
+    use DIFF segment types (``QUAT_DIFF`` or ``VECTOR_DIFF``).
+
+    If the track has no segments (e.g. static tracks where seg_count=0 in the
+    binary), the check cannot be confirmed from segment types alone.  The
+    function returns ``True`` in that case — callers should treat it as
+    *unverified* and may log an additional note.
+
+    This helper is format-agnostic: it works for both old-format (FoxData)
+    and new-format (GANI2) tracks because both use :class:`TrackUnitWrapper`
+    with the same :class:`TrackDataBlobWrapper` structure.
+
+    Args:
+        wrapper: :class:`TrackUnitWrapper` to inspect.
+
+    Returns:
+        ``True`` if all segments use a DIFF type, or the track has no segments.
+        ``False`` if at least one segment uses a non-DIFF type.
+    """
+    if not wrapper.segments_track_data:
+        # Static / empty track — cannot verify from segments.
+        return True
+    return all(
+        seg.data_blob.type in _DIFF_SEGMENT_TYPES
+        for seg in wrapper.segments_track_data
+    )
