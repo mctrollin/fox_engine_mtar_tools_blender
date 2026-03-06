@@ -71,7 +71,7 @@ def build_track_segment_bone_mapping_from_file(mapping_filepath: str,
             missing_bones.append(blender_bone_name)
             continue
         
-        # Multi-segment tracks have segment suffixes (e.g., "RIG_SKL_010_LSHLD_0", "RIG_SKL_010_LSHLD_1", "RIG_SKL_010_LSHLD_2")
+        # Multi-segment tracks have segment suffixes (e.g., "RIG_SKL_010_LSHLD", "RIG_SKL_010_LSHLD_1", "RIG_SKL_010_LSHLD_2")
         base_track_name = fox_name
         segment_idx = 0
         

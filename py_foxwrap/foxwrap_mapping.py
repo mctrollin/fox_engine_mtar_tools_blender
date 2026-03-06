@@ -310,17 +310,20 @@ class TrackMappingData:
     def _parse_segment_suffix(fox_name: str) -> Tuple[str, int]:
         """Parse segment suffix from Fox bone name.
         
-        Multi-segment tracks use naming convention: BaseName_0, BaseName_1, etc.
-        Single-segment tracks have no suffix and use segment index -1.
+        Multi-segment tracks use naming convention (Option D):
+        - Segment 0 = base name with NO suffix (e.g. "RIG_SKL_023_RHAND")
+        - Segment N = base name + "_N" for N >= 1 (e.g. "RIG_SKL_023_RHAND_1")
+        Single-segment tracks also have no suffix and return segment index -1
+        to distinguish them from a genuine segment-0 entry.
         
         Args:
-            fox_name: Fox bone name (e.g., "RIG_SKL_023_RHAND_0", "RIG_SKL_023_RHAND_1", "RIG_SKL_004_HEAD")
+            fox_name: Fox bone name (e.g., "RIG_SKL_023_RHAND", "RIG_SKL_023_RHAND_1", "RIG_SKL_004_HEAD")
             
         Returns:
             Tuple of (base_name, segment_index)
-            - "RIG_SKL_023_RHAND_0" -> ("RIG_SKL_023_RHAND", 0) - rotation segment of multi-segment track
-            - "RIG_SKL_023_RHAND_1" -> ("RIG_SKL_023_RHAND", 1) - location segment of multi-segment track
-            - "RIG_SKL_004_HEAD" -> ("RIG_SKL_004_HEAD", -1) - single-segment track (no collision with segment 0)
+            - "RIG_SKL_023_RHAND"   -> ("RIG_SKL_023_RHAND", -1) - segment 0 / single-segment track
+            - "RIG_SKL_023_RHAND_1" -> ("RIG_SKL_023_RHAND",  1) - segment 1 of multi-segment track
+            - "RIG_SKL_004_HEAD"    -> ("RIG_SKL_004_HEAD",  -1) - single-segment track
         """
         if '_' in fox_name:
             parts = fox_name.rsplit('_', 1)
@@ -549,7 +552,7 @@ def parse_track_mapping_file(filepath: str) -> TrackMappingData:
     RIG_ROOT : torso_root ; offset_r=90,0,0,xyz ; map_r=y,x,z
     
     @meta name=RIG_SKL_010_LSHLD ; type=ARM ; bits=14
-    RIG_SKL_010_LSHLD_0 : shoulder.L ; space_r=custom,torso_root
+    RIG_SKL_010_LSHLD   : shoulder.L ; space_r=custom,torso_root
     RIG_SKL_010_LSHLD_1 : hand_ik.L ; space_l=world
     RIG_SKL_010_LSHLD_2 : upper_arm_ik_target.L ; as_ik_up=upper_arm_ik.L,x,1
     

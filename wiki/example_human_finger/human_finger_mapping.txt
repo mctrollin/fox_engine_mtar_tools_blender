@@ -1,10 +1,12 @@
 # Track 0 (qd, vd)
 @meta name=RIG_ROOT ; type=ROOT
 RIG_ROOT : torso_root               ; offset_r=0,0,180,zyx
+RIG_ROOT_1 : torso_root
 
 # Track 1 (q, v)
 @meta name=RIG_SKL_000_WAIST ; type=TRANSFORM
-RIG_SKL_000_WAIST : torso                   ; space_r=custom,torso_root ; space_l=custom,torso_root
+RIG_SKL_000_WAIST : torso                   ; space_r=custom,torso_root
+RIG_SKL_000_WAIST_1 : torso                 ; space_l=custom,torso_root
 
 # Track 2 (q)
 @meta name=RIG_SKL_001_SPINE ; type=ORIENTATION
@@ -24,7 +26,7 @@ RIG_SKL_004_HEAD : head                     ; space_r=custom,torso_root
 
 # Track 6 (q, v, q)
 @meta name=RIG_SKL_010_LSHLD ; type=ARM
-RIG_SKL_010_LSHLD_0 : shoulder.L             ; space_r=custom,torso_root
+RIG_SKL_010_LSHLD : shoulder.L             ; space_r=custom,torso_root
 RIG_SKL_010_LSHLD_1 : hand_ik.L              ; space_l=world
 RIG_SKL_010_LSHLD_2 : upper_arm_ik_target.L  ; space_ik=custom,torso_root ; as_ik_up=upper_arm_parent.L,x
 
@@ -34,7 +36,7 @@ RIG_SKL_013_LHAND : hand_ik.L               ; space_r=custom,torso_root
 
 # Track 8 (q, v, q)
 @meta name=RIG_SKL_020_RSHLD ; type=ARM
-RIG_SKL_020_RSHLD_0 : shoulder.R             ; space_r=custom,torso_root
+RIG_SKL_020_RSHLD : shoulder.R             ; space_r=custom,torso_root
 RIG_SKL_020_RSHLD_1 : hand_ik.R              ; space_l=world
 RIG_SKL_020_RSHLD_2 : upper_arm_ik_target.R  ; space_ik=custom,torso_root ; as_ik_up=upper_arm_parent.R,x
 
@@ -44,7 +46,7 @@ RIG_SKL_023_RHAND : hand_ik.R               ; space_r=custom,torso_root
 
 # Track 10 (v, q)
 @meta name=RIG_SKL_030_LTHIGH ; type=TWO_BONE
-RIG_SKL_030_LTHIGH_0 : foot_ik.L              ; space_l=world
+RIG_SKL_030_LTHIGH : foot_ik.L              ; space_l=world
 RIG_SKL_030_LTHIGH_1 : thigh_ik_target.L      ; space_ik=custom,torso_root ; as_ik_up=thigh_parent.L,x
 
 # Track 11 (q)
@@ -53,7 +55,7 @@ RIG_SKL_032_LFOOT : foot_ik.L               ; space_r=custom,torso_root
 
 # Track 12 (v, q)
 @meta name=RIG_SKL_040_RTHIGH ; type=TWO_BONE
-RIG_SKL_040_RTHIGH_0 : foot_ik.R              ; space_l=world
+RIG_SKL_040_RTHIGH : foot_ik.R              ; space_l=world
 RIG_SKL_040_RTHIGH_1 : thigh_ik_target.R      ; space_ik=custom,torso_root ; as_ik_up=thigh_parent.R,x
 
 # Track 13 (q)
@@ -70,7 +72,7 @@ RIG_SKL_043_RTOE : toe.R
 
 # Track 16 (q * 16)
 @meta name=RIG_SKL_101_LF10 ; type=MULTI_LOCAL_ORIENTATION ; count=16
-RIG_SKL_101_LF10_0 : thumb.01.L         
+RIG_SKL_101_LF10 : thumb.01.L         
 RIG_SKL_101_LF10_1 : thumb.02.L         
 RIG_SKL_101_LF10_2 : thumb.03.L         
 RIG_SKL_101_LF10_3 : f_index.01.L       
@@ -89,7 +91,7 @@ RIG_SKL_101_LF10_15 : f_pinky.03.L
 
 # Track 17 (q * 16)
 @meta name=RIG_SKL_201_RF10 ; type=MULTI_LOCAL_ORIENTATION ; count=16
-RIG_SKL_201_RF10_0 : thumb.01.R         
+RIG_SKL_201_RF10 : thumb.01.R         
 RIG_SKL_201_RF10_1 : thumb.02.R         
 RIG_SKL_201_RF10_2 : thumb.03.R         
 RIG_SKL_201_RF10_3 : f_index.01.R       

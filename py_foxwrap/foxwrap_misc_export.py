@@ -5,7 +5,6 @@ from dataclasses import dataclass
 import io
 import copy
 from typing import Optional, List, Dict, Tuple
-import re
 
 import bpy
 
@@ -405,7 +404,7 @@ class TrackSegmentBoneMapping:
             _, bone_parameters = base_mapping
             fox_track_name = bone_parameters.fox_name
             
-            # Strip segment suffix if present (e.g., "RIG_SKL_010_LSHLD_0" -> "RIG_SKL_010_LSHLD")
+            # Strip segment suffix if present (e.g., "RIG_SKL_010_LSHLD_1" -> "RIG_SKL_010_LSHLD")
             base_fox_track_name = fox_track_name
             if '_' in fox_track_name:
                 parts = fox_track_name.rsplit('_', 1)
@@ -514,6 +513,58 @@ def find_motion_point_action_for_gani(gani_name: str, by_gani_index: Dict[int, E
     return None
 
 
+def group_bones_by_segment(bone_names: List[str]) -> List[Tuple[str, List[Tuple[int, str]]]]:
+    """Group bone names by their base track, detecting Option D segment convention.
+
+    Segment convention (Option D):
+    - Segment 0 = base bone name, no suffix  (e.g. "bone_XYZ")
+    - Segment N = base bone + "_N" for N >= 1 (e.g. "bone_XYZ_1", "bone_XYZ_2")
+    A suffixed bone is only treated as a segment of its base when the unsuffixed
+    base name ALSO exists in the bone list — this prevents false-grouping of bones
+    whose names happen to end in a digit.
+
+    Args:
+        bone_names: Ordered list of bone names from the armature.
+
+    Returns:
+        List of (base_name, [(segment_idx, bone_name), ...]) in stable input order.
+        Each tuple's segment list always starts with (0, base_name) and is followed
+        by consecutively numbered siblings found in bone_names.
+    """
+    name_set = set(bone_names)
+    processed: set = set()
+    groups: List[Tuple[str, List[Tuple[int, str]]]] = []
+
+    for bone_name in bone_names:
+        if bone_name in processed:
+            continue
+
+        # If this bone looks like a segment N (N>=1) of an existing base, skip it here;
+        # it will be picked up when the base bone is processed.
+        parts = bone_name.rsplit('_', 1)
+        if (len(parts) == 2 and parts[1].isdigit()
+                and int(parts[1]) >= 1
+                and parts[0] in name_set):
+            continue
+
+        # This is a base bone — collect all _N siblings (N=1, 2, …) present in the armature.
+        processed.add(bone_name)
+        segments: List[Tuple[int, str]] = [(0, bone_name)]
+        seg_idx = 1
+        while True:
+            sibling = f"{bone_name}_{seg_idx}"
+            if sibling in name_set and sibling not in processed:
+                processed.add(sibling)
+                segments.append((seg_idx, sibling))
+                seg_idx += 1
+            else:
+                break
+
+        groups.append((bone_name, segments))
+
+    return groups
+
+
 def create_synthetic_mapping(armature: 'bpy.types.Object', 
                             action: bpy.types.Action,
                             layout_metadata_dict: Optional[Dict[str, TrackMetaData]]) -> Tuple[TrackSegmentBoneMapping, Dict[str, TrackMetaData]]:
@@ -537,40 +588,35 @@ def create_synthetic_mapping(armature: 'bpy.types.Object',
     Debug.log("    Building synthetic mapping from armature bones...")
     
     bones_iterable = armature.pose.bones if armature.pose else armature.data.bones
+    bone_names = [bone.name for bone in bones_iterable]
+    
     temp_mapping = TrackSegmentBoneMapping()
     metadata_dict = {}
     
     track_idx = 0
-    for bone in bones_iterable:
-        bone_name = bone.name
-        
-        # Get metadata for this bone (from layout_metadata_dict or by analyzing fcurves)
+    for base_name, segments in group_bones_by_segment(bone_names):
+        # Collect metadata from the base bone; create default if none found.
         bone_metadata = None
-        if layout_metadata_dict and bone_name in layout_metadata_dict:
-            # Use provided metadata
-            bone_metadata = layout_metadata_dict[bone_name]
+        if layout_metadata_dict and base_name in layout_metadata_dict:
+            bone_metadata = layout_metadata_dict[base_name]
         else:
-            # Build minimal metadata by analyzing fcurves (legacy fallback)
-            bone_metadata = TrackMetaData.from_fcurves(bone_name=bone_name, action=action)
-        
-        # Skip bones with no metadata (no fcurves and not in metadata_dict)
-        if not bone_metadata:
-            continue
-        
+            bone_metadata = TrackMetaData.from_fcurves(bone_name=base_name, action=action)
+
         # Merge per-action overrides if available
-        if action:
-            action_meta_bone = TrackMetaData.from_action(action, bone_name)
+        if action and bone_metadata:
+            action_meta_bone = TrackMetaData.from_action(action, base_name)
             if action_meta_bone:
                 bone_metadata = merge_track_metadata(bone_metadata, action_meta_bone)
-        
-        # Create single-segment mapping for this bone
-        # Each bone becomes a single track with one segment (segment 0)
-        temp_mapping.set_segment_mapping(
-            track_idx, 0, bone_name,
-            BoneParameters(fox_name=bone_name)
-        )
-        
-        metadata_dict[bone_name] = bone_metadata
+
+        # Register every segment detected by group_bones_by_segment.
+        for seg_idx, seg_bone_name in segments:
+            temp_mapping.set_segment_mapping(
+                track_idx, seg_idx, seg_bone_name,
+                BoneParameters(fox_name=seg_bone_name)
+            )
+
+        if bone_metadata:
+            metadata_dict[base_name] = bone_metadata
         track_idx += 1
     
     # Finalize temp_mapping to populate missing segments (e.g., if a bone has both rotation and location)

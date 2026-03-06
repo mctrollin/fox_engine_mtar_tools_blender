@@ -1,40 +1,26 @@
 import os
 import math
-from typing import Optional, List, Dict, Union, Tuple
+from typing import Optional, List, Dict, Tuple
 
 import bpy
-from mathutils import Quaternion, Vector
 
 from ..py_utilities.utilities_logging import Debug
-from ..py_utilities.utilities_hashing import unhash_rig_type, is_gani_path_a_hash
-from ..py_utilities.utilities_transforms import (
-    calculate_directional_location,
-    prepare_rotation_offset_quats,
-    apply_rotation_transforms,
-    fox_to_blender_vector,
-    apply_rest_pose_correction_local
-)
 from ..py_utilities.utilities_blender_animation import (
-    MTAR_ARMATURE_SLOT_NAME,
     add_dummy_keyframes_to_action,
     configure_action,
     remove_action_from_datablock,
-    ensure_action_fcurve,
     iter_action_fcurves,
     build_data_path_for_bone
 )
-from ..py_utilities.utilities_naming import format_action_name, format_strip_name, resolve_gani_name_segment, extract_gani_name_from_path
+from ..py_utilities.utilities_naming import format_action_name, format_strip_name, resolve_gani_name_segment
 
 from ..py_foxwrap.foxwrap_metadata import (
     PROP_NO_SKL_LIST,
     TrackMetaData,
     store_track_header_properties_on_action,
+    store_track_metadata_on_action,
     store_mtar_properties_on_action,
-    make_track_property_key,
     store_gani_params_on_action,
-    store_foxdata_stringlist_on_action,
-    PROP_MTP_LIST,
-    PROP_MTP_PARENT_LIST,
 )
 from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper, TrackDataBlobWrapper, Tracks
@@ -42,110 +28,21 @@ from ..py_foxwrap.foxwrap_motionevent import store_motion_events_on_action
 from ..py_foxwrap.foxwrap_mtar_reader import MtarReader
 from ..py_foxwrap.foxwrap_mapping import BoneParameters
 
-from ..py_fox.fox_mtar_types import MotionPointList2, MtarTableList, MtarTableList2, MtarHeader
-from ..py_fox.fox_gani_types import SegmentType, TrackUnitFlags, TrackHeader, TrackMiniHeader, EvpHeader
-from ..py_fox.fox_frig_types import RigUnitType, FrigFile
-from ..py_fox.fox_misc_types import StrCode32
+from ..py_fox.fox_mtar_types import MtarTableList, MtarTableList2, MtarHeader
+from ..py_fox.fox_gani_types import SegmentType, TrackHeader, TrackMiniHeader, EvpHeader
+from ..py_fox.fox_frig_types import FrigFile
+
+from ..py_foxwrap.foxwrap_motionpoint import MotionPointWrapper, store_motion_point_stringlists_on_action
+from .tools_gani_track_importer import import_gani_track
+from .tools_motion_points_importer import (
+    create_nla_strips_for_actions,
+    create_motion_points_animation_actions,
+    create_and_setup_motion_points_armature,
+)
 
 FPS_59_94: float = 59.94
 
 # Layout and MetaData #############################################################
-
-def store_track_metadata_on_action(
-    action: bpy.types.Action, 
-    track_metadata_list: List[TrackMetaData],
-    include_segments: bool = True,
-    include_hash: bool = True
-) -> None:
-    """Store track metadata from TrackMetaData objects as custom properties on an action.
-    
-    Stores metadata in unified key=value format.
-    
-    Layout track format: name=<name> ; segments=<segments> ; bits=<bit_sizes> ; flags=<flags> ; hash=<hash>
-    GANI track format:   name=<name> ; bits=<bit_sizes> ; flags=<flag_names>
-    
-    Args:
-        action: The Blender action to store metadata on
-        track_metadata_list: List of TrackMetaData objects
-        include_segments: Whether to include segment type abbreviations (True for layout tracks, False for GANI)
-        include_hash: Whether to include name hash if present (True for layout tracks, False for GANI)
-    """
-    track_type = "layout" if include_segments else "GANI"
-    Debug.log(f"Storing {track_type} track metadata for {len(track_metadata_list)} track(s) on action '{action.name}'")
-    
-    for track_idx, track_meta in enumerate(track_metadata_list):
-        track_name = track_meta.track_name
-        
-        metadata_parts = []
-        
-        # Build segment type abbreviations (layout tracks only)
-        if include_segments:
-            segment_types = []
-            for seg_type in track_meta.segment_types:
-                if seg_type == SegmentType.QUAT:
-                    segment_types.append('q')
-                elif seg_type == SegmentType.QUAT_DIFF:
-                    segment_types.append('qd')
-                elif seg_type == SegmentType.VECTOR3:
-                    segment_types.append('v')
-                elif seg_type == SegmentType.VECTOR_DIFF:
-                    segment_types.append('vd')
-                elif seg_type == SegmentType.FLOAT:
-                    segment_types.append('f')
-                elif seg_type == SegmentType.VECTOR2:
-                    segment_types.append('v2')
-                elif seg_type == SegmentType.VECTOR4:
-                    segment_types.append('v4')
-                else:
-                    segment_types.append('?')
-            
-            segment_str = ','.join(segment_types)
-            metadata_parts.append(f"segments={segment_str}")
-        
-        # Build component bit sizes string
-        bit_sizes_str = ''
-        if track_meta.component_bit_sizes:
-            bit_sizes_str = ','.join(str(b) for b in track_meta.component_bit_sizes)
-        
-        if bit_sizes_str:
-            metadata_parts.append(f"bits={bit_sizes_str}")
-        
-        # Build flags string
-        if track_meta.unit_flags is not None:
-            flags_list = TrackUnitFlags.int_to_track_unit_flags(track_meta.unit_flags)
-            flag_names = [flag.name for flag in flags_list]
-            flags_str = ','.join(flag_names) if flag_names else ('NONE' if not include_segments else '')
-        else:
-            flags_str = 'NONE' if not include_segments else ''
-        
-        if flags_str:
-            metadata_parts.append(f"flags={flags_str}")
-        
-        # Build hash field (layout tracks only)
-        if include_hash and track_meta.name_hash is not None and track_meta.name_hash != 0:
-            metadata_parts.append(f"hash={track_meta.name_hash}")
-        
-        # Build type field (rig_unit_type)
-        if track_meta.rig_unit_type is not None:
-            metadata_parts.append(f"type={track_meta.rig_unit_type.name}")
-        
-        # Build unified name=value metadata string
-        metadata_value = f"name={track_name} ; {' ; '.join(metadata_parts)}"
-        
-        # Store metadata as custom property using standardized key format
-        property_key = make_track_property_key(track_idx, track_name)
-        action[property_key] = metadata_value
-        
-        # Set custom property metadata for UI display
-        action.id_properties_ui(property_key).update(
-            description=f"Track metadata for {track_name}"
-        )
-        
-        if include_segments:
-            Debug.log(f"  Stored: {property_key} = {metadata_value}")
-        else:
-            Debug.log(f"  Track {track_idx} ({track_name}): bits=[{bit_sizes_str}], flags={flags_str}")
-
 
 # Mapping #############################################################
 
@@ -197,36 +94,66 @@ def apply_track_mapping_transformation(track_blob: TrackDataBlobWrapper, mapping
         track_blob.space_r = mapping_data.space_r
         Debug.log(f"    Track space: {mapping_data.space_r['space']}")
 
+
+def validate_track_mapping_collisions(
+    all_gani_tracks: List[List[TrackUnitWrapper]],
+    track_mapping: Dict[str, BoneParameters],
+) -> None:
+    """Warn if the mapping would assign multiple segments of the same type to one bone.
+
+    The previous implementation accumulated tracks from *all* GANI files which
+    could produce false positives when the same track name appears in multiple
+    separate GANIs.  In practice collisions are only problematic *within* a
+    single animation file, so we perform the check per `gani_tracks` list.
+
+    Args:
+        all_gani_tracks: All GANI track units produced by the reader; outer list
+            corresponds to individual GANI files.
+        track_mapping: Mapping dictionary keyed by source track name.
+    """
+    if not track_mapping:
+        return
+
+    Debug.log("Validating track mapping collisions...")
+    # iterate each GANI independently to avoid cross-file warnings
+    for index, gani_tracks in enumerate(all_gani_tracks):
+        collision_map: Dict[Tuple[str, SegmentType], List[str]] = {}
+        for gani_track in gani_tracks:
+            for track_blob in gani_track.segments_track_data:
+                name = track_blob.name
+                if name not in track_mapping:
+                    continue
+                mapping_data: BoneParameters = track_mapping[name]
+                target_name: str = (
+                    mapping_data.track_name if mapping_data.track_name else mapping_data.fox_name
+                )
+                key = (target_name, track_blob.data_blob.type)
+                collision_map.setdefault(key, []).append(name)
+
+        for (target_name, seg_type), sources in collision_map.items():
+            if len(sources) > 1:
+                Debug.log_warning(
+                    f"GANI#{index}: mapping would apply multiple {seg_type.name} segments {sources} to bone '{target_name}'"
+                )
+
 def apply_track_transformations(all_gani_tracks: List[List[TrackUnitWrapper]], track_mapping: Optional[Dict[str, BoneParameters]] = None) -> None:
-    """Apply rig-based naming and track mapping transformations to all tracks.
+    """Apply track mapping transformations to all tracks.
     
-    First applies rig unit type based naming (e.g., appending segment indices for ARM/LIST types).
-    Then applies user-defined track mapping transformations if provided.
+    Applies user-defined track mapping transformations if provided.
     
-    For ARM, TWO_BONE and LIST rig types, appends segment index to each
-    keyframes track name to differentiate multiple segments.
+    Note: Multi-segment track naming (appending segment indices for ARM/TWO_BONE/LIST rig types)
+    is now handled at read time by apply_segment_suffixes() in both readers, so it is no longer
+    done here. This function focuses purely on mapping-based transformations.
     
     Args:
         all_gani_tracks: List of lists of GaniTrack objects
         track_mapping: Optional dictionary mapping source track name to BoneParameters
     """
-    Debug.log("Applying rig unit type based naming...")
-    for gani_tracks in all_gani_tracks:
-        for gani_track in gani_tracks:
-            if gani_track.rig_unit_type:
-                rig_type: RigUnitType = gani_track.rig_unit_type
-                
-                # All multi-segment tracks get segment index suffix
-                if rig_type in [RigUnitType.ARM, RigUnitType.TWO_BONE, RigUnitType.MULTI_LOCAL_ORIENTATION]:
-                    for segment_index, track_blob in enumerate(gani_track.segments_track_data):
-                        original_name: str = track_blob.name
-                        modified_name: str = f"{original_name}_{segment_index}"
-                        track_blob.name = modified_name
-                        Debug.log(f"  '{original_name}' -> '{modified_name}' (RigUnitType.{rig_type.name})")
-    
     # Apply track mapping transformations if provided
     if track_mapping:
         Debug.log("Applying track mapping transformations...")
+        validate_track_mapping_collisions(all_gani_tracks, track_mapping)
+
         for gani_tracks in all_gani_tracks:
             for gani_track in gani_tracks:
                 for track_blob in gani_track.segments_track_data:
@@ -304,309 +231,6 @@ def extract_rest_pose_from_custom_rig(all_gani_tracks: List[List[TrackUnitWrappe
 
 
 # Animation #############################################################
-
-def import_keyframes_track(
-    context: bpy.types.Context, 
-    action: bpy.types.Action, 
-    keyframes_track: TrackDataBlobWrapper,
-) -> int:
-    """Import a single track data blob into a Blender action.
-    
-    Args:
-        context: Blender context (used to access import properties like ik_up_distance)
-        action: Blender action to add keyframes to
-        keyframes_track: TrackDataBlobWrapper object containing animation data
-        
-    Returns:
-        Maximum frame number encountered in this track
-    """
-    max_frame: int = 0
-    
-    Debug.log(f"  - Import Track '{keyframes_track.name}' ({keyframes_track.data_blob.type.name}): {len(keyframes_track.data_blob.keyframes)} keyframe(s)")
-
-    # Always use LINEAR interpolation - decimation will create bezier curves later if enabled
-    
-    # Get or create FCurve group for this handle (Blender <5.0)
-    # Ensure group_name is always a string (keyframes_track.name can be an integer hash)
-    group_name: str = str(keyframes_track.name)
-    # NOTE: Group creation via ensure_action_group removed. We rely on creation-time grouping
-    # when creating FCurves by passing `action_group_name=group_name` to `ensure_action_fcurve`.
-    
-    # Prepare rotation transformations (only applies to rotation tracks)
-    rotation_offset_quats: List[Quaternion] = []
-    rotation_axis_map: Optional[List[Dict[str, Union[str, bool]]]] = None
-    
-    if keyframes_track.data_blob.type in [SegmentType.QUAT, SegmentType.QUAT_DIFF]:
-        # Prepare rotation offset quaternions
-        if keyframes_track.rotation_offset:
-            rotation_offset_quats = prepare_rotation_offset_quats(keyframes_track.rotation_offset)
-        
-        # Prepare rotation axis mapping
-        if keyframes_track.rotation_axis_map:
-            rotation_axis_map = keyframes_track.rotation_axis_map
-            axis_str = ','.join([('-' if m['negate'] else '') + m['axis'] for m in rotation_axis_map])
-            Debug.log(f"    Applying rotation axis mapping transformation: {axis_str}")    # Check if this is a directional vector track (quaternion converted to location)
-    
-        # IK special case
-        if keyframes_track.as_ik_up:
-            # Convert quaternion rotation data to location data using directional vector
-            # Apply all rotation transformations BEFORE converting to location
-            ik_data = keyframes_track.as_ik_up
-            axis = ik_data.axis
-            
-            # Get distance from import properties (shared setting)
-            distance: float = 1.0  # Default value
-            if hasattr(context.scene, 'mtar_properties'):
-                distance = context.scene.mtar_properties.import_props.ik_up_distance
-            
-            Debug.log(f"    Converting rotation to directional location (axis={axis}, distance={distance})")
-            
-            # Pre-convert all quaternions and calculate directional locations
-            converted_locations = []
-            absolute_frame = 0  # Accumulate relative deltas into absolute frame numbers
-            for keyframe in keyframes_track.data_blob.keyframes:
-                absolute_frame += keyframe.frame_count  # frame_count is a relative delta
-                # Apply all rotation transformations (offset first for as_ik_up)
-                quat = apply_rotation_transforms(
-                    keyframe.data.value,  # Fox quaternion [x, y, z, w]
-                    rotation_axis_map,
-                    rotation_offset_quats,
-                    offset_first=True  # For as_ik_up: offset @ quat
-                )
-                
-                # Apply rest pose correction based on track space type (if applicable)
-                if keyframes_track.space_r:
-                    # World space - offset_r already applied above
-                    pass
-                elif keyframes_track.map_r_rest_pose:
-                    # Local space - apply similarity transformation
-                    quat = apply_rest_pose_correction_local(quat, keyframes_track.map_r_rest_pose)
-                
-                # Convert to directional location
-                # Base location is 0,0,0 during import (will be offset by constraints later)
-                bone_base_location = Vector((0.0, 0.0, 0.0))
-                target_location = calculate_directional_location(
-                    bone_location=bone_base_location,
-                    bone_rotation_quat=quat,
-                    axis=axis,
-                    distance=distance
-                )
-                
-                converted_locations.append((absolute_frame, target_location))
-                max_frame = max(max_frame, absolute_frame)
-            
-            # Create location curves
-            for i in range(3):  # XYZ location
-                try:
-                    data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
-                    fcurve: bpy.types.FCurve = ensure_action_fcurve(
-                        action,
-                        data_path=data_path_str,
-                        index=i,
-                        action_group_name=group_name,
-                        slot_name=MTAR_ARMATURE_SLOT_NAME
-                    )
-                except Exception as e:
-                    data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
-                    Debug.log_warning(f"Could not create fcurve '{data_path_str}[{i}]' on action '{getattr(action, 'name', '<unknown>')}': {e}")
-                    continue
-
-                # Add keyframes from pre-converted locations
-                for frame_count, target_location in converted_locations:
-                    kf_point: bpy.types.Keyframe = fcurve.keyframe_points.insert(frame_count, target_location[i])
-                    kf_point.interpolation = 'LINEAR'  # Always LINEAR - decimation creates bezier later
-            
-            Debug.log(f"    Added directional location keyframes (frames 0-{max_frame})")
-        
-        # Normal rotation
-        else:
-            # Pre-convert all quaternions to avoid recalculation for each component
-            converted_quaternions = []
-            absolute_frame = 0  # Accumulate relative deltas into absolute frame numbers
-            for keyframe in keyframes_track.data_blob.keyframes:
-                absolute_frame += keyframe.frame_count  # frame_count is a relative delta
-                # Apply all rotation transformations (offset last for regular rotation)
-                quat = apply_rotation_transforms(
-                    keyframe.data.value,  # Fox quaternion [x, y, z, w]
-                    rotation_axis_map,
-                    rotation_offset_quats,
-                    offset_first=False  # For regular rotation: quat @ offset
-                )
-                
-                # Apply rest pose correction based on track space type
-                # World space tracks (space_r=world): use offset_r with simple multiplication
-                # Local space tracks (default): use map_r with similarity transformation
-                if keyframes_track.space_r:
-                    # World space track - use offset_r if present
-                    if keyframes_track.rotation_offset:
-                        # offset_r is already applied via rotation_offset_quats above
-                        # This is the correct behavior for world space
-                        pass
-                    Debug.log("    Applied world space transformation (space_r)")
-                    
-                elif keyframes_track.map_r_rest_pose:
-                    # Local space track - apply similarity transformation
-                    quat = apply_rest_pose_correction_local(quat, keyframes_track.map_r_rest_pose)
-                    euler = keyframes_track.map_r_rest_pose['euler']
-                    Debug.log(f"    Applied local space rest pose correction: ({euler[0]}, {euler[1]}, {euler[2]})")
-                
-                converted_quaternions.append((absolute_frame, quat))
-                max_frame = max(max_frame, absolute_frame)
-            
-            # Create quaternion rotation curves (WXYZ)
-            for i in range(4):  # WXYZ quaternion components
-                try:
-                    data_path_str = build_data_path_for_bone(keyframes_track.name, 'rotation_quaternion')
-                    fcurve: bpy.types.FCurve = ensure_action_fcurve(
-                        action,
-                        data_path=data_path_str,
-                        index=i,
-                        action_group_name=group_name,
-                        slot_name=MTAR_ARMATURE_SLOT_NAME
-                    )
-                except Exception as e:
-                    data_path_str = build_data_path_for_bone(keyframes_track.name, 'rotation_quaternion')
-                    Debug.log_warning(f"Could not create fcurve '{data_path_str}[{i}]' on action '{getattr(action, 'name', '<unknown>')}': {e}")
-                    continue
-
-                # Add keyframes from pre-converted quaternions
-                for frame_count, quat in converted_quaternions:
-                    quat_component: float = quat[i]  # Quaternion indexing: 0=w, 1=x, 2=y, 3=z
-                    kf_point: bpy.types.Keyframe = fcurve.keyframe_points.insert(frame_count, quat_component)
-                    kf_point.interpolation = 'LINEAR'  # Always LINEAR - decimation creates bezier later
-            
-            Debug.log(f"    Added quaternion rotation keyframes (frames 0-{max_frame})")
-
-    elif keyframes_track.data_blob.type in [SegmentType.VECTOR3, SegmentType.VECTOR_DIFF]:
-        # Pre-convert all vectors and accumulate absolute frames
-        # (must happen outside the component loop since we iterate keyframes 3 times for XYZ)
-        converted_vectors = []
-        absolute_frame = 0  # Accumulate relative deltas into absolute frame numbers
-        for keyframe in keyframes_track.data_blob.keyframes:
-            absolute_frame += keyframe.frame_count  # frame_count is a relative delta
-            blender_vec: List[float] = fox_to_blender_vector(keyframe.data.value)
-            converted_vectors.append((absolute_frame, blender_vec))
-            max_frame = max(max_frame, absolute_frame)
-        
-        # Create location curves
-        for i in range(3):  # XYZ location
-            try:
-                data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
-                fcurve: bpy.types.FCurve = ensure_action_fcurve(
-                    action,
-                    data_path=data_path_str,
-                    index=i,
-                    action_group_name=group_name
-                )
-            except Exception as e:
-                data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
-                Debug.log_warning(f"Could not create fcurve '{data_path_str}[{i}]' on action '{getattr(action, 'name', '<unknown>')}': {e}")
-                continue
-
-            for abs_frame, blender_vec in converted_vectors:
-                kf_point: bpy.types.Keyframe = fcurve.keyframe_points.insert(abs_frame, blender_vec[i])
-                kf_point.interpolation = 'LINEAR'  # Always LINEAR - decimation creates bezier later
-        
-        Debug.log(f"    Added location keyframes (frames 0-{max_frame})")
-
-    elif keyframes_track.data_blob.type == SegmentType.FLOAT:
-        # FLOAT segment: raw scalar stored directly as location[0] (no coordinate transform).
-        # Channel index convention: [0]=FLOAT. Since a bone never has both FLOAT and VECTOR2,
-        # the shared index-0 between them is not a practical ambiguity.
-        # See copilot/todos/segment_type_fcurve_inference.md for full rationale.
-        float_values = []
-        absolute_frame = 0
-        for keyframe in keyframes_track.data_blob.keyframes:
-            absolute_frame += keyframe.frame_count
-            # data.value is [scalar] — extract the single float
-            float_val = keyframe.data.value[0] if isinstance(keyframe.data.value, list) else keyframe.data.value
-            float_values.append((absolute_frame, float_val))
-            max_frame = max(max_frame, absolute_frame)
-
-        try:
-            data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
-            fcurve: bpy.types.FCurve = ensure_action_fcurve(
-                action,
-                data_path=data_path_str,
-                index=0,  # X channel only
-                action_group_name=group_name
-            )
-        except Exception as e:
-            data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
-            Debug.log_warning(f"Could not create fcurve '{data_path_str}[0]' on action '{getattr(action, 'name', '<unknown>')}': {e}")
-            return max_frame
-
-        for abs_frame, float_val in float_values:
-            kf_point: bpy.types.Keyframe = fcurve.keyframe_points.insert(abs_frame, float_val)
-            kf_point.interpolation = 'LINEAR'
-
-        Debug.log(f"    Added FLOAT keyframes as location[0] (frames 0-{max_frame})")
-
-    elif keyframes_track.data_blob.type == SegmentType.VECTOR2:
-        # VECTOR2 segment: raw [x, y] stored as location[0] and location[1] (no coordinate
-        # transform). Fox XY values are written directly without axis-swap.
-        # Channel index convention: [0]=X, [1]=Y.
-        # See copilot/todos/segment_type_fcurve_inference.md for full rationale.
-        vec2_values = []
-        absolute_frame = 0
-        for keyframe in keyframes_track.data_blob.keyframes:
-            absolute_frame += keyframe.frame_count
-            vec2_values.append((absolute_frame, keyframe.data.value))  # [x, y]
-            max_frame = max(max_frame, absolute_frame)
-
-        for i in range(2):  # X, Y channels only
-            try:
-                data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
-                fcurve: bpy.types.FCurve = ensure_action_fcurve(
-                    action,
-                    data_path=data_path_str,
-                    index=i,
-                    action_group_name=group_name
-                )
-            except Exception as e:
-                data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
-                Debug.log_warning(f"Could not create fcurve '{data_path_str}[{i}]' on action '{getattr(action, 'name', '<unknown>')}': {e}")
-                continue
-
-            for abs_frame, vec2 in vec2_values:
-                kf_point: bpy.types.Keyframe = fcurve.keyframe_points.insert(abs_frame, vec2[i])
-                kf_point.interpolation = 'LINEAR'
-
-        Debug.log(f"    Added VECTOR2 keyframes as location[0,1] (frames 0-{max_frame})")
-
-    elif keyframes_track.data_blob.type == SegmentType.VECTOR4:
-        # VECTOR4 has no Blender FCurve representation. Log a warning so the user
-        # knows data is lost. Round-trip requires the layout action to preserve the
-        # VECTOR4 segment type (the export will produce a zeroed segment from layout).
-        Debug.log_warning(
-            f"  Segment type VECTOR4 on track '{keyframes_track.name}' is not supported "
-            f"as Blender FCurves and will be lost. Round-trip fidelity requires the "
-            f"layout action to contain this track's segment types."
-        )
-
-    return max_frame
-
-def import_gani_track(context: bpy.types.Context, action: bpy.types.Action, gani_track: TrackUnitWrapper) -> int:
-    """Import a GaniTrack (containing multiple segments) into a Blender action.
-    
-    Args:
-        context: Blender context (passed to import_keyframes_track)
-        action: Blender action to add keyframes to
-        gani_track: GaniTrack object containing multiple keyframes tracks (segments)
-        
-    Returns:
-        Maximum frame number encountered in this GaniTrack
-    """
-    max_frame: int = 0
-    
-    Debug.log(f"  - Import GaniTrack '{gani_track.name}' (RigUnitType: {gani_track.rig_unit_type.name if gani_track.rig_unit_type else 'None'}) Segments: {len(gani_track.segments_track_data)}")
-    
-    # Process each keyframes track (segment) in the GaniTrack
-    for keyframes_track in gani_track.segments_track_data:
-        track_max_frame: int = import_keyframes_track(context, action, keyframes_track)
-        max_frame = max(max_frame, track_max_frame)
-    
-    return max_frame
 
 def create_animation_actions(
     context: bpy.types.Context,
@@ -770,12 +394,11 @@ def create_animation_actions(
                 description="Original GANI had no SKL_LIST node — suppress on re-export"
             )
             Debug.log(f"  Stored {PROP_NO_SKL_LIST}: 1 (original had no SKL_LIST)")
-        if all_mtp_lists and gani_index < len(all_mtp_lists) and all_mtp_lists[gani_index] is not None:
-            store_foxdata_stringlist_on_action(action, PROP_MTP_LIST, all_mtp_lists[gani_index])
-            Debug.log(f"  Stored {PROP_MTP_LIST}: {len(all_mtp_lists[gani_index])} entries")
-        if all_mtp_parent_lists and gani_index < len(all_mtp_parent_lists) and all_mtp_parent_lists[gani_index] is not None:
-            store_foxdata_stringlist_on_action(action, PROP_MTP_PARENT_LIST, all_mtp_parent_lists[gani_index])
-            Debug.log(f"  Stored {PROP_MTP_PARENT_LIST}: {len(all_mtp_parent_lists[gani_index])} entries")
+        store_motion_point_stringlists_on_action(
+            action,
+            all_mtp_lists[gani_index] if (all_mtp_lists and gani_index < len(all_mtp_lists)) else None,
+            all_mtp_parent_lists[gani_index] if (all_mtp_parent_lists and gani_index < len(all_mtp_parent_lists)) else None,
+        )
 
         # Store motion events if present
         if gani_index < len(all_motion_events):
@@ -806,226 +429,7 @@ def create_animation_actions(
 
     return layout_action, gani_actions, max_frame_end
 
-def create_motion_points_animation_actions(
-    context: bpy.types.Context,
-    mtar_file_name: str,
-    all_motion_point_gani_tracks: List[List[TrackUnitWrapper]],
-    all_motion_point_layouts: List[Optional[Tracks]],
-    all_motion_point_track_headers: List[Optional[TrackHeader]],
-    all_file_headers: List[MtarTableList2],
-    path_to_indices: Dict[int, Tuple[int, int]],
-    use_verbose_naming: bool,
-    gani_hash_dict: Optional[Dict[int, str]] = None
-) -> List[Optional[bpy.types.Action]]:
-    """Create Blender animation actions for motion points from MTAR data.
-    
-    This function creates animation actions for motion points without requiring
-    an armature. The actions can later be linked to motion points armatures
-    through NLA tracks and strips.
-    
-    Args:
-        mtar_file_name: Base name for actions
-        all_motion_point_gani_tracks: Motion point animation tracks
-        all_motion_point_layouts: Tracks objects for motion point metadata (like layout track)
-        all_motion_point_track_headers: Motion point track headers
-        all_file_headers: File headers for path hashes
-        path_to_indices: Mapping from path hash to (h_index, d_index) tuples
-        use_verbose_naming: Whether to include h/d indices in names
-        context: Blender context (passed to import functions for settings access)
-        
-    Returns:
-        List of motion point animation actions (may contain None for GANIs without motion points)
-    """
-    motion_point_actions: List[Optional[bpy.types.Action]] = []
-    
-    Debug.log(f"\nProcessing {len(all_motion_point_gani_tracks)} GANI file(s) for motion points...")
-    for gani_index, motion_point_tracks in enumerate(all_motion_point_gani_tracks):
-        if not motion_point_tracks:
-            Debug.log(f"  GANI {gani_index + 1}: No motion point tracks")
-            # Add None placeholder to maintain index alignment with animation actions
-            motion_point_actions.append(None)
-            continue
-            
-        Debug.log(f"\n  --- Motion Points GANI {gani_index + 1}/{len(all_motion_point_gani_tracks)} ---")
-        # -----------------------------------------------------
-        # Update UI progress for per-motion-point-GANI processing (keeps overall 'Creating Motion Points...' stage)
-        try:
-            total_mp = len(all_motion_point_gani_tracks) if len(all_motion_point_gani_tracks) > 0 else 1
-            progress = 60 + min(4, int(((gani_index + 1) / total_mp) * 5))
-            display_name = f"MotionPoints_Gani_{gani_index+1:03d}"
-            Debug.update_progress(progress, f"MotionPoints GANI {gani_index + 1}/{total_mp}: {display_name}")
-        except Exception:
-            pass
-        # -----------------------------------------------------
-
-        # Create action for this GANI file's motion point animation
-        # Look up h/d indices from path hash
-        file_header = all_file_headers[gani_index]
-        h_idx, d_idx = path_to_indices.get(file_header.path, (0, 0))
-        if file_header.path not in path_to_indices:
-            Debug.log_warning(f"Missing path hash mapping for motion points GANI: 0x{file_header.path:016X}, using h0_d0")
-
-        # Resolve GANI path hash to readable name if dictionary provided
-        gani_full_path, gani_name_segment = resolve_gani_name_segment(file_header, gani_hash_dict)
-        
-        action_name: str = format_action_name(mtar_file_name, gani_index, h_idx, d_idx, use_verbose_naming, is_motion_points=True, gani_name=gani_name_segment)
-        action: bpy.types.Action = bpy.data.actions.new(name=action_name)
-        motion_point_actions.append(action)
-        Debug.log(f"  Created action: {action_name}")
-        
-        # =============================
-
-        # Store metadata for motion point tracks
-        # Motion points use Tracks structure (like layout track)
-        motion_point_layout = all_motion_point_layouts[gani_index]
-        if motion_point_layout is not None:
-            track_metadata_list = TrackMetaData.from_layout_track_units(motion_point_layout.track_units, track_name_prefix="MotionPoint")
-            store_track_metadata_on_action(action, track_metadata_list, include_segments=False, include_hash=False)
-        
-        # Store TrackHeader fields (t_id, unknown_a, unknown_b) if available
-        motion_point_track_header: TrackHeader = all_motion_point_track_headers[gani_index]
-        if motion_point_track_header is not None:
-            store_track_header_properties_on_action(action, motion_point_track_header)
-
-        # Store mtar_const.TABL_PATH for NLA strip naming consistency with main animation actions
-        if hasattr(file_header, 'path'):
-            if gani_full_path is not None:
-                action[mtar_const.TABL_PATH] = gani_full_path
-            else:
-                action[mtar_const.TABL_PATH] = str(file_header.path)
-        
-        # =============================
-
-        # Get frame count from TrackHeader (imported from MTAR file)
-        gani_frame_count: int = motion_point_track_header.frame_count if motion_point_track_header is not None else 0
-
-        Debug.log(f"  Processing {len(motion_point_tracks)} motion point track(s)...")
-        for gani_track in motion_point_tracks:
-            track_max_frame: int = import_gani_track(context, action, gani_track)
-            if motion_point_track_header is None:
-                gani_frame_count = max(gani_frame_count, track_max_frame)
-        
-        Debug.log(f"  Motion point frame range: 0 - {gani_frame_count}")
-        
-        # Configure action with frame range from MTAR file header
-        configure_action(action, frame_start=0, frame_end=gani_frame_count)
-        Debug.log(f"  Configured motion point action frame range: 0 - {gani_frame_count}")
-    
-    return motion_point_actions
-
-
 # Armature #############################################################
-
-def get_action_length(action: bpy.types.Action) -> int:
-    """Get the frame end value from an action.
-    
-    First tries to use the action's manual frame_end if set.
-    Falls back to calculating from keyframes if manual frame range not set.
-    
-    Args:
-        action: Blender action to get frame end from
-        
-    Returns:
-        Frame end value, or 0 if no keyframes
-    """
-    if action.use_frame_range:
-        return int(action.frame_end)
-    
-    # Fallback: calculate from keyframes
-    action_frame_end: int = 0
-    for fcurve in iter_action_fcurves(action):
-        for keyframe in fcurve.keyframe_points:
-            action_frame_end = max(action_frame_end, int(keyframe.co.x))
-    
-    return action_frame_end
-
-def create_nla_strips_for_actions(
-    nla_track: bpy.types.NlaTrack,
-    actions: List[Optional[bpy.types.Action]],
-    mtar_file_name: str,
-    all_file_headers: List[MtarTableList2],
-    path_to_indices: Dict[int, Tuple[int, int]],
-    use_verbose_naming: bool,
-    is_motion_points: bool = False,
-    strip_padding: int = 10,
-    reference_actions: Optional[List[bpy.types.Action]] = None
-) -> int:
-    """Create NLA strips for a list of actions on an NLA track.
-    
-    This utility function reduces code duplication by handling the common pattern
-    of creating NLA strips from actions with consistent naming and padding.
-    
-    Args:
-        nla_track: NLA track to add strips to
-        actions: List of actions to create strips from (may contain None for empty GANIs)
-        mtar_file_name: Base name for strip naming
-        all_file_headers: File headers for path hash lookup
-        path_to_indices: Mapping from path hash to (h_index, d_index) tuples
-        use_verbose_naming: Whether to include h/d indices in names
-        is_motion_points: Whether these are motion points strips
-        strip_padding: Frames to add between strips (default: 10)
-        reference_actions: Optional list of reference actions to determine frame offsets.
-                          If provided, offsets are calculated based on reference action lengths
-                          to maintain synchronization even when current actions are empty.
-                          Used to sync motion point strips with animation strips.
-        
-    Returns:
-        Total offset reached after all strips (for chaining operations)
-    """
-    current_frame_offset: int = 0
-    
-    for index, action in enumerate(actions):
-        # Skip None actions (GANIs without data)
-        if action is None:
-            Debug.log(f"  Skipped GANI {index} (no action data)")
-            # Still need to advance offset based on reference if available
-            if reference_actions and index < len(reference_actions):
-                reference_action_length = get_action_length(reference_actions[index])
-                if reference_action_length > 0:
-                    current_frame_offset += reference_action_length + strip_padding
-            continue
-        
-        action_length = get_action_length(action)
-        
-        # Determine the reference frame length for offset calculation
-        # If reference_actions is provided, use the corresponding reference action's length
-        # Otherwise, use the current action's length
-        if reference_actions and index < len(reference_actions):
-            reference_action_length = get_action_length(reference_actions[index])
-        else:
-            reference_action_length = action_length
-        
-        if action_length > 0:
-            strip: bpy.types.NlaStrip = nla_track.strips.new(
-                name="tmp",
-                start=int(current_frame_offset),
-                action=action
-            )
-            # Look up h/d indices from path hash
-            file_header = all_file_headers[index]
-            h_idx, d_idx = path_to_indices.get(file_header.path, (0, 0))
-            # Determine gani_name from action's mtar_const.TABL_PATH property (if a readable path)
-            gani_name_segment: Optional[str] = None
-            if mtar_const.TABL_PATH in action.keys():
-                gani_path_val = str(action[mtar_const.TABL_PATH])
-                if not is_gani_path_a_hash(gani_path_val):
-                    gani_name_segment = extract_gani_name_from_path(gani_path_val)
-            strip.name = format_strip_name(mtar_file_name, index, h_idx, d_idx, use_verbose_naming, is_motion_points=is_motion_points, gani_name=gani_name_segment)
-            # strip.frame_start = int(current_frame_offset)
-            strip.frame_end = strip.frame_start + action_length
-            strip.action_frame_start = 0
-            strip.action_frame_end = action_length
-            
-            Debug.log(f"  Created NLA strip '{strip.name}' at frame {current_frame_offset} (length: {action_length})")
-        else:
-            Debug.log(f"  Skipped GANI {index} (no animation data)")
-        
-        # Update offset for next strip (add padding to prevent overlap)
-        # Use reference frame length to maintain synchronization across armatures
-        if reference_action_length > 0:
-            current_frame_offset += reference_action_length + strip_padding
-    
-    return current_frame_offset
 
 def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object, track_mapping: Optional[Dict[str, BoneParameters]] = None) -> None:
     """Set up constraints on a Rigify rig to follow the imported animation armature.
@@ -1151,7 +555,8 @@ def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object,
         has_space_l = space_l and isinstance(space_l, dict) and space_l.get('space') in ('WORLD', 'CUSTOM')
         
         if has_space_r or has_space_l:
-            # World space constraint: check if imported armature has bone with exact renamed name
+            # World space constraint: check if imported armature has bone with the mapped name.
+            # After apply_track_transformations the imported armature uses the mapped target names.
             if target_bone_name not in imported_armature.pose.bones:
                 Debug.log_warning(f"  Warning: World space constraint requires bone '{target_bone_name}' in imported armature, not found")
                 continue
@@ -1246,6 +651,7 @@ def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object,
                 continue
             
             # Check if target bone exists in imported armature (should have location animation)
+            # After apply_track_transformations the imported armature uses the mapped target names.
             if target_bone_name not in imported_armature.pose.bones:
                 Debug.log_warning(f"  Warning: as_ik_up target bone '{target_bone_name}' not found in imported armature")
                 continue
@@ -1363,12 +769,14 @@ def create_and_setup_armature(
     bpy.ops.object.mode_set(mode='EDIT')
 
     # Collect all unique keyframes track names from all GANI files
-    all_bone_names: set = set()
+    all_bone_names = []
     for gani_tracks in all_gani_tracks:
         for gani_track in gani_tracks:
             for keyframes_track in gani_track.segments_track_data:
                 # keyframes_track.name can be an integer hash when unresolved — always coerce to str
-                all_bone_names.add(str(keyframes_track.name))
+                bone_name_str = str(keyframes_track.name)
+                if bone_name_str not in all_bone_names:
+                    all_bone_names.append(bone_name_str)
     
     Debug.log(f"Found {len(all_bone_names)} unique handle(s)")
 
@@ -1469,158 +877,6 @@ def create_and_setup_armature(
 
     return armature
 
-def create_and_setup_motion_points_armature(
-    context: bpy.types.Context,
-    mtar_file_name: str,
-    motion_points: Optional['MotionPointList2'],
-    motion_point_actions: List[Optional[bpy.types.Action]],
-    all_file_headers: List[MtarTableList2],
-    path_to_indices: Dict[int, Tuple[int, int]],
-    use_verbose_naming: bool,
-    strip_padding: int = 10,
-    reference_actions: Optional[List[bpy.types.Action]] = None
-) -> Optional[bpy.types.Object]:
-    """Create and set up motion points armature with pre-created animation actions.
-    
-    This function creates the motion points armature and links it to existing animation actions
-    through NLA tracks and strips. The animation actions must be created beforehand
-    using create_motion_points_animation_actions().
-    
-    Args:
-        context: Blender context
-        mtar_file_name: Base name for the armature
-        motion_points: Motion points data
-        motion_point_actions: Pre-created motion point animation actions
-        all_file_headers: File headers for path hash lookup
-        path_to_indices: Mapping from path hash to (h_index, d_index) tuples
-        use_verbose_naming: Whether to include h/d indices in names
-        strip_padding: Number of frames between NLA strips
-        reference_actions: Optional list of reference actions (typically animation actions)
-                          to synchronize frame offsets when motion point GANIs are missing
-        
-    Returns:
-        Motion points armature object, or None if no motion points
-    """
-    if not motion_points or motion_points.count == 0:
-        return None
-    
-    Debug.log("\nCreating motion points armature...")
-    
-    # Create armature with '_MotionPoints' suffix
-    armature_name = f"{mtar_file_name}_MotionPoints"
-    Debug.log(f"  Creating motion points armature: {armature_name}")
-    
-    arm_data: bpy.types.Armature = bpy.data.armatures.new(name=armature_name)
-    armature: bpy.types.Object = bpy.data.objects.new(armature_name, arm_data)
-    context.view_layer.active_layer_collection.collection.objects.link(armature)
-    
-    # Set as active and enter edit mode
-    context.view_layer.objects.active = armature
-    bpy.ops.object.mode_set(mode='EDIT')
-    
-    # Create a mapping of hash to bone name and parent hash
-    motion_point_bones = {}  # hash -> (bone_name, parent_hash)
-    
-    for entry in motion_points.entries:
-        # Try to unhash the motion point name
-        entry_hash = entry.name.to_int() if hasattr(entry.name, 'to_int') else int(entry.name)
-        bone_name = unhash_rig_type(entry_hash)
-        if not bone_name:
-            # Use hex hash if unhashing fails
-            bone_name = str(entry.name)
-        
-        motion_point_bones[entry.name] = (bone_name, entry.parent_name)
-    
-    # Create bones and set up hierarchy
-    created_bones = {}  # hash -> EditBone
-    
-    for point_hash, (bone_name, parent_hash) in motion_point_bones.items():
-        # Create bone
-        edit_bone: bpy.types.EditBone = armature.data.edit_bones.new(bone_name)
-        edit_bone.head = (0, 0, 0)
-        edit_bone.tail = (0, 0.1, 0)  # Small default length
-        
-        created_bones[point_hash] = edit_bone
-        Debug.log(f"    Created motion point bone: {bone_name}")
-    
-    # Set up parent relationships
-    # If parent is a motion point in this armature, use it.
-    # If parent hash is not in motion points but is valid, create a parent bone from the hash.
-    for point_hash, (bone_name, parent_hash) in motion_point_bones.items():
-        if parent_hash == 0 or parent_hash == StrCode32(0):
-            continue  # No parent
-            
-        if parent_hash in created_bones:
-            # Parent is another motion point
-            edit_bone = created_bones[point_hash]
-            parent_bone = created_bones[parent_hash]
-            edit_bone.parent = parent_bone
-            Debug.log(f"    Set parent: {bone_name} -> {parent_bone.name} (motion point)")
-        else:
-            # Parent is not a motion point - create a parent bone from the hash
-            parent_hash_int = parent_hash.to_int() if hasattr(parent_hash, 'to_int') else int(parent_hash)
-            parent_bone_name = unhash_rig_type(parent_hash_int)
-            if not parent_bone_name:
-                # Use hex hash if unhashing fails
-                parent_bone_name = str(parent_hash)
-            
-            # Check if we already created this parent bone
-            if parent_hash not in created_bones:
-                parent_edit_bone: bpy.types.EditBone = armature.data.edit_bones.new(parent_bone_name)
-                parent_edit_bone.head = (0, 0, 0)
-                parent_edit_bone.tail = (0, 0.1, 0)
-                created_bones[parent_hash] = parent_edit_bone
-                Debug.log(f"    Created parent bone from hash: {parent_bone_name} (hash: {parent_hash})")
-            
-            # Set parent
-            edit_bone = created_bones[point_hash]
-            parent_bone = created_bones[parent_hash]
-            edit_bone.parent = parent_bone
-            Debug.log(f"    Set parent: {bone_name} -> {parent_bone.name} (from parent hash)")
-    
-    # Exit edit mode
-    bpy.ops.object.mode_set(mode='OBJECT')
-    
-    Debug.log(f"Motion points armature created with {len(motion_points.entries)} point(s)")
-    
-    # Process motion point animations using pre-created actions
-    if motion_point_actions:
-        Debug.log("\n=== Processing Motion Point Animations ===")
-        Debug.log(f"Importing animations to motion points armature: {armature.name}")
-        
-        # Create animation data if needed
-        if not armature.animation_data:
-            armature.animation_data_create()
-        
-        # Create NLA track for motion point animations
-        nla_track: bpy.types.NlaTrack = armature.animation_data.nla_tracks.new()
-        nla_track.name = f"{mtar_file_name}_MotionPoints_Animations"
-        Debug.log(f"Created NLA track: {nla_track.name}")
-        
-        # Create NLA strips for motion point actions using shared utility
-        # Pass reference_actions to synchronize frame offsets with animation strips
-        motion_point_final_offset = create_nla_strips_for_actions(
-            nla_track,
-            motion_point_actions,
-            mtar_file_name,
-            all_file_headers,
-            path_to_indices,
-            use_verbose_naming,
-            is_motion_points=True,
-            strip_padding=strip_padding,
-            reference_actions=reference_actions
-        )
-        
-        # Update scene frame range if motion points extend beyond current end
-        if motion_point_final_offset > context.scene.frame_end:
-            context.scene.frame_end = int(motion_point_final_offset)
-            Debug.log(f"Extended scene frame range to {motion_point_final_offset} for motion points")
-        
-        Debug.log("Motion point animations import complete")
-    
-    return armature
-
-
 # MTAR import #############################################################
 
 def sort_gani_data_by_file_offset(
@@ -1630,7 +886,10 @@ def sort_gani_data_by_file_offset(
     all_track_mini_headers: List[TrackMiniHeader],
     all_motion_point_layouts: List[Optional[Tracks]],
     all_file_headers: List[MtarTableList2],
-    all_motion_point_track_headers: List[Optional[TrackHeader]]
+    all_motion_point_track_headers: List[Optional[TrackHeader]],
+    all_skl_lists: List[Optional[List[str]]],
+    all_mtp_lists: List[Optional[List[str]]],
+    all_mtp_parent_lists: List[Optional[List[str]]],
 ) -> Tuple[
     List[List[TrackUnitWrapper]],
     List[List[TrackUnitWrapper]],
@@ -1638,7 +897,10 @@ def sort_gani_data_by_file_offset(
     List[TrackMiniHeader],
     List[Optional[Tracks]],
     List[MtarTableList2],
-    List[Optional[TrackHeader]]
+    List[Optional[TrackHeader]],
+    List[Optional[List[str]]],
+    List[Optional[List[str]]],
+    List[Optional[List[str]]],
 ]:
     """Sort all GANI data lists by tracks_offset from file headers.
     
@@ -1663,7 +925,10 @@ def sort_gani_data_by_file_offset(
             all_track_mini_headers[i],
             all_motion_point_layouts[i],
             all_file_headers[i],
-            all_motion_point_track_headers[i]
+            all_motion_point_track_headers[i],
+            all_skl_lists[i] if all_skl_lists and i < len(all_skl_lists) else None,
+            all_mtp_lists[i] if all_mtp_lists and i < len(all_mtp_lists) else None,
+            all_mtp_parent_lists[i] if all_mtp_parent_lists and i < len(all_mtp_parent_lists) else None,
         ))
     
     # Sort by tracks_offset
@@ -1677,7 +942,10 @@ def sort_gani_data_by_file_offset(
     sorted_motion_point_layouts = [item[6] for item in combined]
     sorted_file_headers = [item[7] for item in combined]
     sorted_motion_point_track_headers = [item[8] for item in combined]
-    
+    sorted_skl_lists = [item[9] for item in combined]
+    sorted_mtp_lists = [item[10] for item in combined]
+    sorted_mtp_parent_lists = [item[11] for item in combined]
+
     return (
         sorted_gani_tracks,
         sorted_motion_point_gani_tracks,
@@ -1685,7 +953,10 @@ def sort_gani_data_by_file_offset(
         sorted_track_mini_headers,
         sorted_motion_point_layouts,
         sorted_file_headers,
-        sorted_motion_point_track_headers
+        sorted_motion_point_track_headers,
+        sorted_skl_lists,
+        sorted_mtp_lists,
+        sorted_mtp_parent_lists,
     )
 
 def import_mtar(
@@ -1805,14 +1076,17 @@ def import_mtar_data(
         Debug.log_warning("Missing settings property: context.scene.mtar_properties.settings_props.sort_gani")
         sort_enabled = False
     if sort_enabled and all_file_headers:
-        all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers = sort_gani_data_by_file_offset(
+        all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers, all_skl_lists, all_mtp_lists, all_mtp_parent_lists = sort_gani_data_by_file_offset(
             all_gani_tracks,
             all_motion_point_gani_tracks,
             all_motion_events,
             all_track_mini_headers,
             all_motion_point_layouts,
             all_file_headers,
-            all_motion_point_track_headers
+            all_motion_point_track_headers,
+            all_skl_lists,
+            all_mtp_lists,
+            all_mtp_parent_lists,
         )
 
     # Get layout track for metadata storage
@@ -1832,7 +1106,17 @@ def import_mtar_data(
         motion_points = reader.common_info.motion_points
         Debug.log(f"Motion points found: {motion_points.count} point(s)")
         for entry in motion_points.entries:
-            Debug.log(f"  MotionPoint {entry.name}: name={str(entry.name)}, parent={str(entry.parent_name)}")
+            Debug.log(f"  MotionPoint {entry.hash_value}: name={entry.name}, parent={entry.parent_name}")
+    elif any(all_motion_point_gani_tracks):
+        # Old-format: synthesise MotionPointWrapper from MTP track names and parent strings
+        motion_points = MotionPointWrapper.from_old_format(
+            all_motion_point_gani_tracks,
+            all_mtp_parent_lists,
+        )
+        if motion_points:
+            Debug.log(f"Old-format: synthesised motion points: {motion_points.count} point(s)")
+        else:
+            Debug.log("Old-format: no motion point tracks found for synthesis")
     
     # If FRIG data is available, set rig_unit_type for each GaniTrack
     # The index of gani_tracks correlates with the rig unit defs in the FRIG file
@@ -1934,7 +1218,8 @@ def import_mtar_data(
         all_file_headers,
         path_to_indices,
         use_verbose_naming,
-        gani_hash_dict=gani_hash_dict
+        gani_hash_dict=gani_hash_dict,
+        motion_points=motion_points,
     )
     
     # Create and setup motion points armature with animation data (optional secondary task)

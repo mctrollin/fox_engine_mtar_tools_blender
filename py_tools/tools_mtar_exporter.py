@@ -24,28 +24,33 @@ from ..py_utilities.utilities_transforms import (
     TransformsCache
 )
 from ..py_utilities.utilities_blender_animation import (
-    FCurveCache, action_has_fcurves, iter_action_fcurves, is_relevant_strip, try_find_layout_track_action,
-    build_data_path_for_bone, extract_bone_name_from_data_path
+    FCurveCache, iter_action_fcurves, is_relevant_strip, try_find_layout_track_action,
+    build_data_path_for_bone,
 )
 from ..py_utilities.utilities_fcurve_processing import bake_and_clean_export_fcurves
 
 from ..py_foxwrap.foxwrap_motionevent import read_motion_events_from_action
-from ..py_foxwrap.foxwrap_metadata import parse_action_track_metadata, read_track_header_properties_from_action, read_mtar_properties_from_action
+from ..py_foxwrap.foxwrap_metadata import read_track_header_properties_from_action, read_mtar_properties_from_action
 from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox import fox_mtar_constants as mtar_const
-from ..py_foxwrap.foxwrap_metadata import TrackMetaData, merge_track_metadata, iter_track_properties, get_all_track_metadata_from_action
+from ..py_foxwrap.foxwrap_metadata import TrackMetaData, merge_track_metadata, get_all_track_metadata_from_action
 from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper, Tracks, TrackDataBlobWrapper
 from ..py_foxwrap.foxwrap_mtar_writer import MtarWriter
 from ..py_foxwrap.foxwrap_misc_export import (
     GaniExportData, GaniExportTracksData, GaniExportMotionPointsData, GaniMotionEventsData,
-    TrackSegmentBoneMapping, ExportActionData, create_synthetic_mapping, build_motion_point_action_maps, find_motion_point_action_for_gani
+    TrackSegmentBoneMapping, ExportActionData, create_synthetic_mapping, group_bones_by_segment,
+    build_motion_point_action_maps, find_motion_point_action_for_gani
 )
 from ..py_foxwrap.foxwrap_mapping import BoneParameters
 
 from ..py_fox.fox_gani_types import AnimKeyframe, SegmentType, TrackUnitFlags, TrackHeader, TrackUnit, TrackData, TrackDataBlob
-from ..py_fox.fox_mtar_types import MotionPointList2, MotionPointEntry
 from ..py_fox.fox_frig_types import RigUnitType
 from ..py_fox.fox_misc_types import StrCode32
+from .tools_motion_points_exporter import (
+    build_motion_points_list_from_armature,
+    build_motion_point_metadata_dict,
+    collect_motion_point_actions,
+)
 
 # Utility Functions ###############################################################
 
@@ -143,7 +148,7 @@ def build_layout_track_from_metadata(track_segment_bone_mapping: TrackSegmentBon
         # Get the fox track name from the mapping params
         fox_track_name = fox_mapping_params.fox_name
         
-        # Strip segment suffix if present (e.g., "RIG_SKL_010_LSHLD_0" -> "RIG_SKL_010_LSHLD")
+        # Strip segment suffix if present (e.g., "RIG_SKL_010_LSHLD_1" -> "RIG_SKL_010_LSHLD")
         # Multi-segment tracks store metadata under the base track name
         base_fox_track_name = fox_track_name
         if '_' in fox_track_name:
@@ -955,7 +960,7 @@ def export_gani_track_from_action(armature: bpy.types.Object,
     unit flags from the animation action.
     
     For multi-segment tracks, each segment maps to a different Blender bone
-    (e.g., "RIG_SKL_010_LSHLD_0", "RIG_SKL_010_LSHLD_1", "RIG_SKL_010_LSHLD_2") as defined in the track mapping file.
+    (e.g., "RIG_SKL_010_LSHLD", "RIG_SKL_010_LSHLD_1", "RIG_SKL_010_LSHLD_2") as defined in the track mapping file.
     
     Args:
         armature: Armature object
@@ -1006,7 +1011,7 @@ def export_gani_track_from_action(armature: bpy.types.Object,
     # Get the fox track name from the base mapping params
     fox_track_name = base_fox_mapping_params.fox_name
     
-    # Strip segment suffix if present (e.g., "RIG_SKL_010_LSHLD_0" -> "RIG_SKL_010_LSHLD")
+    # Strip segment suffix if present (e.g., "RIG_SKL_010_LSHLD_1" -> "RIG_SKL_010_LSHLD")
     # Metadata is stored under the base track name for multi-segment tracks
     base_fox_track_name = fox_track_name
     if '_' in fox_track_name:
@@ -1323,279 +1328,6 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
                 pass  # Action may already be removed
 
 
-# Motion Points #############################################################
-
-def build_motion_points_list_from_armature(motion_points_armature: bpy.types.Object) -> MotionPointList2:
-    """Build MotionPointList2 from a motion points armature.
-    
-    Extracts bone names and parent relationships to create the motion points list
-    that will be written to the CommonInfo section.
-    
-    Only bones that have animation data are exported as motion points. Parent-only bones
-    (bones that exist solely to provide hierarchy) are excluded from the export.
-    
-    During export, each motion point bone's parent is checked:
-    - If the bone has a parent, the parent's name is hashed and written
-    - If the bone has no parent, a warning is logged and an empty hash (0) is written
-    
-    Args:
-        motion_points_armature: Armature containing motion point bones
-        
-    Returns:
-        MotionPointList2 object containing motion point definitions
-    """
-    if not motion_points_armature or motion_points_armature.type != 'ARMATURE':
-        return MotionPointList2(count=0, entries=[])
-    
-    Debug.log(f"\nBuilding MotionPointsList from armature '{motion_points_armature.name}'...")
-    
-    # First, identify which bones have animation data across all actions
-    bones_with_animation = set()
-    
-    # Check NLA tracks for actions
-    if motion_points_armature.animation_data:
-        for nla_track in motion_points_armature.animation_data.nla_tracks:
-            for strip in nla_track.strips:
-                if strip.action and is_relevant_strip(strip):
-                    for fcurve in iter_action_fcurves(strip.action):
-                        # Extract bone name from data_path (e.g., 'pose.bones["BoneName"].location')
-                        bone_name = extract_bone_name_from_data_path(fcurve.data_path)
-                        if bone_name:
-                            bones_with_animation.add(bone_name)
-                else:
-                    if strip.action:
-                        Debug.log(f"  Skipping motion point strip '{getattr(strip, 'name', '<unknown>')}' (not a GANI strip)")
-    
-    if not bones_with_animation:
-        Debug.log_warning("  Warning: No bones with animation data found in motion points armature. All bones in the armature will be exported as motion points")
-        # If no animation data, export all bones
-        bones_with_animation = {bone.name for bone in motion_points_armature.data.bones}
-    
-    entries = []
-    bones = motion_points_armature.data.bones
-    parent_only_bones = []
-    
-    for bone in bones:
-        # Skip bones that don't have animation data (parent-only bones)
-        if bone.name not in bones_with_animation:
-            parent_only_bones.append(bone.name)
-            continue
-        
-        # Convert name to StrCode32
-        name_hash = StrCode32(int(bone.name))
-        
-        # Convert parent name StrCode32 (0 if no parent)
-        parent_hash = StrCode32(0)
-        if bone.parent:
-            parent_hash = StrCode32(int(bone.parent.name))
-            parent_str = f"→ {bone.parent.name}"
-        else:
-            Debug.log_warning(f"  Warning: Motion point bone '{bone.name}' has no parent; writing empty parent hash")
-            parent_str = "(no parent - empty hash)"
-        
-        entry = MotionPointEntry(
-            name=name_hash,
-            parent_name=parent_hash
-        )
-        entries.append(entry)
-        
-        Debug.log(f"  {bone.name} {parent_str} (hash: {name_hash}, parent_hash: {parent_hash})")
-    
-    if parent_only_bones:
-        Debug.log(f"  Skipped {len(parent_only_bones)} parent-only bone(s): {', '.join(parent_only_bones)}")
-    
-    motion_points_list = MotionPointList2(
-        count=len(entries),
-        entries=entries
-    )
-    
-    Debug.log(f"MotionPointsList built: {motion_points_list.count} point(s)")
-    
-    return motion_points_list
-
-def build_motion_point_metadata_dict(motion_points_armature: bpy.types.Object,
-                                     action: bpy.types.Action) -> Dict[str, TrackMetaData]:
-    """Build metadata dictionary for motion point tracks by analyzing armature and action.
-    
-    Motion points don't have a layout track action, but we can derive per-track metadata
-    by inspecting which fcurves exist for each bone and reading stored metadata from the action.
-    
-    Args:
-        motion_points_armature: Motion points armature object
-        action: Action to analyze for per-track overrides (required)
-        
-    Returns:
-        Dictionary mapping bone name -> TrackMetaData
-    """
-    metadata_dict = {}
-    
-    if not motion_points_armature or motion_points_armature.type != 'ARMATURE':
-        return metadata_dict
-
-    # Action is now a required parameter. If None is passed anyway, return empty data with a warning.
-    if not action:
-        Debug.log_warning(f"  Warning: No action provided to build_motion_point_metadata_dict() for armature '{motion_points_armature.name}', returning empty metadata dict")
-        return metadata_dict
-    
-    bones = motion_points_armature.data.bones
-    # Keep track of motion point bones for which we couldn't find metadata
-    missing_metadata_bones = []
-    
-    for bone in bones:
-        bone_name = bone.name
-        
-        # Determine which segments this bone has by checking fcurves
-        has_rotation = False
-        has_location = False
-        
-        if action_has_fcurves(action):
-            for fc in iter_action_fcurves(action):
-                rotation_quat_path = build_data_path_for_bone(bone_name, 'rotation_quaternion')
-                rotation_euler_path = build_data_path_for_bone(bone_name, 'rotation_euler')
-                location_path = build_data_path_for_bone(bone_name, 'location')
-                
-                if fc.data_path == rotation_quat_path or fc.data_path == rotation_euler_path:
-                    has_rotation = True
-                elif fc.data_path == location_path:
-                    has_location = True
-        
-        # Build segment types based on what fcurves exist
-        # Motion points typically use QUAT for rotation and VECTOR3 for location
-        segment_types = []
-        if has_rotation:
-            segment_types.append(SegmentType.QUAT)
-        if has_location:
-            segment_types.append(SegmentType.VECTOR3)
-        
-        # Try to read stored metadata from action first
-        component_bit_sizes = None
-        unit_flags = 0
-        
-        # Look for stored metadata using utility function
-        found_metadata_in_action = False
-        for _, track_name, metadata_str in iter_track_properties(action):
-            if track_name == bone_name:
-                # Found metadata for this bone
-                found_metadata_in_action = True
-                if isinstance(metadata_str, str):
-                    # Parse the metadata string to extract component_bit_sizes and flags
-                    parsed = parse_action_track_metadata(metadata_str)
-                    if parsed:
-                        if parsed.get('component_bit_sizes'):
-                            component_bit_sizes = parsed['component_bit_sizes']
-                        if parsed.get('flags'):
-                            # Convert flag names to integer
-                            flag_names = parsed['flags']
-                            flag_enums = []
-                            for name in flag_names:
-                                if name in TrackUnitFlags.__members__:
-                                    flag_enums.append(TrackUnitFlags[name])
-                            if flag_enums:
-                                unit_flags = TrackUnitFlags.track_unit_flags_to_int(flag_enums)
-                # Stop iterating over track properties when we've found metadata for this bone
-                break
-        # If the action is provided and bone is present in the action (via fcurves or metadata)
-        # but we couldn't find per-track metadata for it, note it.
-        bone_present_in_action = found_metadata_in_action or has_rotation or has_location
-        if bone_present_in_action and not found_metadata_in_action:
-            missing_metadata_bones.append(bone_name)
-    
-        # Only include metadata if this bone is present in the action
-        bone_present_in_action = found_metadata_in_action or has_rotation or has_location
-        if not bone_present_in_action:
-            # Skip bones not referenced by the action (don't return metadata for them)
-            continue
-
-        # Create TrackMetaData for this bone
-        metadata = TrackMetaData(
-            track_name=bone_name,
-            segment_types=segment_types,
-            unit_flags=unit_flags,
-            name_hash=StrCode32.from_string(bone_name).to_int(),
-            component_bit_sizes=component_bit_sizes,
-            rig_unit_type=None  # Motion points don't have explicit rig types
-        )
-        
-        metadata_dict[bone_name] = metadata
-    
-    # Emit a consolidated warning if we couldn't find metadata for any bones
-    if missing_metadata_bones:
-        Debug.log_warning(f"  Warning: No metadata found for {len(missing_metadata_bones)} motion point(s) in armature '{motion_points_armature.name}': {', '.join(missing_metadata_bones)}")
-
-    return metadata_dict
-
-def collect_motion_point_actions(motion_points_armature: bpy.types.Object, use_nla: bool, export_clean_threshold: float = 0.0) -> List[ExportActionData]:
-    """Collect motion point animation actions from the motion points armature.
-    
-    Follows the same logic as collect_actions_for_export() but for motion points.
-    
-    Args:
-        motion_points_armature: Motion points armature object
-        use_nla: If True, collect from NLA strips; if False, use active action
-        export_clean_threshold: Threshold for FCurve cleaning (0 = disabled)
-        
-    Returns:
-        List of ExportActionData for motion point animations
-    """
-    if not motion_points_armature:
-        return []
-    
-    Debug.log(f"\nCollecting motion point actions from '{motion_points_armature.name}'...")
-    
-    actions = []
-    
-    if use_nla and motion_points_armature.animation_data and motion_points_armature.animation_data.nla_tracks:
-        # Collect from NLA strips
-        Debug.log("  Using NLA strips for motion points")
-        for track in motion_points_armature.animation_data.nla_tracks:
-            if track.mute:
-                continue
-            for strip in track.strips:
-                if not is_relevant_strip(strip):
-                    if strip.action:
-                        Debug.log(f"    Skipping motion point strip '{getattr(strip, 'name', '<unknown>')}' (not a GANI strip)")
-                    continue
-
-                action_data = ExportActionData(
-                    action=strip.action,
-                    frame_start=int(strip.frame_start),
-                    frame_end=int(strip.frame_end),
-                    source=f"NLA strip '{strip.name}' on track '{track.name}'",
-                    export_clean_threshold=export_clean_threshold
-                )
-                actions.append(action_data)
-                Debug.log(f"    {action_data.to_string()}")
-
-    
-    elif motion_points_armature.animation_data and motion_points_armature.animation_data.action:
-        # Use active action
-        Debug.log("  Using active action for motion points")
-        action = motion_points_armature.animation_data.action
-        
-        # Determine frame range from action
-        if action_has_fcurves(action):
-            frame_start = int(min(kp.co.x for fc in iter_action_fcurves(action) for kp in fc.keyframe_points))
-            frame_end = int(max(kp.co.x for fc in iter_action_fcurves(action) for kp in fc.keyframe_points))
-        else:
-            frame_start = 0
-            frame_end = 0
-        
-        action_data = ExportActionData(
-            action=action,
-            frame_start=frame_start,
-            frame_end=frame_end,
-            source="Active action",
-            export_clean_threshold=export_clean_threshold
-        )
-        actions.append(action_data)
-        Debug.log(f"    {action_data.to_string()}")
-    
-    else:
-        Debug.log("  No motion point actions found")
-    
-    return actions
-
-
 # MTAR export #############################################################
 
 def export_mtar(context: bpy.types.Context,
@@ -1659,16 +1391,18 @@ def export_mtar(context: bpy.types.Context,
 
     # Use provided track_segment_bone_mapping or create default mapping from armature
     if track_segment_bone_mapping is None:
-        # No mapping provided - create default mapping using armature bone order
+        # No mapping provided - create default mapping using armature bone order.
+        # Uses two-pass grouping: a bone named "BoneName_N" (N>=1) is treated as segment N
+        # of the base track "BoneName" when that base bone also exists in the armature.
         track_segment_bone_mapping = TrackSegmentBoneMapping()
         Debug.log("\nNo track mapping provided, using armature bone order...")
-        for idx, bone in enumerate(armature.data.bones):
-            bone_name = bone.name
-            # Create BoneParameters with bone name as fox_name
-            track_segment_bone_mapping.set_segment_mapping(
-                idx, 0, bone_name, BoneParameters(fox_name=bone_name)
-            )
-            Debug.log(f"  Track {idx}: {bone_name}")
+        bone_names = [bone.name for bone in armature.data.bones]
+        for track_idx, (_base_name, segments) in enumerate(group_bones_by_segment(bone_names)):
+            for seg_idx, seg_bone_name in segments:
+                track_segment_bone_mapping.set_segment_mapping(
+                    track_idx, seg_idx, seg_bone_name, BoneParameters(fox_name=seg_bone_name)
+                )
+                Debug.log(f"  Track {track_idx} Segment {seg_idx}: {seg_bone_name}")
 
     # Extract rest pose from armature (merges with mapping file transformations)
     # Check settings to see if rest pose correction is enabled
@@ -1780,14 +1514,15 @@ def export_mtar(context: bpy.types.Context,
     motion_points_armature = export_props.motion_points_armature
     
     motion_point_actions_data: List[ExportActionData] = []
-    motion_points_list: Optional[MotionPointList2] = None
+    motion_points_list: Optional[object] = None
     motion_point_actions_by_gani_index: Dict[int, ExportActionData] = {}
     
     if motion_points_armature:
         Debug.log(f"Found motion points armature: {motion_points_armature.name}")
         
         # Build MotionPointsList from armature bones (but do not write header count yet - it is computed at write time)
-        motion_points_list : MotionPointList2 = build_motion_points_list_from_armature(motion_points_armature)
+        motion_points_wrapper = build_motion_points_list_from_armature(motion_points_armature)
+        motion_points_list = motion_points_wrapper.to_motion_point_list2()
         
         # Collect motion point actions
         motion_point_actions_data = collect_motion_point_actions(motion_points_armature, use_nla, export_props.export_fcurve_clean_threshold)

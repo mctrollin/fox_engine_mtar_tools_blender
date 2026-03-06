@@ -302,6 +302,99 @@ def iter_event_properties(action: bpy.types.Action) -> List[Tuple[int, str, str]
     return results
 
 
+# Track Metadata Storage #############################################################
+
+def store_track_metadata_on_action(
+    action: bpy.types.Action,
+    track_metadata_list: List['TrackMetaData'],
+    include_segments: bool = True,
+    include_hash: bool = True,
+) -> None:
+    """Store track metadata from :class:`TrackMetaData` objects as action custom properties.
+
+    Stores metadata in unified ``key=value`` format.
+
+    Layout track format::
+
+        name=<name> ; segments=<segs> ; bits=<bit_sizes> ; flags=<flags> ; hash=<hash>
+
+    GANI track format::
+
+        name=<name> ; bits=<bit_sizes> ; flags=<flag_names>
+
+    Args:
+        action:             The Blender action to store metadata on.
+        track_metadata_list: List of :class:`TrackMetaData` objects to serialise.
+        include_segments:   Include segment-type abbreviations (``True`` for
+                            layout tracks, ``False`` for GANI tracks).
+        include_hash:       Include the name hash field (``True`` for layout
+                            tracks, ``False`` for GANI tracks).
+    """
+    track_type = "layout" if include_segments else "GANI"
+    Debug.log(
+        f"Storing {track_type} track metadata for "
+        f"{len(track_metadata_list)} track(s) on action '{action.name}'"
+    )
+
+    for track_idx, track_meta in enumerate(track_metadata_list):
+        track_name = track_meta.track_name
+        metadata_parts = []
+
+        if include_segments:
+            abbrev_map = {
+                SegmentType.QUAT: 'q',
+                SegmentType.QUAT_DIFF: 'qd',
+                SegmentType.VECTOR3: 'v',
+                SegmentType.VECTOR_DIFF: 'vd',
+                SegmentType.FLOAT: 'f',
+                SegmentType.VECTOR2: 'v2',
+                SegmentType.VECTOR4: 'v4',
+            }
+            segment_str = ','.join(
+                abbrev_map.get(seg_type, '?')
+                for seg_type in track_meta.segment_types
+            )
+            metadata_parts.append(f"segments={segment_str}")
+
+        bit_sizes_str = ''
+        if track_meta.component_bit_sizes:
+            bit_sizes_str = ','.join(str(b) for b in track_meta.component_bit_sizes)
+        if bit_sizes_str:
+            metadata_parts.append(f"bits={bit_sizes_str}")
+
+        if track_meta.unit_flags is not None:
+            flags_list = TrackUnitFlags.int_to_track_unit_flags(track_meta.unit_flags)
+            flag_names = [flag.name for flag in flags_list]
+            flags_str = ','.join(flag_names) if flag_names else (
+                'NONE' if not include_segments else ''
+            )
+        else:
+            flags_str = 'NONE' if not include_segments else ''
+        if flags_str:
+            metadata_parts.append(f"flags={flags_str}")
+
+        if include_hash and track_meta.name_hash is not None and track_meta.name_hash != 0:
+            metadata_parts.append(f"hash={track_meta.name_hash}")
+
+        if track_meta.rig_unit_type is not None:
+            metadata_parts.append(f"type={track_meta.rig_unit_type.name}")
+
+        metadata_value = f"name={track_name} ; {' ; '.join(metadata_parts)}"
+        property_key = make_track_property_key(track_idx, track_name)
+        action[property_key] = metadata_value
+        action.id_properties_ui(property_key).update(
+            description=f"Track metadata for {track_name}"
+        )
+
+        if include_segments:
+            Debug.log(f"  Stored: {property_key} = {metadata_value}")
+        else:
+            Debug.log(
+                f"  Track {track_idx} ({track_name}): "
+                f"bits=[{bit_sizes_str}], flags={flags_str}"
+            )
+
+
 # Track Header Properties #############################################################
 
 def store_track_header_properties_on_action(action: bpy.types.Action, track_header: TrackHeader) -> None:

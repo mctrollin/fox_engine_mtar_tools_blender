@@ -6,10 +6,13 @@ import io
 from typing import Optional, List
 
 from .foxwrap_misc import Tracks, TrackUnitWrapper
+from .foxwrap_motionpoint import MotionPointWrapper
+
+from ..py_utilities.utilities_hashing import unhash_rig_type
 
 from ..py_fox.fox_gani_enums import CommonInfoNodeType
 from ..py_fox.fox_gani_types import EvpHeader, TrackMiniHeader, TrackHeader
-from ..py_fox.fox_mtar_types import MotionPointList2, MtarHeader, MtarMiniDataNode
+from ..py_fox.fox_mtar_types import MtarHeader, MtarMiniDataNode
 
 
 @dataclass
@@ -76,7 +79,7 @@ class GaniImportData:
 class CommonInfo:
     layout_track : Tracks
     skeleton_list : list[str]
-    motion_points : MotionPointList2
+    motion_points : Optional[MotionPointWrapper]
 
     @classmethod
     def read_layout_track(self, br: io.BytesIO) -> Optional[Tracks]:
@@ -110,9 +113,11 @@ class CommonInfo:
         return items
 
     @classmethod
-    def read_motion_points(self, br: io.BytesIO) -> Optional[MotionPointList2]:
-        """Read the motion points list."""
-        return MotionPointList2.read(br)
+    def read_motion_points(cls, br: io.BytesIO) -> Optional[MotionPointWrapper]:
+        """Read the motion points list and convert to MotionPointWrapper."""
+        from ..py_fox.fox_mtar_types import MotionPointList2
+        mpl = MotionPointList2.read(br)
+        return MotionPointWrapper.from_new_format(mpl, unhash_rig_type)
     
     @classmethod
     def read(cls, br: io.BytesIO, header: MtarHeader) -> 'CommonInfo':

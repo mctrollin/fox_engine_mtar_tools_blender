@@ -26,6 +26,7 @@ from .foxwrap_misc import Tracks, TrackUnitWrapper
 from .foxwrap_misc_import import GaniImportData, ShaderTrackWrapper
 
 from .foxwrap_gani2_reader import apply_track_naming
+from ..py_utilities.utilities_naming import apply_segment_suffixes
 
 
 def _apply_stringlist_names(
@@ -210,14 +211,19 @@ class GaniReader:
         # --- Convert UNIT tracks to TrackUnitWrapper list ---
         bone_tracks = apply_track_naming(Tracks.convert_to_gani_tracks(unit_tracks), prefix=None)
         _apply_stringlist_names(bone_tracks, skeleton_list, label=f"Read gani @ (0x{gani_start}) SKL_LIST")
+        apply_segment_suffixes(bone_tracks)
 
         # --- Convert MTP tracks if present ---
         mtp_tracks: List[TrackUnitWrapper] = []
         motion_point_layout: Optional[Tracks] = None
         motion_point_track_header = None
         if mtp_raw_tracks is not None:
-            mtp_tracks = apply_track_naming(Tracks.convert_to_gani_tracks(mtp_raw_tracks), prefix="MotionPoint")
-            _apply_stringlist_names(mtp_tracks, motion_point_list, label=f"Read gani @ (0x{gani_start}) MTP_LIST")
+            # Always use decimal hash strings for motion point track names (no prefix, no unhashing).
+            # This ensures FCurve bone paths match the decimal hash bone names in the motion points armature.
+            # _apply_stringlist_names is intentionally skipped here: applying readable names from MTP_LIST
+            # would break the name consistency with the armature bones.
+            mtp_tracks = apply_track_naming(Tracks.convert_to_gani_tracks(mtp_raw_tracks), use_decimal_only=True)
+            apply_segment_suffixes(mtp_tracks)
             motion_point_layout = mtp_raw_tracks
             motion_point_track_header = mtp_raw_tracks.header
         
