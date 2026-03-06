@@ -40,6 +40,7 @@ PROP_PARAMS = "params"        # used by store_/parse_gani_params_on_action
 # names during export.
 PROP_MTP_LIST        = "gfox_mtp_list"         # MTP_LIST  node — motion point name hashes
 PROP_MTP_PARENT_LIST = "gfox_mtp_parent_list"  # MTP_PARENT_LIST node — motion point parent hashes
+PROP_NO_SKL_LIST     = "gfox_no_skl_list"      # 1 = original GANI had no SKL_LIST node (suppress on re-export)
 
 
 # Custom Property Key Utilities #############################################################

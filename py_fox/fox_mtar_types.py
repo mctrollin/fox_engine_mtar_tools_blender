@@ -4,6 +4,7 @@ from enum import IntEnum
 import struct
 
 from .fox_misc_types import PathCode64, StrCode32
+from ..py_utilities.utilities_logging import Debug
 
 
 class MtarFlags(IntEnum):
@@ -135,11 +136,22 @@ class MtarTableList:
     def write(self, bw: BinaryIO) -> None:
         """Write MtarTableList to binary stream (old-format MTAR, 16 bytes)."""
         # old format: tracks_data_size stored as raw FoxData FileSize (no >>4 shift)
+        if not (0 <= self.tracks_data_size <= 0xFFFF):
+            Debug.log_warning(
+                f"MtarTableList.write: tracks_data_size={self.tracks_data_size} exceeds ushort range "
+                f"(0–65535) for path=0x{self.path:016X}. Value will be truncated. "
+                f"The GANI blob is likely too large for the old-format ushort field."
+            )
+        if not (0 <= self.unknown <= 0xFFFF):
+            Debug.log_warning(
+                f"MtarTableList.write: unknown={self.unknown} exceeds ushort range "
+                f"(0–65535) for path=0x{self.path:016X}."
+            )
         bw.write(struct.pack('<QIHH',
             self.path,
             self.tracks_offset,
-            self.tracks_data_size,
-            self.unknown
+            self.tracks_data_size & 0xFFFF,
+            self.unknown & 0xFFFF,
         ))
     
 

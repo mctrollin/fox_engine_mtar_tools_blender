@@ -26,6 +26,7 @@ from ..py_utilities.utilities_blender_animation import (
 from ..py_utilities.utilities_naming import format_action_name, format_strip_name, resolve_gani_name_segment, extract_gani_name_from_path
 
 from ..py_foxwrap.foxwrap_metadata import (
+    PROP_NO_SKL_LIST,
     TrackMetaData,
     store_track_header_properties_on_action,
     store_mtar_properties_on_action,
@@ -762,6 +763,13 @@ def create_animation_actions(
         # M10: Store FoxData StringData name lists (old-format only) for lossless re-export
         # Note: SKL_LIST names are applied directly to bone track names during import
         # (see foxwrap_gani_reader.py), so gfox_skl_list is no longer stored here.
+        # Instead we store a flag indicating whether the original GANI had NO SKL_LIST node.
+        if all_skl_lists and gani_index < len(all_skl_lists) and all_skl_lists[gani_index] is None:
+            action[PROP_NO_SKL_LIST] = 1
+            action.id_properties_ui(PROP_NO_SKL_LIST).update(
+                description="Original GANI had no SKL_LIST node — suppress on re-export"
+            )
+            Debug.log(f"  Stored {PROP_NO_SKL_LIST}: 1 (original had no SKL_LIST)")
         if all_mtp_lists and gani_index < len(all_mtp_lists) and all_mtp_lists[gani_index] is not None:
             store_foxdata_stringlist_on_action(action, PROP_MTP_LIST, all_mtp_lists[gani_index])
             Debug.log(f"  Stored {PROP_MTP_LIST}: {len(all_mtp_lists[gani_index])} entries")

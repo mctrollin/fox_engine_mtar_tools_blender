@@ -28,6 +28,7 @@ from .foxwrap_metadata import (
     parse_foxdata_stringlist_from_action,
     PROP_MTP_LIST,
     PROP_MTP_PARENT_LIST,
+    PROP_NO_SKL_LIST,
 )
 from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox import fox_mtar_constants as mtar_const
@@ -626,8 +627,12 @@ class MtarWriter:
 
         # SKL_LIST is auto-derived from gani_track names during write — names are the
         # authoritative source (set during import via _apply_stringlist_names in GaniReader).
+        # If the original GANI had no SKL_LIST node, PROP_NO_SKL_LIST=1 is stored on the
+        # action during import; passing skeleton_list=[] tells the writer to suppress it.
         # MTP_LIST and MTP_PARENT_LIST are still stored as action properties.
         action = gani_data.tracks_data.action if gani_data.tracks_data else None
+        no_skl_list = action and action.get(PROP_NO_SKL_LIST, 0)
+        skeleton_list = [] if no_skl_list else None  # []: suppress; None: auto-derive
         motion_point_list = parse_foxdata_stringlist_from_action(action, PROP_MTP_LIST) if action else None
         motion_point_parent_list = parse_foxdata_stringlist_from_action(action, PROP_MTP_PARENT_LIST) if action else None
         self.gani_writer.write_gani_to_buffer(
@@ -637,7 +642,7 @@ class MtarWriter:
             frame_rate=frame_rate,
             motion_point_tracks=gani_data.motion_points_data.motion_point_tracks if gani_data.motion_points_data else None,
             motion_events=gani_data.motion_events_data.motion_events if gani_data.motion_events_data else None,
-            skeleton_list=None,  # auto-derived from gani_track names
+            skeleton_list=skeleton_list,
             motion_point_list=motion_point_list,
             motion_point_parent_list=motion_point_parent_list,
         )
