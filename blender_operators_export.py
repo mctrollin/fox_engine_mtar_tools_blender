@@ -13,6 +13,7 @@ from .py_utilities.utilities_logging import Debug
 from .py_utilities.utilities_blender_state import nla_tweak_guard
 
 from .py_foxwrap.foxwrap_misc_export import TrackSegmentBoneMapping
+from .py_foxwrap.foxwrap_mapping import parse_segment_suffix
 from .py_foxwrap.foxwrap_mapping import parse_track_mapping_file
 from .py_foxwrap.foxwrap_metadata import iter_track_properties
 
@@ -71,15 +72,11 @@ def build_track_segment_bone_mapping_from_file(mapping_filepath: str,
             missing_bones.append(blender_bone_name)
             continue
         
-        # Multi-segment tracks have segment suffixes (e.g., "RIG_SKL_010_LSHLD", "RIG_SKL_010_LSHLD_1", "RIG_SKL_010_LSHLD_2")
-        base_track_name = fox_name
-        segment_idx = 0
-        
-        if '_' in fox_name:
-            parts = fox_name.rsplit('_', 1)
-            if len(parts) == 2 and parts[1].isdigit():
-                base_track_name = parts[0]
-                segment_idx = int(parts[1])
+        # Multi-segment tracks have numeric suffixes (Option D naming).
+        base_track_name, segment_idx = parse_segment_suffix(fox_name)
+        # For single-segment tracks parse_segment_suffix returns index -1; clamp to 0
+        if segment_idx < 0:
+            segment_idx = 0
         
         # Store segment info with BoneParameters object
         track_segments[base_track_name].append((segment_idx, blender_bone_name, bone_params))

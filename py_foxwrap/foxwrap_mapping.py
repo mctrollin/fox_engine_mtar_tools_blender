@@ -19,6 +19,23 @@ from .foxwrap_metadata import (
 )
 
 
+def parse_segment_suffix(fox_name: str) -> tuple[str, int]:
+    """Utility for splitting Option-D track names.
+
+    Multi-segment tracks append ``_N`` where ``N`` is a non-negative
+    integer.  The base track (segment 0) usually has no suffix; in that
+    case we return ``index=-1`` to disambiguate from a literal ``_0``.
+
+    This function is used across export/import code to normalise fox
+    track names before looking them up in metadata dictionaries.
+    """
+    if '_' in fox_name:
+        parts = fox_name.rsplit('_', 1)
+        if len(parts) == 2 and parts[1].isdigit():
+            return parts[0], int(parts[1])
+    return fox_name, -1
+
+
 @dataclass
 class IkUpParameters:
     """Parameters for as_ik_up directional vector IK.
@@ -177,7 +194,7 @@ class TrackMappingData:
         self.fox_to_blender_names[fox_name] = blender_name
         
         # Parse base fox name (strip segment suffix if present)
-        base_fox_name, _ = self._parse_segment_suffix(fox_name)
+        base_fox_name, _ = parse_segment_suffix(fox_name)
         
         # Build reverse mapping (Blender -> Fox) - full fox name with suffix
         # Last wins, but no warning (multi-property to same bone is expected)
@@ -305,31 +322,6 @@ class TrackMappingData:
             return "scale"
         # Default to rotation for unknown properties
         return "rotation"
-    
-    @staticmethod
-    def _parse_segment_suffix(fox_name: str) -> Tuple[str, int]:
-        """Parse segment suffix from Fox bone name.
-        
-        Multi-segment tracks use naming convention (Option D):
-        - Segment 0 = base name with NO suffix (e.g. "RIG_SKL_023_RHAND")
-        - Segment N = base name + "_N" for N >= 1 (e.g. "RIG_SKL_023_RHAND_1")
-        Single-segment tracks also have no suffix and return segment index -1
-        to distinguish them from a genuine segment-0 entry.
-        
-        Args:
-            fox_name: Fox bone name (e.g., "RIG_SKL_023_RHAND", "RIG_SKL_023_RHAND_1", "RIG_SKL_004_HEAD")
-            
-        Returns:
-            Tuple of (base_name, segment_index)
-            - "RIG_SKL_023_RHAND"   -> ("RIG_SKL_023_RHAND", -1) - segment 0 / single-segment track
-            - "RIG_SKL_023_RHAND_1" -> ("RIG_SKL_023_RHAND",  1) - segment 1 of multi-segment track
-            - "RIG_SKL_004_HEAD"    -> ("RIG_SKL_004_HEAD",  -1) - single-segment track
-        """
-        if '_' in fox_name:
-            parts = fox_name.rsplit('_', 1)
-            if len(parts) == 2 and parts[1].isdigit():
-                return (parts[0], int(parts[1]))
-        return (fox_name, -1)
     
     def __len__(self) -> int:
         """Return number of bone mappings."""

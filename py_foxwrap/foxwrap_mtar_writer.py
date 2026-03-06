@@ -795,11 +795,20 @@ class MtarWriter:
         Returns:
             Binary data containing the MotionPointTracks section
         """
+        # Safety filter: discard any empty tracks (in case upstream filtering missed any)
+        # Motion points have no layout track, so empty tracks have no purpose
+        valid_tracks = [t for t in motion_point_tracks if t.segments_track_data]
+        if len(valid_tracks) < len(motion_point_tracks):
+            Debug.log_warning(
+                f"    WARNING: Discarding {len(motion_point_tracks) - len(valid_tracks)} empty motion point track(s) "
+                f"(kept {len(valid_tracks)})"
+            )
+        
         # Build TrackUnits from TrackUnitWrapper objects
         track_units = []
         total_segment_count = 0
         
-        for motion_point_track in motion_point_tracks:
+        for motion_point_track in valid_tracks:
             # Get track name hash
             if isinstance(motion_point_track.name, str):
                 # Convert string hash to integer

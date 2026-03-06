@@ -14,6 +14,7 @@ from ..py_fox.fox_gani_types import TrackUnitFlags, EvpHeader
 
 from .foxwrap_metadata import TrackMetaData, merge_track_metadata, parse_gani_params_from_action
 from .foxwrap_misc import Tracks, TrackUnitWrapper
+from .foxwrap_mapping import parse_segment_suffix
 from .foxwrap_gani2_writer import Gani2Writer
 from .foxwrap_mapping import BoneParameters
 
@@ -404,12 +405,8 @@ class TrackSegmentBoneMapping:
             _, bone_parameters = base_mapping
             fox_track_name = bone_parameters.fox_name
             
-            # Strip segment suffix if present (e.g., "RIG_SKL_010_LSHLD_1" -> "RIG_SKL_010_LSHLD")
-            base_fox_track_name = fox_track_name
-            if '_' in fox_track_name:
-                parts = fox_track_name.rsplit('_', 1)
-                if len(parts) == 2 and parts[1].isdigit():
-                    base_fox_track_name = parts[0]
+            # Strip multi-segment suffix if present
+            base_fox_track_name, _ = parse_segment_suffix(fox_track_name)
             
             # Look up expected segment count from layout metadata
             if base_fox_track_name in metadata_dict:
@@ -541,10 +538,8 @@ def group_bones_by_segment(bone_names: List[str]) -> List[Tuple[str, List[Tuple[
 
         # If this bone looks like a segment N (N>=1) of an existing base, skip it here;
         # it will be picked up when the base bone is processed.
-        parts = bone_name.rsplit('_', 1)
-        if (len(parts) == 2 and parts[1].isdigit()
-                and int(parts[1]) >= 1
-                and parts[0] in name_set):
+        base, idx = parse_segment_suffix(bone_name)
+        if idx >= 1 and base in name_set:
             continue
 
         # This is a base bone — collect all _N siblings (N=1, 2, …) present in the armature.

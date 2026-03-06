@@ -35,6 +35,7 @@ from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_foxwrap.foxwrap_metadata import TrackMetaData, merge_track_metadata, get_all_track_metadata_from_action
 from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper, Tracks, TrackDataBlobWrapper
+from ..py_foxwrap.foxwrap_mapping import parse_segment_suffix
 from ..py_foxwrap.foxwrap_mtar_writer import MtarWriter
 from ..py_foxwrap.foxwrap_misc_export import (
     GaniExportData, GaniExportTracksData, GaniExportMotionPointsData, GaniMotionEventsData,
@@ -148,13 +149,8 @@ def build_layout_track_from_metadata(track_segment_bone_mapping: TrackSegmentBon
         # Get the fox track name from the mapping params
         fox_track_name = fox_mapping_params.fox_name
         
-        # Strip segment suffix if present (e.g., "RIG_SKL_010_LSHLD_1" -> "RIG_SKL_010_LSHLD")
-        # Multi-segment tracks store metadata under the base track name
-        base_fox_track_name = fox_track_name
-        if '_' in fox_track_name:
-            parts = fox_track_name.rsplit('_', 1)
-            if len(parts) == 2 and parts[1].isdigit():
-                base_fox_track_name = parts[0]
+        # Strip multi-segment suffix if present
+        base_fox_track_name, _ = parse_segment_suffix(fox_track_name)
         
         if base_fox_track_name in metadata_dict:
             metadata = metadata_dict[base_fox_track_name]
@@ -1011,13 +1007,8 @@ def export_gani_track_from_action(armature: bpy.types.Object,
     # Get the fox track name from the base mapping params
     fox_track_name = base_fox_mapping_params.fox_name
     
-    # Strip segment suffix if present (e.g., "RIG_SKL_010_LSHLD_1" -> "RIG_SKL_010_LSHLD")
-    # Metadata is stored under the base track name for multi-segment tracks
-    base_fox_track_name = fox_track_name
-    if '_' in fox_track_name:
-        parts = fox_track_name.rsplit('_', 1)
-        if len(parts) == 2 and parts[1].isdigit():
-            base_fox_track_name = parts[0]
+    # Strip multi-segment suffix if present
+    base_fox_track_name, _ = parse_segment_suffix(fox_track_name)
     
 
     # layout_metadata is passed in directly (TrackMetaData instance for this track)
@@ -1184,7 +1175,8 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
                        action_data: ExportActionData,
                        track_segment_bone_mapping: Optional[TrackSegmentBoneMapping],
                        layout_metadata_dict: Dict[str, TrackMetaData],
-                       force_highest_bit_encoding: bool = False) -> List['TrackUnitWrapper']:
+                       force_highest_bit_encoding: bool = False,
+                       discard_empty_tracks: bool = False) -> List['TrackUnitWrapper']:
     """Export a single action as GANI track data.
     
     This is the export counterpart to the per-GANI processing in import_track_data().
@@ -1194,9 +1186,10 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
     Args:
         armature: Armature object
         action_data: ExportActionData containing action and export parameters
-    track_segment_bone_mapping: Optional unified mapping from (track_idx, segment_idx) to (bone_name, fox_mapping_params). If None, fallback mode is used.
-    layout_metadata_dict: Dictionary mapping fox track name to TrackMetaData. If empty, fallback mode is used.
+        track_segment_bone_mapping: Optional unified mapping from (track_idx, segment_idx) to (bone_name, fox_mapping_params). If None, fallback mode is used.
+        layout_metadata_dict: Dictionary mapping fox track name to TrackMetaData. If empty, fallback mode is used.
         force_highest_bit_encoding: If True, use highest available bit sizes for all segments
+        discard_empty_tracks: If True, skip tracks with no segments (used for motion points to avoid empty placeholders)
         
     Returns:
         List of GaniTrack objects
@@ -1210,6 +1203,7 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
     try:
         gani_tracks = []
         
+        # Process FCurves ------------------------------------------------------
         # Process FCurves for export (bake non-linear, clean redundant keyframes)
         # This may create a modified copy of the action if non-linear fcurves are found
         processed_action = action
@@ -1223,10 +1217,7 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
                     armature.animation_data_create()
                 armature.animation_data.action = action
                 
-                export_result = bake_and_clean_export_fcurves(
-                    armature=armature,
-                    fcurve_clean_threshold=clean_threshold
-                )
+                export_result = bake_and_clean_export_fcurves(armature=armature, fcurve_clean_threshold=clean_threshold)
                 
                 processed_action = export_result['action']
                 
@@ -1246,7 +1237,8 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
                 Debug.log_warning(f"    Warning: Failed to process export FCurves: {str(e)}")
                 processed_action = action
         
-        # Build fcurve cache once for this action (major performance optimization)
+        # Build Fcurve Cache ------------------------------------------------------
+        # Once for this action (major performance optimization)
         # This eliminates 20-100× redundancy from scanning action.fcurves for every bone
         Debug.start_timer("build_fcurve_cache")
         fcurve_cache = FCurveCache.build(processed_action) if processed_action else None
@@ -1255,12 +1247,14 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
         if fcurve_cache and not fcurve_cache.is_empty():
             Debug.log(f"    Built fcurve cache: {len(fcurve_cache.get_bones())} bones indexed")
 
-        # Build transform cache once for this action (major performance optimization)
+        # Build Transform Cache ------------------------------------------------------
+        # Once for this action (major performance optimization)
         # This eliminates thousands of scene.frame_set() calls during track export
         transform_cache = TransformsCache(armature, frame_start, frame_end)
         transform_cache.build()
 
-        # Create synthetic mapping if needed (when no mapping provided)
+        # Create Synthetic Mapping ------------------------------------------------------
+        # If needed (when no mapping provided)
         if not track_segment_bone_mapping or not layout_metadata_dict:
             track_segment_bone_mapping, synthetic_metadata = create_synthetic_mapping(
                 armature, action, layout_metadata_dict
@@ -1268,6 +1262,7 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
             # Merge synthetic metadata into layout_metadata_dict
             layout_metadata_dict = {**(layout_metadata_dict or {}), **synthetic_metadata}
         
+        # Get and return TrackUnitWrapper ------------------------------------------------------
         # Export all tracks using the mapping (provided or synthetic)
         track_indices = track_segment_bone_mapping.get_track_indices()
         Debug.log(f"    Processing {len(track_indices)} track(s)...")
@@ -1281,11 +1276,7 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
                 _blender_bone_name, fox_mapping_params = base_mapping
                 fox_track_name = fox_mapping_params.fox_name
                 # Strip multi-segment suffix if present
-                base_fox_track_name = fox_track_name
-                if '_' in fox_track_name:
-                    parts = fox_track_name.rsplit('_', 1)
-                    if len(parts) == 2 and parts[1].isdigit():
-                        base_fox_track_name = parts[0]
+                base_fox_track_name, _ = parse_segment_suffix(fox_track_name)
                 
                 if layout_metadata_dict and base_fox_track_name in layout_metadata_dict:
                     layout_metadata = layout_metadata_dict[base_fox_track_name]
@@ -1314,8 +1305,13 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
                 transform_cache
             )
             
-            # Add track to output (empty tracks are added to preserve structure)
-            gani_tracks.append(gani_track)
+            # Add track to output
+            # For e.g. motion points (discard_empty_tracks=True), skip tracks with no segments
+            # For e.g. main animation (discard_empty_tracks=False), keep empty tracks to preserve structure defined by layout track
+            if discard_empty_tracks and not gani_track.segments_track_data:
+                Debug.log(f"      Skipping empty track {track_idx}")
+            else:
+                gani_tracks.append(gani_track)
         
         return gani_tracks
 
@@ -1615,11 +1611,13 @@ def export_mtar(context: bpy.types.Context,
             Debug.log(f"    Built metadata from {len(motion_point_metadata_dict)} motion point bone(s)")
 
             # Export motion point tracks
+            # discard_empty_tracks=True: skip tracks with no animation data (motion points have no layout track)
             motion_point_tracks = export_gani_tracks_from_action(motion_points_armature,
                                                                  motion_point_action_data,
                                                                  None,  # No bone mapping needed yet for motion points
                                                                  motion_point_metadata_dict,  # Pass the built metadata dict
-                                                                 force_highest_bit_encoding)
+                                                                 force_highest_bit_encoding,
+                                                                 discard_empty_tracks=True)
             if motion_point_tracks:
                 Debug.log(f"    Exported {len(motion_point_tracks)} motion point track(s)")
             else:
