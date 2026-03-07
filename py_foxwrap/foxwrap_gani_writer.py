@@ -144,7 +144,7 @@ class GaniWriter:
         if not gani_tracks:
             raise ValueError("gani_tracks cannot be empty")
 
-        # ── Sort UNIT track order to match SKL_LIST ──────────────────────────
+        # Sort UNIT track order to match SKL_LIST -------------------------------------------
         # _write_stringdata_node sorts the SKL_LIST alphabetically, so the UNIT
         # node must carry the same order to keep track indices consistent.
         #
@@ -170,15 +170,13 @@ class GaniWriter:
         skl_tracks.sort(key=lambda w: str(w.name))
         gani_tracks = non_skl_tracks + skl_tracks
 
-        # Build UNIT (bone) and optional MTP Tracks structures
+        # Build UNIT (bone) and optional MTP Tracks structures -------------------------------------------
         unit_tracks = self._build_tracks_from_wrappers(gani_tracks, frame_count, frame_rate)
-        mtp_tracks = (
-            self._build_tracks_from_wrappers(motion_point_tracks, frame_count, frame_rate)
-            if motion_point_tracks
-            else None
-        )
+        mtp_tracks = (self._build_tracks_from_wrappers(motion_point_tracks, frame_count, frame_rate) if motion_point_tracks else None)
 
-        # Resolve effective string lists ──────────────────────────────────────
+        # Resolve effective string lists -------------------------------------------
+        # TODO: this is not easy to understand len=0 vs None. Evaluate better solutions
+
         # SKL_LIST: None -> derive from gani_tracks; [] -> suppress (None means omit)
         # Only real-name (SKL) tracks are included in the SKL_LIST; hash-string
         # tracks (root motion etc.) are deliberately excluded.
@@ -191,19 +189,16 @@ class GaniWriter:
 
         # MTP_LIST: None -> derive from motion_point_tracks if present; [] -> suppress
         if motion_point_list is None:
-            effective_mtp_list: Optional[List] = (
-                [w.name for w in motion_point_tracks] if motion_point_tracks else None
-            )
+            effective_mtp_list: Optional[List] = ([w.name for w in motion_point_tracks] if motion_point_tracks else None)
         elif len(motion_point_list) == 0:
             effective_mtp_list = None
         else:
             effective_mtp_list = motion_point_list
 
         # MTP_PARENT_LIST: always explicit, no auto-derive
-        effective_mtp_parent_list: Optional[List] = (
-            motion_point_parent_list if motion_point_parent_list else None
-        )
+        effective_mtp_parent_list: Optional[List] = (motion_point_parent_list if motion_point_parent_list else None)
 
+        # Write -------------------------------------------
         self._write_foxdata_gani(
             buffer,
             unit_tracks,
