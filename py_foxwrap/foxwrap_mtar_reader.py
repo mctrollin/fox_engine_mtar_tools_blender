@@ -15,7 +15,7 @@ from ..py_fox.fox_mtar_types import (
 from .foxwrap_gani2_reader import Gani2Reader
 from .foxwrap_gani_reader import GaniReader
 from .foxwrap_misc import TrackUnitWrapper, Tracks
-from .foxwrap_misc_import import CommonInfo, GaniImportData
+from .foxwrap_misc_import import CommonInfo, GaniImportData, ShaderTrackWrapper
 
 from ..py_utilities.utilities_logging import Debug
 
@@ -120,7 +120,7 @@ class MtarReader:
         except Exception as e:
             return False, f"Error reading MTAR header: {str(e)}"
 
-    def read_all_ganies(self) -> Tuple[List[List[TrackUnitWrapper]], List[List[TrackUnitWrapper]], List[Optional[EvpHeader]], List[TrackMiniHeader], List[Optional[Tracks]], List[MtarTableList2], List[Optional[TrackHeader]], List[Optional[List[str]]], List[Optional[List[str]]], List[Optional[List[str]]]]:
+    def read_all_ganies(self) -> Tuple[List[List[TrackUnitWrapper]], List[List[TrackUnitWrapper]], List[Optional[EvpHeader]], List[TrackMiniHeader], List[Optional[Tracks]], List[MtarTableList2], List[Optional[TrackHeader]], List[Optional[List[str]]], List[Optional[List[str]]], List[Optional[List[str]]], List[List]]:
         """Read all animation tracks from the MTAR file.
         
         Returns:
@@ -135,6 +135,7 @@ class MtarReader:
             - all_skl_lists: List of bone name lists for SKL_LIST FoxData node (old-format only, None for new-format)
             - all_mtp_lists: List of motion point name lists for MTP_LIST FoxData node (old-format only)
             - all_mtp_parent_lists: List of motion point parent name lists for MTP_PARENT_LIST FoxData node (old-format only)
+            - all_shader_gani_tracks: List of ShaderTrackWrapper lists per GANI (old-format only; [] for new-format)
         """
         # Read all GANIs using selective reading
         with open(self.filepath, 'rb') as f:
@@ -154,9 +155,10 @@ class MtarReader:
         all_skl_lists: List[Optional[List[str]]] = []
         all_mtp_lists: List[Optional[List[str]]] = []
         all_mtp_parent_lists: List[Optional[List[str]]] = []
+        all_shader_gani_tracks: List[List[ShaderTrackWrapper]] = []
         
         for idx in sorted(results_dict.keys()):
-            gani_tracks, motion_point_tracks, motion_events, track_mini_header, motion_point_layout, file_header, motion_point_track_header, skeleton_list, motion_point_list, motion_point_parent_list = results_dict[idx]
+            gani_tracks, motion_point_tracks, motion_events, track_mini_header, motion_point_layout, file_header, motion_point_track_header, skeleton_list, motion_point_list, motion_point_parent_list, shader_tracks = results_dict[idx]
             all_gani_tracks.append(gani_tracks)
             all_motion_point_gani_tracks.append(motion_point_tracks)
             all_motion_events.append(motion_events)
@@ -167,8 +169,9 @@ class MtarReader:
             all_skl_lists.append(skeleton_list)
             all_mtp_lists.append(motion_point_list)
             all_mtp_parent_lists.append(motion_point_parent_list)
+            all_shader_gani_tracks.append(shader_tracks if shader_tracks else [])
         
-        return all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers, all_skl_lists, all_mtp_lists, all_mtp_parent_lists
+        return all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers, all_skl_lists, all_mtp_lists, all_mtp_parent_lists, all_shader_gani_tracks
 
     def read_selected_ganis(self, gani_indices: List[int]) -> dict:
         """Read specific GANI files by index from MTAR file.
@@ -181,8 +184,13 @@ class MtarReader:
             gani_indices: List of zero-based GANI indices to read
             
         Returns:
-            Dictionary mapping gani_index -> (gani_tracks, motion_point_tracks, motion_events, 
-                                              track_mini_header, motion_point_layout, file_header, motion_point_track_header)
+            Dictionary mapping gani_index to an 11-tuple:
+            ``(gani_tracks, motion_point_tracks, motion_events,
+              track_mini_header, motion_point_layout, file_header,
+              motion_point_track_header, skeleton_list, motion_point_list,
+              motion_point_parent_list, shader_tracks)``
+            where ``shader_tracks`` is a ``List[ShaderTrackWrapper]``
+            (old-format only; ``[]`` for new-format GANIs).
             
         Raises:
             IndexError: If any index is out of range
@@ -289,6 +297,7 @@ class MtarReader:
                 getattr(import_data, 'skeleton_list', None),
                 getattr(import_data, 'motion_point_list', None),
                 getattr(import_data, 'motion_point_parent_list', None),
+                getattr(import_data, 'shader_tracks', []),   # [10] old-format only; [] for new
             )
 
         return results

@@ -12,6 +12,10 @@ from .utilities_logging import Debug
 # Global constants
 MTAR_ARMATURE_SLOT_NAME = 'mtar_import_armature'
 MTAR_OBJECT_SLOT_NAME = 'mtar_import_object'
+# Dedicated slot name for shader-nodes armatures.  We create actions
+# before the shader armature exists and need a separate slot so that
+# ensure_action_fcurve can create channelbags without an assigned datablock.
+MTAR_SHADER_SLOT_NAME = 'mtar_shader_armature'
 
 # Layout Action Utilities #########################################################
 
@@ -268,8 +272,12 @@ class FCurveCache:
         for fcurve in iter_action_fcurves(action):
             bone_name = extract_bone_name_from_fcurve_path(fcurve.data_path)
             if not bone_name:
+                # Non-pose-bone path (e.g. custom property or unexpected flat path).
+                # FCurveCache is designed for pose-bone actions; these paths are
+                # intentionally not indexed here.
+                Debug.log_warning(f"  FCurveCache.build: skipping non-pose-bone path '{fcurve.data_path}'")
                 continue
-                
+
             property_name = extract_property_from_fcurve_path(fcurve.data_path)
             if not property_name:
                 continue
@@ -374,6 +382,8 @@ def assign_action_to_datablock(datablock: bpy.types.ID, action: bpy.types.Action
     If `slot_name` is not provided, a default mapping is used:
       - ARMATURE -> MTAR_ARMATURE_SLOT_NAME
       - otherwise -> MTAR_OBJECT_SLOT_NAME
+    A custom slot (e.g. MTAR_SHADER_SLOT_NAME) can be supplied for
+    non-standard armatures such as shader‑nodes rigs.
 
     Args:
         datablock: Any ID datablock that supports animation_data (e.g. an Object/Armature)
@@ -392,40 +402,55 @@ def assign_action_to_datablock(datablock: bpy.types.ID, action: bpy.types.Action
             Debug.log_warning(f"Could not create animation_data on '{getattr(datablock, 'name', '<unknown>')}': {e}")
             return
 
-    # Assign the action normally first
-    anim_data.action = action
+    # On Blender 4.4+/5 the slot-based API must be used before (or instead of)
+    # the direct anim_data.action assignment, which may be read-only once a slot
+    # is active.  Use slots as the primary path; fall back to direct assignment
+    # only on older Blender builds that have no slot API.
+    if hasattr(anim_data, 'action_slot'):
+        # Decide slot name if none provided
+        if slot_name is None:
+            dtype = getattr(datablock, 'type', None)
+            slot_name = MTAR_ARMATURE_SLOT_NAME if dtype == 'ARMATURE' else MTAR_OBJECT_SLOT_NAME
 
-    # If the API supports action slots (Blender 4.4+), try to select/create the Legacy Slot
-    if not hasattr(anim_data, 'action_slot'):
-        return
+        try:
+            slot = get_action_slot(action, slot_name)
+        except RuntimeError as e:
+            Debug.log_warning(f"Failed to get or create slot '{slot_name}' for action '{getattr(action, 'name', '<unknown>')}': {e}")
+            raise
 
-    # Decide slot name if none provided
-    if slot_name is None:
-        dtype = getattr(datablock, 'type', None)
-        slot_name = MTAR_ARMATURE_SLOT_NAME if dtype == 'ARMATURE' else MTAR_OBJECT_SLOT_NAME
+        # Assign the action first.  This prevents the "Cannot set slot without an
+        # assigned Action" error when the datablock has no action yet.  On
+        # Blender 5 the assignment may be read-only once a slot exists, but the
+        # slot setter below will also set the action implicitly.
+        try:
+            anim_data.action = action
+        except Exception:
+            pass
 
-    try:
-        slot = get_action_slot(action, slot_name)
-    except RuntimeError as e:
-        Debug.log_warning(f"Failed to get or create slot '{slot_name}' for action '{getattr(action, 'name', '<unknown>')}': {e}")
-        raise
+        try:
+            anim_data.action_slot = slot
+        except Exception as e:
+            Debug.log_warning(f"Failed to set action slot for '{getattr(datablock, 'name', '<unknown>')}': {e}")
+            raise
 
-    # Assign the found/created slot to the datablock's anim_data
-    try:
-        anim_data.action_slot = slot
+        # Also attempt to set action again in case the slot setter didn't.
+        try:
+            anim_data.action = action
+        except Exception:
+            pass
+
         try:
             anim_data.last_slot_identifier = slot.identifier
         except Exception:
             pass
-        # Also mark the slot active on the action for clarity
         try:
             action.slots.active = slot
         except Exception as e:
             Debug.log_warning(f"Could not set active slot on action '{getattr(action, 'name', '<unknown>')}': {e}")
         Debug.log(f"  Assigned action '{action.name}' to datablock '{getattr(datablock, 'name', '<unknown>')}' using slot '{getattr(slot, 'name_display', '<unknown>')}'")
-    except Exception as e:
-        Debug.log_warning(f"Failed to set action slot for '{getattr(datablock, 'name', '<unknown>')}': {e}")
-        raise
+    else:
+        # Legacy Blender (<4.4): direct assignment is the only path
+        anim_data.action = action
 
 
 def remove_action_from_datablock(datablock: bpy.types.ID) -> None:
@@ -903,7 +928,7 @@ def ensure_action_fcurve(action: bpy.types.Action, data_path: str, index: int, d
             except Exception as e:
                 Debug.log_warning(f"action.fcurve_ensure_for_datablock calls failed for action '{getattr(action, 'name', '<unknown>')}', path '{data_path}', index {index}: {e}")
         else:
-            Debug.log(f"Skipping action.fcurve_ensure_for_datablock for action '{getattr(action, 'name', '<unknown>')}' because no datablock was provided")
+            Debug.log_warning(f"Skipping action.fcurve_ensure_for_datablock for action '{getattr(action, 'name', '<unknown>')}' because no datablock was provided")
 
     return None
 

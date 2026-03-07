@@ -53,7 +53,8 @@ def _format_gani_name(
     is_motion_points: bool,
     is_layout: bool,
     gani_name: Optional[str],
-    ext: str
+    ext: str,
+    is_shader_nodes: bool = False,
 ) -> str:
     """Shared formatting logic for action and strip names.
 
@@ -62,6 +63,7 @@ def _format_gani_name(
 
     Args:
         ext: File extension suffix without leading dot, e.g. "gani" or "strip"
+        is_shader_nodes: This is a shader nodes action/strip (old-format only)
     """
     if is_layout:
         # Layout uses index -1 and type 'track'
@@ -74,9 +76,14 @@ def _format_gani_name(
     if verbose:
         animation_parts.append(f"h{h_idx}_d{d_idx}")
     animation_str = ".".join(animation_parts) if animation_parts else str(running_idx)
-    
-    # Type is either 'track' or 'motionpoints'
-    gani_type = "motionpoints" if is_motion_points else "track"
+
+    # Determine type string
+    if is_motion_points:
+        gani_type = "motionpoints"
+    elif is_shader_nodes:
+        gani_type = "shadernodes"
+    else:
+        gani_type = "track"
 
     # Format: <base>.<animation-parts>.<index>.<type>.<ext>
     return f"{base_name}.{animation_str}.{running_idx}.{gani_type}.{ext}"
@@ -90,7 +97,8 @@ def format_action_name(
     verbose: bool,
     is_motion_points: bool = False,
     is_layout: bool = False,
-    gani_name: Optional[str] = None
+    gani_name: Optional[str] = None,
+    is_shader_nodes: bool = False,
 ) -> str:
     """Format action name with dot-separated convention.
 
@@ -116,8 +124,9 @@ def format_action_name(
     Examples (with gani_name="walk_idle"):
         - Animation: "player2.walk_idle.0.gani"
         - Motion points: "player2.walk_idle.0.motionpoints.gani"
+        - Shader nodes: "player2.walk_idle.0.shadernodes.gani"
     """
-    return _format_gani_name(base_name, running_idx, h_idx, d_idx, verbose, is_motion_points, is_layout, gani_name, "gani")
+    return _format_gani_name(base_name, running_idx, h_idx, d_idx, verbose, is_motion_points, is_layout, gani_name, "gani", is_shader_nodes)
 
 
 def format_strip_name(
@@ -128,7 +137,8 @@ def format_strip_name(
     verbose: bool,
     is_motion_points: bool = False,
     is_layout: bool = False,
-    gani_name: Optional[str] = None
+    gani_name: Optional[str] = None,
+    is_shader_nodes: bool = False,
 ) -> str:
     """Format NLA strip name with dot-separated convention.
 
@@ -142,6 +152,7 @@ def format_strip_name(
         is_layout: This is a layout track strip
         gani_name: Resolved GANI name from hash dictionary (last path segment).
                    When provided, h/d indices are suppressed regardless of verbose.
+        is_shader_nodes: This is a shader nodes strip (old-format only)
 
     Returns:
         Formatted strip name
@@ -154,8 +165,9 @@ def format_strip_name(
     Examples (with gani_name="walk_idle"):
         - Animation: "player2.walk_idle.0.strip"
         - Motion points: "player2.walk_idle.0.motionpoints.strip"
+        - Shader nodes: "player2.walk_idle.0.shadernodes.strip"
     """
-    return _format_gani_name(base_name, running_idx, h_idx, d_idx, verbose, is_motion_points, is_layout, gani_name, "strip")
+    return _format_gani_name(base_name, running_idx, h_idx, d_idx, verbose, is_motion_points, is_layout, gani_name, "strip", is_shader_nodes)
 
 
 def apply_segment_suffixes(gani_tracks: 'List[TrackUnitWrapper]') -> 'List[TrackUnitWrapper]':

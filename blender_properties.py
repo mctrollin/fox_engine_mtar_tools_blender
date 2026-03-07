@@ -313,7 +313,14 @@ class MTAR_PG_ExportProperties(PropertyGroup):
         type=bpy.types.Object,
         poll=lambda self, obj: obj.type == 'ARMATURE'
     )
-    
+
+    shader_nodes_armature: PointerProperty(
+        name="Shader Nodes Armature",
+        description="Optional armature containing shader node bones for export (old-format / GZ facial MTARs only; name should match <base>_ShaderNodes if imported).",
+        type=bpy.types.Object,
+        poll=lambda self, obj: obj.type == 'ARMATURE'
+    )
+
     export_fcurve_clean_threshold: FloatProperty(
         name="Clean Threshold",
         description="After baking non-linear Bezier fcurves to linear (required for Fox binary format), remove redundant keyframes (0.0 = skip, higher = more aggressive).",

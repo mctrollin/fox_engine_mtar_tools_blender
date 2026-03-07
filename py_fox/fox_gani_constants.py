@@ -47,5 +47,9 @@ FOXDATA_HASH_SHADER_TENSION_NECK   = 2155534022  # TENSION_NECK
 TRKH_FRAME_RATE = "FrameRate"
 TRKH_FRAME_COUNT = "FrameCount"
 
+# Custom property key prefix for per-property shader TrackHeader fields stored on actions.
+# Format: action["shader_hdr_{prop_name}"] = "t_id=X ; unknown_a=Y ; unknown_b=Z ; frame_count=N ; frame_rate=W"
+SHADER_HDR_PREFIX = "shader_hdr_"
+
 # MotionEventHeader fields
 EVPH_VERSION = "Version"

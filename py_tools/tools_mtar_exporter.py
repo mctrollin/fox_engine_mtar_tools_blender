@@ -25,7 +25,7 @@ from ..py_utilities.utilities_transforms import (
 )
 from ..py_utilities.utilities_blender_animation import (
     FCurveCache, iter_action_fcurves, is_relevant_strip, try_find_layout_track_action,
-    build_data_path_for_bone,
+    build_data_path_for_bone, assign_action_to_datablock, MTAR_ARMATURE_SLOT_NAME,
 )
 from ..py_utilities.utilities_fcurve_processing import bake_and_clean_export_fcurves
 
@@ -39,8 +39,10 @@ from ..py_foxwrap.foxwrap_mapping import parse_segment_suffix
 from ..py_foxwrap.foxwrap_mtar_writer import MtarWriter
 from ..py_foxwrap.foxwrap_misc_export import (
     GaniExportData, GaniExportTracksData, GaniExportMotionPointsData, GaniMotionEventsData,
+    GaniExportShaderData,
     TrackSegmentBoneMapping, ExportActionData, create_synthetic_mapping, group_bones_by_segment,
-    build_motion_point_action_maps, find_motion_point_action_for_gani
+    build_motion_point_action_maps, find_motion_point_action_for_gani,
+    build_shader_action_maps, find_shader_action_for_gani
 )
 from ..py_foxwrap.foxwrap_mapping import BoneParameters
 
@@ -51,6 +53,12 @@ from .tools_motion_points_exporter import (
     build_motion_points_list_from_armature,
     build_motion_point_metadata_dict,
     collect_motion_point_actions,
+)
+from .tools_gani_shader_exporter import (
+    collect_shader_nodes_actions,
+    build_shader_nodes_metadata_dict,
+    group_shader_tracks_by_property,
+    collect_shader_property_headers,
 )
 
 # Utility Functions ###############################################################
@@ -973,10 +981,13 @@ def export_gani_track_from_action(armature: bpy.types.Object,
     Returns:
         GaniTrack object with all keyframes tracks
     """
+
+    # Check imputs ----------------------------------------------
+
     # Get the base track info (first check if track exists at all)
     if not track_segment_bone_mapping.has_track(track_idx):
-        # Create empty track - no metadata available
-        Debug.log_warning(f"      Warning: No mapping for track {track_idx}, creating empty track")
+        # Create empty track to preserve structure - no metadata available
+        Debug.log_warning(f"      Warning: No mapping for track {track_idx}, creating empty track to skipping track")
         return TrackUnitWrapper(
             name=f"Track_{track_idx}",
             segments_track_data=[],
@@ -986,8 +997,8 @@ def export_gani_track_from_action(armature: bpy.types.Object,
     # Get base track info (for segment 0)
     base_mapping = track_segment_bone_mapping.get_base_mapping(track_idx)
     if not base_mapping:
-        # Create empty track - no base segment
-        Debug.log_warning(f"      Warning: No base segment mapping for track {track_idx}, creating empty track")
+        Debug.log_warning(f"      Warning: No base segment mapping for track {track_idx}, creating empty track to skipping track")
+        # Create empty track to preserve structure - no base segment
         return TrackUnitWrapper(
             name=f"Track_{track_idx}",
             segments_track_data=[],
@@ -995,8 +1006,8 @@ def export_gani_track_from_action(armature: bpy.types.Object,
         )
     
     base_blender_bone_name, base_fox_mapping_params = base_mapping
-    
     if not base_blender_bone_name:
+        Debug.log_warning(f"      Warning: No base bone name for track {track_idx}, creating empty track to skipping track")
         # Create empty track to preserve structure
         return TrackUnitWrapper(
             name=f"Track_{track_idx}",
@@ -1009,13 +1020,13 @@ def export_gani_track_from_action(armature: bpy.types.Object,
     
     # Strip multi-segment suffix if present
     base_fox_track_name, _ = parse_segment_suffix(fox_track_name)
-    
 
+    # Prepare meta data from layout / shared header and per action header ----------------------------------------------
     # layout_metadata is passed in directly (TrackMetaData instance for this track)
-    
     if layout_metadata is None:
         # No metadata found and FCurve fallback also produced nothing (bone has no animation)
-        Debug.log_warning(f"      Warning: No metadata for track '{base_fox_track_name}' (blender bone: '{base_blender_bone_name}') and no FCurves found — skipping track")
+        Debug.log_warning(f"      Warning: No metadata for track '{base_fox_track_name}' (blender bone: '{base_blender_bone_name}') and no FCurves found — creating empty track to skipping track")
+        # Create empty track to preserve structure
         return TrackUnitWrapper(
             name=base_blender_bone_name,
             segments_track_data=[],
@@ -1039,8 +1050,9 @@ def export_gani_track_from_action(armature: bpy.types.Object,
 
     # Use merged unit_flags in layout_metadata (action overrides applied if present)
     unit_flags_int = int(merged_metadata.unit_flags) if merged_metadata.unit_flags is not None else 0
-    
+
     segment_types = merged_metadata.segment_types
+
     Debug.log(f"      Exporting track {track_idx}: '{base_fox_track_name}' -> {len(segment_types)} segments, flags={unit_flags_int}")
     
     # Extract keyframes for each segment
@@ -1211,27 +1223,48 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
             clean_threshold = action_data.export_clean_threshold
             Debug.log(f"    Processing FCurves for export (clean_threshold={clean_threshold})...")
             try:
-                # Temporarily assign action to armature for processing
-                original_action = armature.animation_data.action if armature.animation_data else None
+                # Temporarily assign action to armature for processing.
+                # Use assign_action_to_datablock so the slot-based API is used
+                # on Blender 4.4+/5 (direct anim_data.action assignment is
+                # read-only once a slot is active).
+                original_slot = None
                 if not armature.animation_data:
                     armature.animation_data_create()
-                armature.animation_data.action = action
-                
+                anim_data = armature.animation_data
+                if hasattr(anim_data, 'action_slot'):
+                    original_slot = anim_data.action_slot
+                else:
+                    original_slot = anim_data.action
+
+                assign_action_to_datablock(armature, action, slot_name=MTAR_ARMATURE_SLOT_NAME)
+
                 export_result = bake_and_clean_export_fcurves(armature=armature, fcurve_clean_threshold=clean_threshold)
-                
+
                 processed_action = export_result['action']
-                
+
                 Debug.log(f"      Non-linear FCurves baked: {export_result['fcurves_baked']}")
                 Debug.log(f"      FCurves cleaned: {export_result['fcurves_cleaned']}")
                 Debug.log(f"      Already linear FCurves: {export_result['fcurves_already_linear']}")
-                
-                # Restore original action on armature
-                if original_action is not None:
-                    armature.animation_data.action = original_action
+
+                # Restore original action / slot
+                if original_slot is not None:
+                    if hasattr(anim_data, 'action_slot') and hasattr(original_slot, 'identifier'):
+                        try:
+                            anim_data.action_slot = original_slot
+                        except Exception:
+                            pass
+                    else:
+                        # Legacy path: original_slot holds the action itself
+                        try:
+                            anim_data.action = original_slot
+                        except Exception:
+                            pass
                 else:
-                    # No former action - clear it explicitly
                     if armature.animation_data:
-                        armature.animation_data.action = None
+                        try:
+                            armature.animation_data.action = None
+                        except Exception:
+                            pass
                 
             except Exception as e:
                 Debug.log_warning(f"    Warning: Failed to process export FCurves: {str(e)}")
@@ -1246,6 +1279,8 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
         
         if fcurve_cache and not fcurve_cache.is_empty():
             Debug.log(f"    Built fcurve cache: {len(fcurve_cache.get_bones())} bones indexed")
+        else:
+            Debug.log_warning(f"    Built fcurve cache is empty")
 
         # Build Transform Cache ------------------------------------------------------
         # Once for this action (major performance optimization)
@@ -1508,6 +1543,7 @@ def export_mtar(context: bpy.types.Context,
     # Find motion points armature and collect motion point data
     Debug.log("\n=== Motion Points Detection ===")
     motion_points_armature = export_props.motion_points_armature
+    shader_nodes_armature = getattr(export_props, 'shader_nodes_armature', None)
     
     motion_point_actions_data: List[ExportActionData] = []
     motion_points_list: Optional[object] = None
@@ -1537,6 +1573,31 @@ def export_mtar(context: bpy.types.Context,
         Debug.log("Motion points will not be exported")
     
     Debug.stop_timer("3. Motion Points")
+
+    # Shader Nodes (old-format only)
+    Debug.log("\n3b. Shader Nodes ++++++++++++++++++++++++++++++++++++++++++++")
+    Debug.start_timer("3b. Shader Nodes")
+    Debug.update_progress(25, "Shader Nodes...")
+
+    shader_nodes_actions_data: List[ExportActionData] = []
+    shader_nodes_actions_by_gani_index: Dict[int, ExportActionData] = {}
+
+    if shader_nodes_armature and not writer.is_new_format:
+        Debug.log(f"Found shader nodes armature: {shader_nodes_armature.name}")
+        shader_nodes_actions_data = collect_shader_nodes_actions(
+            shader_nodes_armature, use_nla, export_props.export_fcurve_clean_threshold
+        )
+        if shader_nodes_actions_data:
+            Debug.log(f"Found {len(shader_nodes_actions_data)} shader node action(s)")
+            shader_nodes_actions_by_gani_index = build_shader_action_maps(shader_nodes_actions_data)
+        else:
+            Debug.log("No shader node actions found")
+    elif shader_nodes_armature and writer.is_new_format:
+        Debug.log("New format (GANI2) — shader nodes not applicable, skipping")
+    else:
+        Debug.log("No shader nodes armature selected - shader nodes will not be exported")
+
+    Debug.stop_timer("3b. Shader Nodes")
 
     # =============================
     # =============================
@@ -1661,7 +1722,79 @@ def export_mtar(context: bpy.types.Context,
 
         # =============================
 
-        Debug.log(f"\n4.{action_idx}.4 Storing Data ----------------------------------------")
+        # Shader Nodes (old-format only)
+        Debug.log(f"\n4.{action_idx}.4 Shader Nodes ----------------------------------------")
+        Debug.start_timer(f"4.{action_idx}.4 Shader Nodes")
+
+        shader_nodes_data = None
+        if shader_nodes_actions_data:
+            shader_node_action_data: Optional[ExportActionData] = find_shader_action_for_gani(
+                gani_name, shader_nodes_actions_by_gani_index
+            )
+
+            if shader_node_action_data:
+                Debug.log(
+                    f"\n  Exporting shader nodes for GANI '{gani_name}': "
+                    f"{shader_node_action_data.action.name}"
+                )
+
+                shader_metadata_dict = build_shader_nodes_metadata_dict(
+                    shader_nodes_armature, shader_node_action_data.action
+                )
+                Debug.log(
+                    f"    Built metadata from {len(shader_metadata_dict)} "
+                    f"shader unit bone(s)"
+                )
+
+                flat_shader_tracks = export_gani_tracks_from_action(
+                    shader_nodes_armature,
+                    shader_node_action_data,
+                    None,
+                    shader_metadata_dict,
+                    force_highest_bit_encoding,
+                    discard_empty_tracks=True,
+                )
+
+                if flat_shader_tracks:
+                    Debug.log(
+                        f"    Exported {len(flat_shader_tracks)} shader unit track(s)"
+                    )
+                    property_names, property_tracks = group_shader_tracks_by_property(
+                        flat_shader_tracks, shader_nodes_armature
+                    )
+                    if property_names:
+                        property_headers = collect_shader_property_headers(
+                            shader_node_action_data.action, property_names
+                        )
+                        shader_nodes_data = GaniExportShaderData(
+                            property_tracks=property_tracks,
+                            property_names=property_names,
+                            property_headers=property_headers,
+                            action=shader_node_action_data.action,
+                        )
+                    else:
+                        Debug.log_warning(
+                            f"    Warning: Shader unit tracks for GANI '{gani_name}' "
+                            f"could not be grouped by property — shader data will be skipped"
+                        )
+                else:
+                    Debug.log_warning(
+                        f"    Warning: Shader node action '{shader_node_action_data.action.name}' "
+                        f"matched GANI '{gani_name}' but exported 0 shader unit tracks"
+                    )
+            elif shader_nodes_actions_data:
+                Debug.log(
+                    f"  Shader node actions exist but none matched GANI '{gani_name}' "
+                    f"- shader nodes will be skipped for this GANI"
+                )
+        else:
+            Debug.log(f"    No shader node action for GANI '{gani_name}'")
+
+        Debug.stop_timer(f"4.{action_idx}.4 Shader Nodes")
+
+        # =============================
+
+        Debug.log(f"\n4.{action_idx}.5 Storing Data ----------------------------------------")
 
         # Read frame rate from layout action header properties (stored during import); default 60.
         header_props = read_track_header_properties_from_action(layout_action)
@@ -1676,7 +1809,8 @@ def export_mtar(context: bpy.types.Context,
             frame_end=frame_end,
             tracks_data=tracks_data,
             motion_points_data=motion_points_data,
-            motion_events_data=motion_events_data
+            motion_events_data=motion_events_data,
+            shader_nodes_data=shader_nodes_data,
         )
         
         # Add to writer

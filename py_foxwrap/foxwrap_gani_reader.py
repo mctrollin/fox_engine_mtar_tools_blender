@@ -79,7 +79,7 @@ def _apply_stringlist_names(
             for seg in track.segments_track_data:
                 seg.name = skl_name
         elif is_hash_fallback:
-            Debug.log_warning(
+            Debug.log(
                 f"_apply_stringlist_names ({label}): hash 0x{track_hash:08X} ('{name}') "
                 f"has no list entry — keeping ('{name}')."
             )
@@ -164,7 +164,7 @@ class GaniReader:
                     motion_node = child_node
                     motion_node_pos = child_pos
                 elif child_hash == FOXDATA_HASH_SHADER:
-                    Debug.log_warning("SHADER node found — facial animation import not yet implemented")
+                    # Debug.log_warning("SHADER node found — facial animation import not yet implemented")
                     shader_tracks = self._read_shader_tracks(br, file_data, child_node, child_pos, endian)
                 else:
                     resolved = unhash_gani_node(child_hash) or f"0x{child_hash:08X}"
@@ -456,10 +456,12 @@ class GaniReader:
                 try:
                     payload_tracks = self._read_node_payload_as_tracks(br, file_data, child_node, child_pos, endian)
                     
-                    # Resolve property name from dictionary or use hex fallback
+                    # Resolve property name from dictionary or use decimal hash fallback
                     property_name = unhash_shader_prop(child_node.name_hash)
                     if not property_name:
-                        property_name = f"shader_prop_0x{child_node.name_hash:08X}"
+                        # Use '.' as separator so the decimal hash is never mistaken
+                        # for a multi-segment index by parse_segment_suffix (which uses '_').
+                        property_name = f"shader_prop.{child_node.name_hash}"
                     
                     # TODO(shader-export): Store property name mapping for future export path
                     Debug.log(f"  Shader property: {property_name} - {len(payload_tracks.track_units)} track unit(s)")

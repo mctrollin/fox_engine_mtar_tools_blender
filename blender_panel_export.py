@@ -38,6 +38,16 @@ class MTAR_PT_ExportPanel(Panel):
         box_rig.prop(export_props, "armature", text="", icon='ARMATURE_DATA')
         if export_props.armature:
             box_rig.prop(export_props, "motion_points_armature", text="", icon='ARMATURE_DATA')
+            # Resolve the layout action once; reused for both the shader picker
+            # visibility check and the format info box below.
+            _layout_action = try_find_layout_track_action()
+            _fmt_flags = 0x1000  # default: new format
+            if _layout_action:
+                _fmt_mtar_props = read_mtar_properties_from_action(_layout_action)
+                _fmt_flags = _fmt_mtar_props.get(mtar_const.MTAR_FLAGS, 0x1000)
+            # Show shader nodes armature picker only for old-format (FoxData / GZ) MTARs
+            if _layout_action and not bool(_fmt_flags & 0x1000):  # old format (no UseMini flag)
+                box_rig.prop(export_props, "shader_nodes_armature", text="", icon='SHADING_RENDERED')
 
         if settings_props.show_advanced_settings:
             adv_box = box_rig.box()
@@ -69,11 +79,10 @@ class MTAR_PT_ExportPanel(Panel):
         # Only show if armature is selected (user is actively configuring an export)
         if export_props.armature:
             format_info_box = box_rig.box()
-            layout_action = try_find_layout_track_action()
+            layout_action = _layout_action  # already resolved above
             if layout_action:
                 # Read MTAR properties from the layout action
-                mtar_props = read_mtar_properties_from_action(layout_action)
-                flags = mtar_props.get(mtar_const.MTAR_FLAGS, 0x1000)
+                flags = _fmt_flags
                 is_new_format = bool(flags & 0x1000)  # UseMini flag
                 
                 # Check if properties are explicitly set (not defaults)

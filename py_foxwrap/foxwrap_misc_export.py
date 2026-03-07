@@ -4,15 +4,28 @@ Export-only fake types for MTAR exporter.
 from dataclasses import dataclass
 import io
 import copy
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Dict, Tuple, Callable
 
 import bpy
 
 from ..py_utilities.utilities_logging import Debug
+from ..py_utilities.utilities_blender_animation import (
+    action_has_fcurves,
+    iter_action_fcurves,
+    is_relevant_strip,
+    build_data_path_for_bone,
+)
 
-from ..py_fox.fox_gani_types import TrackUnitFlags, EvpHeader
+from ..py_fox.fox_gani_types import TrackUnitFlags, EvpHeader, SegmentType
+from ..py_fox.fox_misc_types import StrCode32
 
-from .foxwrap_metadata import TrackMetaData, merge_track_metadata, parse_gani_params_from_action
+from .foxwrap_metadata import (
+    TrackMetaData,
+    merge_track_metadata,
+    parse_gani_params_from_action,
+    iter_track_properties,
+    parse_action_track_metadata,
+)
 from .foxwrap_misc import Tracks, TrackUnitWrapper
 from .foxwrap_mapping import parse_segment_suffix
 from .foxwrap_gani2_writer import Gani2Writer
@@ -46,6 +59,226 @@ class ExportActionData:
         return f"'Action '{self.action.name}' (frames {self.frame_start}-{self.frame_end}, {frame_count} frames) - {self.source}"
 
 
+def collect_armature_actions(
+    armature: bpy.types.Object,
+    use_nla: bool,
+    track_type_label: str,
+    export_clean_threshold: float = 0.0,
+) -> List['ExportActionData']:
+    """Collect animation actions from *armature* for export.
+
+    This is the shared implementation used by all three track types (motion
+    points, shader nodes, and — via wrappers — the main animation tracks).
+    The only difference between the three callers is the human-readable
+    *track_type_label* used in log messages.
+
+    Args:
+        armature:               Armature object to collect actions from.
+        use_nla:                If ``True``, collect from unmuted NLA strips;
+                                if ``False``, use the active action.
+        track_type_label:       Human-readable label for log messages
+                                (e.g. ``"motion points"``, ``"shader nodes"``).
+        export_clean_threshold: FCurve cleaning threshold (0 = disabled).
+
+    Returns:
+        List of :class:`ExportActionData` objects (may be empty).
+    """
+    if not armature:
+        return []
+
+    Debug.log(f"\nCollecting {track_type_label} actions from '{armature.name}'...")
+
+    actions: List[ExportActionData] = []
+
+    if (
+        use_nla
+        and armature.animation_data
+        and armature.animation_data.nla_tracks
+    ):
+        Debug.log(f"  Using NLA strips for {track_type_label}")
+        for track in armature.animation_data.nla_tracks:
+            if track.mute:
+                continue
+            for strip in track.strips:
+                if not is_relevant_strip(strip):
+                    if strip.action:
+                        Debug.log(
+                            f"    Skipping {track_type_label} strip "
+                            f"'{getattr(strip, 'name', '<unknown>')}' "
+                            f"(not a GANI strip)"
+                        )
+                    continue
+
+                action_data = ExportActionData(
+                    action=strip.action,
+                    frame_start=int(strip.frame_start),
+                    frame_end=int(strip.frame_end),
+                    source=f"NLA strip '{strip.name}' on track '{track.name}'",
+                    export_clean_threshold=export_clean_threshold,
+                )
+                actions.append(action_data)
+                Debug.log(f"    {action_data.to_string()}")
+
+    elif armature.animation_data and armature.animation_data.action:
+        Debug.log(f"  Using active action for {track_type_label}")
+        action = armature.animation_data.action
+
+        if action_has_fcurves(action):
+            frame_start = int(
+                min(kp.co.x for fc in iter_action_fcurves(action) for kp in fc.keyframe_points)
+            )
+            frame_end = int(
+                max(kp.co.x for fc in iter_action_fcurves(action) for kp in fc.keyframe_points)
+            )
+        else:
+            frame_start = 0
+            frame_end = 0
+
+        action_data = ExportActionData(
+            action=action,
+            frame_start=frame_start,
+            frame_end=frame_end,
+            source="Active action",
+            export_clean_threshold=export_clean_threshold,
+        )
+        actions.append(action_data)
+        Debug.log(f"    {action_data.to_string()}")
+
+    else:
+        Debug.log(f"  No {track_type_label} actions found")
+
+    return actions
+
+
+def build_track_metadata_dict_from_fcurves(
+    armature: bpy.types.Object,
+    action: bpy.types.Action,
+    armature_label: str,
+    bone_skip_predicate: Optional[Callable[['bpy.types.Bone'], bool]] = None,
+    name_hash_extractor: Optional[Callable[[str, 'bpy.types.Bone'], Optional[int]]] = None,
+) -> Dict[str, TrackMetaData]:
+    """Build a per-bone metadata dictionary by inspecting FCurves and stored properties.
+
+    This is the shared implementation used by motion-point and shader-node export.
+    Both callers have no layout-track action, so segment types are inferred from
+    FCurve existence (``rotation_quaternion`` → QUAT, ``location`` → VECTOR3 or
+    FLOAT) and bit-sizes / flags are read from the action's stored metadata.
+
+    Args:
+        armature:              Armature object whose bones are iterated.
+        action:                Blender action to inspect for FCurves and metadata.
+        armature_label:        Human-readable label for warning messages
+                               (e.g. ``"motion points"``).
+        bone_skip_predicate:   Optional callable ``(bone) -> bool``; return
+                               ``True`` to skip a bone entirely.  Used by the
+                               shader caller to skip property-parent bones (those
+                               with no parent of their own).
+        name_hash_extractor:   Optional callable ``(bone_name, bone) -> int|None``;
+                               returns the StrCode32 hash to store in
+                               :attr:`TrackMetaData.name_hash`.  When ``None``,
+                               the hash is computed via
+                               ``StrCode32.from_string(bone_name).to_int()``.
+                               The shader caller passes a function that parses the
+                               decimal suffix after the last ``.`` in the bone name.
+
+    Returns:
+        ``{bone_name: TrackMetaData}`` for every bone present in *action*.
+    """
+    metadata_dict: Dict[str, TrackMetaData] = {}
+
+    if not armature or armature.type != 'ARMATURE':
+        return metadata_dict
+
+    if not action:
+        Debug.log_warning(
+            f"  Warning: No action provided to build_track_metadata_dict_from_fcurves() "
+            f"for {armature_label} armature '{armature.name}', returning empty dict"
+        )
+        return metadata_dict
+
+    missing_metadata_bones: List[str] = []
+
+    for bone in armature.data.bones:
+        if bone_skip_predicate is not None and bone_skip_predicate(bone):
+            continue
+
+        bone_name = bone.name
+        has_rotation = False
+        has_location = False
+
+        if action_has_fcurves(action):
+            rotation_quat_path = build_data_path_for_bone(bone_name, 'rotation_quaternion')
+            rotation_euler_path = build_data_path_for_bone(bone_name, 'rotation_euler')
+            location_path = build_data_path_for_bone(bone_name, 'location')
+            for fc in iter_action_fcurves(action):
+                if fc.data_path in (rotation_quat_path, rotation_euler_path):
+                    has_rotation = True
+                elif fc.data_path == location_path:
+                    has_location = True
+
+        component_bit_sizes = None
+        unit_flags = 0
+        found_metadata_in_action = False
+
+        for _, track_name, metadata_str in iter_track_properties(action):
+            if track_name == bone_name:
+                found_metadata_in_action = True
+                if isinstance(metadata_str, str):
+                    parsed = parse_action_track_metadata(metadata_str)
+                    if parsed:
+                        if parsed.get('component_bit_sizes'):
+                            component_bit_sizes = parsed['component_bit_sizes']
+                        if parsed.get('flags'):
+                            flag_enums = [
+                                TrackUnitFlags[name]
+                                for name in parsed['flags']
+                                if name in TrackUnitFlags.__members__
+                            ]
+                            if flag_enums:
+                                unit_flags = TrackUnitFlags.track_unit_flags_to_int(flag_enums)
+                break
+
+        bone_present_in_action = found_metadata_in_action or has_rotation or has_location
+        if bone_present_in_action and not found_metadata_in_action:
+            missing_metadata_bones.append(bone_name)
+
+        if not bone_present_in_action:
+            continue
+
+        segment_types: List[SegmentType] = []
+        if has_rotation:
+            segment_types.append(SegmentType.QUAT)
+        if has_location:
+            segment_types.append(SegmentType.VECTOR3)
+        if not segment_types and found_metadata_in_action:
+            # FLOAT: single location[0] component; inferred when no QUAT/VEC3
+            segment_types.append(SegmentType.FLOAT)
+
+        # Compute name hash
+        if name_hash_extractor is not None:
+            name_hash_int = name_hash_extractor(bone_name, bone)
+        else:
+            name_hash_int = StrCode32.from_string(bone_name).to_int()
+
+        metadata_dict[bone_name] = TrackMetaData(
+            track_name=bone_name,
+            segment_types=segment_types,
+            unit_flags=unit_flags,
+            name_hash=name_hash_int,
+            component_bit_sizes=component_bit_sizes,
+            rig_unit_type=None,
+        )
+
+    if missing_metadata_bones:
+        Debug.log_warning(
+            f"  Warning: No stored metadata for {len(missing_metadata_bones)} "
+            f"{armature_label} bone(s) in armature '{armature.name}': "
+            + ", ".join(missing_metadata_bones)
+        )
+
+    return metadata_dict
+
+
 @dataclass
 class GaniExportTracksData:
     """Container for main animation track data in a GANI file.
@@ -70,6 +303,35 @@ class GaniExportMotionPointsData:
     """
     motion_point_tracks: List[TrackUnitWrapper]
     action: Optional[bpy.types.Action] = None
+
+
+@dataclass
+class GaniExportShaderData:
+    """Container for shader node track data in a GANI file (old-format only).
+
+    Shader nodes live under the SHADER FoxData node, which is a sibling of the
+    MOTION node (both are direct children of ROOT).  Each property (e.g.
+    TENSION_CHEEKL) is a separate SHADER child whose payload is a compact
+    TrackHeader/TrackUnit structure identical to an MTP node.
+
+    Attributes:
+        property_tracks:  Parallel list of track lists — one per shader property.
+                          Each inner list contains TrackUnitWrapper objects for the
+                          units inside that property (e.g. TensionController, …).
+        property_names:   Parallel list of resolved property names
+                          (e.g. "TENSION_CHEEKL").  Index matches property_tracks.
+        action:           Optional Blender action that holds the shader keyframes
+                          (used to read TrackHeader custom properties on export).
+        property_headers: Optional parallel list of per-property header override
+                          dicts (keys: ``t_id``, ``unknown_a``, ``unknown_b``,
+                          ``frame_count``, ``frame_rate``).  ``None`` entries fall
+                          back to GANI-level defaults.  Populated from per-property
+                          custom properties stored on *action* during import.
+    """
+    property_tracks: List[List[TrackUnitWrapper]]
+    property_names: List[str]
+    action: Optional[bpy.types.Action] = None
+    property_headers: Optional[List[Optional[Dict[str, int]]]] = None
 
 
 @dataclass
@@ -110,6 +372,7 @@ class GaniExportData:
     tracks_data: GaniExportTracksData
     motion_points_data: Optional[GaniExportMotionPointsData] = None
     motion_events_data: Optional[GaniMotionEventsData] = None
+    shader_nodes_data: Optional['GaniExportShaderData'] = None
 
     def count_segments(self) -> int:
         """Count the total number of segments across all tracks in this GANI file.
@@ -454,7 +717,7 @@ def extract_gani_metadata(name: str) -> Optional[Tuple[int, str]]:
         index = int(parts[-2])
         
         # Validate type
-        if gani_type not in ('track', 'motionpoints'):
+        if gani_type not in ('track', 'motionpoints', 'shadernodes'):
             # Backward compatibility: old format has no explicit type
             # Try to detect old .motionpoints suffix
             if '.motionpoints' in name:
@@ -468,46 +731,99 @@ def extract_gani_metadata(name: str) -> Optional[Tuple[int, str]]:
     return None
 
 
-def build_motion_point_action_maps(motion_point_actions: List[ExportActionData]) -> Dict[int, ExportActionData]:
-    """Build lookup map for motion point actions indexed by extracted GANI index.
+def build_action_maps_by_tag(
+    actions: List[ExportActionData],
+    expected_type_tag: str,
+) -> Dict[int, ExportActionData]:
+    """Build a lookup map for actions indexed by extracted GANI running index.
+
+    Only actions whose embedded type-tag matches *expected_type_tag* are
+    included.  Any action that cannot be parsed or has the wrong tag is logged
+    as a warning and skipped.
+
+    Args:
+        actions:            List of :class:`ExportActionData` to index.
+        expected_type_tag:  The type-tag string to accept (e.g.
+                            ``'motionpoints'`` or ``'shadernodes'``).
 
     Returns:
-    - by_gani_index: Dict[int, ExportActionData] mapping extracted running index -> action
+        ``{running_index: ExportActionData}``
     """
     by_gani_index: Dict[int, ExportActionData] = {}
 
-    for a in motion_point_actions:
-        # Extract index and type using robust parser
+    for a in actions:
         result = extract_gani_metadata(a.action.name)
         if result:
             idx, gani_type = result
-            if gani_type == 'motionpoints':
+            if gani_type == expected_type_tag:
                 if idx not in by_gani_index:
                     by_gani_index[idx] = a
             else:
-                Debug.log_warning(f"Warning: Motion point action '{a.action.name}' has type '{gani_type}', expected 'motionpoints' - this action will be skipped")
+                Debug.log_warning(
+                    f"Warning: Action '{a.action.name}' has type '{gani_type}', "
+                    f"expected '{expected_type_tag}' - this action will be skipped"
+                )
         else:
-            Debug.log_warning(f"Warning: No GANI index found in motion point action name '{a.action.name}' - this action will be skipped")
+            Debug.log_warning(
+                f"Warning: No GANI index found in action name '{a.action.name}' - "
+                f"this action will be skipped"
+            )
 
     return by_gani_index
 
 
-def find_motion_point_action_for_gani(gani_name: str, by_gani_index: Dict[int, ExportActionData]) -> Optional[ExportActionData]:
-    """Find the motion point action matching a GANI using only extracted running index.
+def find_action_for_gani(
+    gani_name: str,
+    by_gani_index: Dict[int, ExportActionData],
+    track_label: str = "data",
+) -> Optional[ExportActionData]:
+    """Find the action matching a main GANI track name by running index.
 
-    Returns the ExportActionData if a motion-point action exists for the given index, else None.
+    Args:
+        gani_name:      Name of the GANI track action whose index should be matched.
+        by_gani_index:  Lookup map built by :func:`build_action_maps_by_tag`.
+        track_label:    Human-readable label for warning messages (e.g.
+                        ``'motion points'`` or ``'shader nodes'``).
+
+    Returns:
+        :class:`ExportActionData` if found, else ``None``.
     """
-    # Extract index and type using robust parser
     result = extract_gani_metadata(gani_name)
     if result:
         idx, gani_type = result
         if gani_type == 'track':
             return by_gani_index.get(idx)
         else:
-            Debug.log_warning(f"Warning: GANI '{gani_name}' has type '{gani_type}', expected 'track' - motion points will be skipped for this GANI")
+            Debug.log_warning(
+                f"Warning: GANI '{gani_name}' has type '{gani_type}', expected 'track' - "
+                f"{track_label} will be skipped for this GANI"
+            )
     else:
-        Debug.log_warning(f"Warning: No GANI index could be extracted from GANI name '{gani_name}' - motion points will be skipped for this GANI")
+        Debug.log_warning(
+            f"Warning: No GANI index could be extracted from GANI name '{gani_name}' - "
+            f"{track_label} will be skipped for this GANI"
+        )
     return None
+
+
+def build_motion_point_action_maps(motion_point_actions: List[ExportActionData]) -> Dict[int, ExportActionData]:
+    """Build lookup map for motion point actions indexed by extracted GANI index."""
+    return build_action_maps_by_tag(motion_point_actions, expected_type_tag='motionpoints')
+
+
+def find_motion_point_action_for_gani(gani_name: str, by_gani_index: Dict[int, ExportActionData]) -> Optional[ExportActionData]:
+    """Find the motion point action matching a GANI using only extracted running index."""
+    return find_action_for_gani(gani_name, by_gani_index, track_label="motion points")
+
+
+def build_shader_action_maps(shader_actions: List[ExportActionData]) -> Dict[int, ExportActionData]:
+    """Build lookup map for shader node actions indexed by extracted GANI index."""
+    return build_action_maps_by_tag(shader_actions, expected_type_tag='shadernodes')
+
+
+def find_shader_action_for_gani(gani_name: str, by_gani_index: Dict[int, ExportActionData]) -> Optional[ExportActionData]:
+    """Find the shader nodes action matching a main GANI action name."""
+    return find_action_for_gani(gani_name, by_gani_index, track_label="shader nodes")
 
 
 def group_bones_by_segment(bone_names: List[str]) -> List[Tuple[str, List[Tuple[int, str]]]]:

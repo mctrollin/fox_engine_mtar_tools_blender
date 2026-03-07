@@ -1,8 +1,76 @@
 """Blender armature utility functions."""
 
-from typing import List, Tuple, Optional
+from dataclasses import dataclass, field
+from typing import List, Tuple, Optional, Dict
 
+import bpy
 from mathutils import Euler
+
+from .utilities_logging import Debug
+
+
+# Shared armature creation ####################################################
+
+@dataclass
+class BoneSpec:
+    """Specification for a single bone to be created in an armature.
+
+    Attributes:
+        name:        Bone name.
+        parent_name: Name of the parent bone, or ``None`` for a root bone.
+    """
+    name: str
+    parent_name: Optional[str] = None
+
+
+def create_track_armature(
+    context: 'bpy.types.Context',
+    armature_name: str,
+    bone_specs: List[BoneSpec],
+) -> 'bpy.types.Object':
+    """Create a Blender armature from a list of :class:`BoneSpec` objects.
+
+    All bones are created as flat stubs (head at origin, tail at +Y 0.1).
+    Parent relationships are set according to :attr:`BoneSpec.parent_name`.
+
+    This is the shared implementation used by all three track types
+    (animation, motion points, shaders).  Each caller builds its own
+    ``List[BoneSpec]`` describing the desired hierarchy and passes it here.
+
+    Args:
+        context:       Blender context (used to link the object and set active).
+        armature_name: Name for both the Armature data-block and its Object.
+        bone_specs:    Ordered list of bone specifications.
+
+    Returns:
+        The newly created armature :class:`bpy.types.Object`.
+    """
+    arm_data: bpy.types.Armature = bpy.data.armatures.new(name=armature_name)
+    armature_obj: bpy.types.Object = bpy.data.objects.new(armature_name, arm_data)
+    context.view_layer.active_layer_collection.collection.objects.link(armature_obj)
+
+    context.view_layer.objects.active = armature_obj
+    bpy.ops.object.mode_set(mode='EDIT')
+
+    created: Dict[str, bpy.types.EditBone] = {}
+    for spec in bone_specs:
+        if spec.name in created:
+            continue
+        eb = armature_obj.data.edit_bones.new(spec.name)
+        eb.head = (0.0, 0.0, 0.0)
+        eb.tail = (0.0, 0.1, 0.0)
+        created[spec.name] = eb
+
+    # Set parent relationships in a second pass so all bones exist first.
+    for spec in bone_specs:
+        if spec.parent_name and spec.parent_name in created:
+            created[spec.name].parent = created[spec.parent_name]
+
+    bpy.ops.object.mode_set(mode='OBJECT')
+    Debug.log(
+        f"create_track_armature: '{armature_name}' — {len(created)} bone(s) created"
+    )
+    return armature_obj
 
 
 # Rest Pose Utilities #############################################################

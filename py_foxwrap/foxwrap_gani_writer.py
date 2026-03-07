@@ -55,6 +55,7 @@ from ..py_fox.fox_gani_constants import (
     FOXDATA_HASH_SKL_LIST,
     FOXDATA_HASH_MTP_LIST,
     FOXDATA_HASH_MTP_PARENT_LIST,
+    FOXDATA_HASH_SHADER,
     FOXDATA_HASH_PARAM_SLOPE_ANGLE,
     FOXDATA_HASH_PARAM_SLOPE_DIR,
 )
@@ -113,6 +114,7 @@ class GaniWriter:
         skeleton_list: Optional[List] = None,
         motion_point_list: Optional[List] = None,
         motion_point_parent_list: Optional[List] = None,
+        shader_tracks: Optional[List[tuple]] = None,
     ) -> None:
         """Write a FoxData GANI blob to a seekable BytesIO buffer.
 
@@ -137,6 +139,10 @@ class GaniWriter:
                                       ``[]``   -> omit MTP_LIST.
             motion_point_parent_list: Names / hashes for MTP_PARENT_LIST node.
                                       ``None`` -> omit MTP_PARENT_LIST.
+            shader_tracks:            Optional shader node property data.  Each element
+                                      is a ``(property_name: str, tracks: List[TrackUnitWrapper])``
+                                      tuple representing one SHADER child property.
+                                      ``None`` -> no SHADER node written.
 
         Raises:
             ValueError: If ``gani_tracks`` is empty.
@@ -174,6 +180,33 @@ class GaniWriter:
         unit_tracks = self._build_tracks_from_wrappers(gani_tracks, frame_count, frame_rate)
         mtp_tracks = (self._build_tracks_from_wrappers(motion_point_tracks, frame_count, frame_rate) if motion_point_tracks else None)
 
+        # Build SHADER Tracks structures (old-format only: SHADER is a ROOT sibling of MOTION)
+        # Each element is (property_name, Tracks) ready for _write_tracks_node().
+        # Accepts 2-tuples (prop_name, prop_tracks) or 3-tuples
+        # (prop_name, prop_tracks, header_overrides) where header_overrides is an optional
+        # dict with keys: t_id, unknown_a, unknown_b, frame_count, frame_rate.
+        shader_tracks_built = None
+        if shader_tracks:
+            shader_tracks_built = []
+            for item in shader_tracks:
+                prop_name, prop_tracks = item[0], item[1]
+                if not prop_tracks:
+                    continue
+                hdr: dict = item[2] if len(item) >= 3 and item[2] else {}
+                shader_tracks_built.append((
+                    prop_name,
+                    self._build_tracks_from_wrappers(
+                        prop_tracks,
+                        frame_count=hdr.get('frame_count', frame_count),
+                        frame_rate=hdr.get('frame_rate', frame_rate),
+                        t_id=hdr.get('t_id', 0),
+                        unknown_a=hdr.get('unknown_a', 0),
+                        unknown_b=hdr.get('unknown_b', 1),
+                    )
+                ))
+            if not shader_tracks_built:
+                shader_tracks_built = None
+
         # Resolve effective string lists -------------------------------------------
         # TODO: this is not easy to understand len=0 vs None. Evaluate better solutions
 
@@ -208,11 +241,13 @@ class GaniWriter:
             skeleton_list=effective_skl_list,
             motion_point_list=effective_mtp_list,
             motion_point_parent_list=effective_mtp_parent_list,
+            shader_tracks=shader_tracks_built,
         )
 
         Debug.log(
             f"Wrote old-format GANI: {len(gani_tracks)} bone track(s), "
             f"{len(motion_point_tracks) if motion_point_tracks else 0} MTP track(s), "
+            f"{len(shader_tracks) if shader_tracks else 0} shader property node(s), "
             f"frame_count={frame_count}, foxdata_version={foxdata_version}"
         )
 
@@ -230,6 +265,7 @@ class GaniWriter:
         skeleton_list: Optional[List] = None,
         motion_point_list: Optional[List] = None,
         motion_point_parent_list: Optional[List] = None,
+        shader_tracks: Optional[List[tuple]] = None,
     ) -> None:
         """Write the complete FoxData GANI structure.
 
@@ -244,6 +280,14 @@ class GaniWriter:
                 [MTP_PARENT_LIST + StringData]  optional
                 [MTP_LIST  node + StringData]   optional
                 [EVP       node + EvpHeader]    optional
+              [SHADER node (container)]          optional — sibling of MOTION
+                [TENSION_CHEEKL + TrackHeader]  optional
+                [TENSION_CHEEKR + TrackHeader]  optional
+                [TENSION_NECK   + TrackHeader]  optional
+
+        ``shader_tracks``, if given, is a list of ``(property_name: str, tracks: Tracks)``
+        tuples where ``tracks`` is a pre-built :class:`Tracks` structure (built by
+        :meth:`_build_tracks_from_wrappers` before this call).
         """
         start_pos = buffer.tell()
 
@@ -308,6 +352,20 @@ class GaniWriter:
             pos, _, payload_end = self._write_evp_node(buffer, motion_events)
             children.append(("EVP", pos, payload_end))
 
+        # ── ROOT-level children: MOTION + optional SHADER sibling ───────────
+        # Collect ROOT children in order (MOTION first, then SHADER if present)
+        root_children: List[tuple] = []  # (debug_name, node_pos)
+        root_children.append(("MOTION", motion_node_pos))
+
+        shader_node_pos: Optional[int] = None
+        if shader_tracks:
+            shader_node_pos, shader_children = self._write_shader_node(
+                buffer, shader_tracks
+            )
+            root_children.append(("SHADER", shader_node_pos))
+        else:
+            shader_children = []
+
         # ── Compute final file size ──────────────────────────────────────────
         file_end_pos = buffer.tell()
         file_size = file_end_pos - start_pos
@@ -333,13 +391,32 @@ class GaniWriter:
             motion_node_pos - root_node_pos,
         )
 
+        # ── Back-fill ROOT-level siblings (MOTION ↔ SHADER) ──────────────────
+        for i, (_, rc_pos) in enumerate(root_children):
+            # parent_node_offset → ROOT (negative)
+            self._backfill_int(
+                buffer,
+                rc_pos + _NODE_OFF_PARENT_NODE_OFFSET,
+                root_node_pos - rc_pos,
+            )
+            # next_node_offset → next sibling (positive), 0 if last
+            if i < len(root_children) - 1:
+                next_rc_pos = root_children[i + 1][1]
+                self._backfill_int(
+                    buffer,
+                    rc_pos + _NODE_OFF_NEXT_NODE_OFFSET,
+                    next_rc_pos - rc_pos,
+                )
+            # prev_node_offset → previous sibling (negative), 0 if first
+            if i > 0:
+                prev_rc_pos = root_children[i - 1][1]
+                self._backfill_int(
+                    buffer,
+                    rc_pos + _NODE_OFF_PREV_NODE_OFFSET,
+                    prev_rc_pos - rc_pos,
+                )
+
         # ── Back-fill MOTION node ────────────────────────────────────────────
-        # parent_node_offset: MOTION -> ROOT  (negative)
-        self._backfill_int(
-            buffer,
-            motion_node_pos + _NODE_OFF_PARENT_NODE_OFFSET,
-            root_node_pos - motion_node_pos,
-        )
         # child_node_offset: MOTION -> first child
         if children:
             first_child_pos = children[0][1]
@@ -390,6 +467,97 @@ class GaniWriter:
     # ─────────────────────────────────────────────────────────────────────────
     # Node writing helpers
     # ─────────────────────────────────────────────────────────────────────────
+
+    def _write_shader_node(
+        self,
+        buffer: io.BytesIO,
+        shader_tracks: List[tuple],
+    ) -> tuple:
+        """Write the SHADER container node and its property children.
+
+        The SHADER node is a ROOT-level sibling of MOTION.  Each element of
+        ``shader_tracks`` is a ``(property_name: str, tracks: Tracks)`` pair
+        that produces one TRACKS child node (identical in format to an MTP node).
+
+        Args:
+            buffer:        Seekable BytesIO buffer.
+            shader_tracks: List of ``(property_name, tracks)`` pairs.  ``tracks``
+                           must be a pre-built :class:`Tracks` structure.
+
+        Returns:
+            ``(shader_node_pos, property_children)`` where ``property_children``
+            is a list of ``(debug_name, node_pos, payload_end)`` tuples used by
+            the caller for validation but not for further back-filling (all
+            internal SHADER back-fills are done here).
+        """
+        shader_node_pos = buffer.tell()
+        # SHADER is a container node (like ROOT / MOTION) with an inline name string
+        self._write_placeholder_node(buffer, FOXDATA_HASH_SHADER, flags=0, name_string="SHADER")
+
+        # Write each property as a TRACKS child node
+        property_children: List[tuple] = []  # (prop_name, node_pos, payload_end)
+        for prop_name, tracks in shader_tracks:
+            # Compute hash for this property node
+            prop_name_str = str(prop_name)
+            if prop_name_str.startswith("shader_prop."):
+                # Hash fallback created by GaniReader: "shader_prop.{decimal_hash}"
+                try:
+                    prop_hash = int(prop_name_str[len("shader_prop."):])
+                except ValueError:
+                    prop_hash = strcode32(prop_name_str)
+                    Debug.log_warning(
+                        f"  write_shader_node: Could not parse hash from '{prop_name_str}', "
+                        f"using strcode32 as fallback (hash={prop_hash})"
+                    )
+            elif is_hash_string(prop_name_str):
+                prop_hash = parse_hash_string(prop_name_str)
+            else:
+                prop_hash = strcode32(prop_name_str)
+
+            pos, _, payload_end = self._write_tracks_node(buffer, prop_hash, tracks)
+            property_children.append((prop_name_str, pos, payload_end))
+
+        if not property_children:
+            Debug.log_warning("  write_shader_node: No property children written for SHADER node")
+            return shader_node_pos, property_children
+
+        # Back-fill SHADER.child_node_offset → first property child
+        first_prop_pos = property_children[0][1]
+        self._backfill_int(
+            buffer,
+            shader_node_pos + _NODE_OFF_CHILD_NODE_OFFSET,
+            first_prop_pos - shader_node_pos,
+        )
+
+        # Back-fill each property child's parent/prev/next offsets and data_size
+        for i, (prop_name_str, child_pos, payload_end) in enumerate(property_children):
+            # parent_node_offset → SHADER (negative)
+            self._backfill_int(
+                buffer,
+                child_pos + _NODE_OFF_PARENT_NODE_OFFSET,
+                shader_node_pos - child_pos,
+            )
+            # previous sibling (negative)
+            if i > 0:
+                prev_pos = property_children[i - 1][1]
+                self._backfill_int(
+                    buffer,
+                    child_pos + _NODE_OFF_PREV_NODE_OFFSET,
+                    prev_pos - child_pos,
+                )
+            # next sibling (positive)
+            if i < len(property_children) - 1:
+                next_pos = property_children[i + 1][1]
+                self._backfill_int(
+                    buffer,
+                    child_pos + _NODE_OFF_NEXT_NODE_OFFSET,
+                    next_pos - child_pos,
+                )
+            # data_size
+            data_size = payload_end - (child_pos + FoxDataNode.SIZE)
+            self._backfill_uint(buffer, child_pos + _NODE_OFF_DATA_SIZE, data_size)
+
+        return shader_node_pos, property_children
 
     def _write_placeholder_node(
         self,
@@ -627,12 +795,24 @@ class GaniWriter:
         track_wrappers: List[TrackUnitWrapper],
         frame_count: int,
         frame_rate: int,
+        t_id: int = 0,
+        unknown_a: int = 0,
+        unknown_b: int = 1,
     ) -> Tracks:
         """Convert a list of ``TrackUnitWrapper`` objects to a ``Tracks`` structure.
 
         Converts ``TrackDataBlobWrapper`` segments to ``TrackData`` instances with
         keyframe blobs.  The resulting ``Tracks`` object is ready to be serialised
         by ``Tracks.write(write_data_blobs=True)``.
+
+        Args:
+            track_wrappers: Unit wrappers to convert.
+            frame_count:    Frame count for the ``TrackHeader``.
+            frame_rate:     Frame rate for the ``TrackHeader``.
+            t_id:           ``TrackHeader.t_id`` override (default 0).
+            unknown_a:      ``TrackHeader.unknown_a`` override (default 0).
+            unknown_b:      ``TrackHeader.unknown_b`` override (default 1 — asserted
+                            in binary template).
         """
         track_units: List[TrackUnit] = []
         absolute_segment_index: int = 0
@@ -674,9 +854,9 @@ class GaniWriter:
         header = TrackHeader(
             unit_count=len(track_units),
             segment_count=sum(u.segment_count for u in track_units),
-            t_id=0,
-            unknown_a=0,
-            unknown_b=1,  # Must be 1 per binary template assertion
+            t_id=t_id,
+            unknown_a=unknown_a,
+            unknown_b=unknown_b,  # Must be 1 per binary template assertion
             frame_count=frame_count,
             frame_rate=frame_rate,
             unit_offsets=[],  # Calculated by Tracks.write()

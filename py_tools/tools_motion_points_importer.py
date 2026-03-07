@@ -23,6 +23,7 @@ from ..py_utilities.utilities_blender_animation import (
     configure_action,
     iter_action_fcurves,
 )
+from ..py_utilities.utilities_blender_armature import BoneSpec, create_track_armature
 from ..py_utilities.utilities_naming import (
     format_action_name,
     format_strip_name,
@@ -79,6 +80,7 @@ def create_nla_strips_for_actions(
     path_to_indices: Dict[int, Tuple[int, int]],
     use_verbose_naming: bool,
     is_motion_points: bool = False,
+    is_shader_nodes: bool = False,
     strip_padding: int = 10,
     reference_actions: Optional[List[bpy.types.Action]] = None,
 ) -> int:
@@ -96,6 +98,7 @@ def create_nla_strips_for_actions(
         path_to_indices:    Maps path hash → ``(h_index, d_index)`` tuple.
         use_verbose_naming: Include h/d indices in strip names when ``True``.
         is_motion_points:   Flag the strips as motion-point strips for naming.
+        is_shader_nodes:    Flag the strips as shader-node strips for naming.
         strip_padding:      Gap (frames) inserted between consecutive strips.
         reference_actions:  Optional parallel list of reference actions used to
                             derive frame offsets, keeping motion-point strips
@@ -142,6 +145,7 @@ def create_nla_strips_for_actions(
                 mtar_file_name, index, h_idx, d_idx,
                 use_verbose_naming,
                 is_motion_points=is_motion_points,
+                is_shader_nodes=is_shader_nodes,
                 gani_name=gani_name_segment,
             )
             strip.frame_end = strip.frame_start + action_length
@@ -363,66 +367,31 @@ def create_and_setup_motion_points_armature(
     armature_name = f"{mtar_file_name}_MotionPoints"
     Debug.log(f"  Creating motion points armature: {armature_name}")
 
-    arm_data: bpy.types.Armature = bpy.data.armatures.new(name=armature_name)
-    armature: bpy.types.Object = bpy.data.objects.new(armature_name, arm_data)
-    context.view_layer.active_layer_collection.collection.objects.link(armature)
-
-    context.view_layer.objects.active = armature
-    bpy.ops.object.mode_set(mode='EDIT')
-
-    # Build mapping: hash_value -> (parent_hash, parent_name)
-    # All bone names use decimal hash strings for consistency with GANI2
+    # Build BoneSpec list from motion point entries.
+    # All bone names are decimal hash strings. We create stub bones for parents
+    # that don't appear as their own entry (non-MTP skeleton parents).
     motion_point_bones: Dict[int, Tuple[int, Optional[str]]] = {}
     for entry in motion_points.entries:
         motion_point_bones[entry.hash_value] = (
             entry.parent_hash, entry.parent_name
         )
 
-    # Create all bones using decimal hash value as name (GANI2 consistent)
-    created_bones: Dict[int, bpy.types.EditBone] = {}
-    for hash_value, (_parent_hash, _parent_name) in motion_point_bones.items():
-        bone_name = str(hash_value)
-        edit_bone: bpy.types.EditBone = armature.data.edit_bones.new(bone_name)
-        edit_bone.head = (0, 0, 0)
-        edit_bone.tail = (0, 0.1, 0)
-        created_bones[hash_value] = edit_bone
-        Debug.log(f"    Created motion point bone: {bone_name}")
+    # Collect all hashes that need to exist as bones (entries + missing parents)
+    all_hashes: Dict[int, Optional[int]] = {}  # hash -> parent_hash or None
+    for hash_value, (parent_hash, _) in motion_point_bones.items():
+        all_hashes[hash_value] = parent_hash if parent_hash != 0 else None
+        if parent_hash != 0 and parent_hash not in motion_point_bones:
+            # Stub parent bone
+            all_hashes.setdefault(parent_hash, None)
 
-    # Set up parent relationships
-    for hash_value, (parent_hash, _parent_name) in motion_point_bones.items():
-        bone_name = str(hash_value)
-        if parent_hash == 0:
-            continue  # No parent
-
-        if parent_hash in created_bones:
-            created_bones[hash_value].parent = created_bones[parent_hash]
-            Debug.log(
-                f"    Set parent: {bone_name} -> "
-                f"{created_bones[parent_hash].name} (motion point)"
-            )
-        else:
-            # Parent is a non-MTP bone (e.g. a regular skeleton bone).
-            # Create a stub bone so the hierarchy is valid.
-            # Use decimal hash string for consistency with GANI2
-            parent_bone_name = str(parent_hash)
-            if parent_hash not in created_bones:
-                parent_edit_bone: bpy.types.EditBone = armature.data.edit_bones.new(
-                    parent_bone_name
-                )
-                parent_edit_bone.head = (0, 0, 0)
-                parent_edit_bone.tail = (0, 0.1, 0)
-                created_bones[parent_hash] = parent_edit_bone
-                Debug.log(
-                    f"    Created stub parent bone: {parent_bone_name} "
-                    f"(hash: {parent_hash})"
-                )
-            created_bones[hash_value].parent = created_bones[parent_hash]
-            Debug.log(
-                f"    Set parent: {bone_name} -> "
-                f"{created_bones[parent_hash].name} (from parent hash)"
-            )
-
-    bpy.ops.object.mode_set(mode='OBJECT')
+    bone_specs = [
+        BoneSpec(
+            name=str(h),
+            parent_name=str(p) if p is not None else None,
+        )
+        for h, p in all_hashes.items()
+    ]
+    armature: bpy.types.Object = create_track_armature(context, armature_name, bone_specs)
     Debug.log(
         f"Motion points armature created with {motion_points.count} point(s)"
     )

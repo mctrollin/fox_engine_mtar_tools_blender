@@ -684,6 +684,19 @@ class MtarWriter:
             skeleton_list=skeleton_list,
             motion_point_list=motion_point_list,
             motion_point_parent_list=motion_point_parent_list,
+            shader_tracks=(
+                [
+                    (name, tracks, hdr)
+                    for name, tracks, hdr in zip(
+                        gani_data.shader_nodes_data.property_names,
+                        gani_data.shader_nodes_data.property_tracks,
+                        gani_data.shader_nodes_data.property_headers
+                        if gani_data.shader_nodes_data.property_headers
+                        else [None] * len(gani_data.shader_nodes_data.property_names),
+                    )
+                ]
+                if gani_data.shader_nodes_data else None
+            ),
         )
         
         return buffer.getvalue()

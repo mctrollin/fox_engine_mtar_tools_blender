@@ -12,6 +12,7 @@ from ..py_utilities.utilities_blender_animation import (
     iter_action_fcurves,
     build_data_path_for_bone
 )
+from ..py_utilities.utilities_blender_armature import BoneSpec, create_track_armature
 from ..py_utilities.utilities_naming import format_action_name, format_strip_name, resolve_gani_name_segment
 
 from ..py_foxwrap.foxwrap_metadata import (
@@ -24,6 +25,7 @@ from ..py_foxwrap.foxwrap_metadata import (
 )
 from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper, TrackDataBlobWrapper, Tracks
+from ..py_foxwrap.foxwrap_misc_import import ShaderTrackWrapper
 from ..py_foxwrap.foxwrap_motionevent import store_motion_events_on_action
 from ..py_foxwrap.foxwrap_mtar_reader import MtarReader
 from ..py_foxwrap.foxwrap_mapping import BoneParameters
@@ -38,6 +40,10 @@ from .tools_motion_points_importer import (
     create_nla_strips_for_actions,
     create_motion_points_animation_actions,
     create_and_setup_motion_points_armature,
+)
+from .tools_gani_shader_importer import (
+    create_shader_animation_actions,
+    create_and_setup_shader_nodes_armature,
 )
 
 FPS_59_94: float = 59.94
@@ -759,42 +765,20 @@ def create_and_setup_armature(
     """
     # Create fresh armature (Blender will auto-rename if name already exists)
     Debug.log(f"Creating new armature: {mtar_file_name}")
-    arm_data: bpy.types.Armature = bpy.data.armatures.new(name=mtar_file_name)
-    armature: bpy.types.Object = bpy.data.objects.new(mtar_file_name, arm_data)
-    context.view_layer.active_layer_collection.collection.objects.link(armature)
 
-    # Set armature as active object and enter edit mode
-    Debug.log("Setting up armature bones...")
-    context.view_layer.objects.active = armature
-    bpy.ops.object.mode_set(mode='EDIT')
-
-    # Collect all unique keyframes track names from all GANI files
+    # Collect all unique bone names from all GANI files
     all_bone_names = []
     for gani_tracks in all_gani_tracks:
         for gani_track in gani_tracks:
             for keyframes_track in gani_track.segments_track_data:
-                # keyframes_track.name can be an integer hash when unresolved — always coerce to str
                 bone_name_str = str(keyframes_track.name)
                 if bone_name_str not in all_bone_names:
                     all_bone_names.append(bone_name_str)
-    
+
     Debug.log(f"Found {len(all_bone_names)} unique handle(s)")
 
-    # Create armature bones if they don't exist
-    bones_created: int = 0
-    for bone_name in all_bone_names:
-        if bone_name not in armature.data.edit_bones:
-            bone: bpy.types.EditBone = armature.data.edit_bones.new(bone_name)
-            # Set handle defaults (can be adjusted based on needs)
-            bone.head = (0, 0, 0)
-            bone.tail = (0, 0.1, 0)  # Small default length
-            bones_created += 1
-    
-    if bones_created > 0:
-        Debug.log(f"Created {bones_created} new armature bone(s)")
-
-    # Exit edit mode
-    bpy.ops.object.mode_set(mode='OBJECT')
+    bone_specs = [BoneSpec(name=n) for n in all_bone_names]
+    armature: bpy.types.Object = create_track_armature(context, mtar_file_name, bone_specs)
 
     # Create animation data on imported armature
     Debug.log("Setting up animation data on armature...")
@@ -890,6 +874,7 @@ def sort_gani_data_by_file_offset(
     all_skl_lists: List[Optional[List[str]]],
     all_mtp_lists: List[Optional[List[str]]],
     all_mtp_parent_lists: List[Optional[List[str]]],
+    all_shader_gani_tracks: List[List[ShaderTrackWrapper]],
 ) -> Tuple[
     List[List[TrackUnitWrapper]],
     List[List[TrackUnitWrapper]],
@@ -901,6 +886,7 @@ def sort_gani_data_by_file_offset(
     List[Optional[List[str]]],
     List[Optional[List[str]]],
     List[Optional[List[str]]],
+    List[List],
 ]:
     """Sort all GANI data lists by tracks_offset from file headers.
     
@@ -908,10 +894,11 @@ def sort_gani_data_by_file_offset(
     This affects action names and NLA strip ordering.
     
     Args:
-        All GANI data lists (must have same length)
+        All GANI data lists (must have same length).
+        all_shader_gani_tracks: Per-GANI shader track lists (old-format only).
         
     Returns:
-        Same lists sorted by tracks_offset
+        Same lists sorted by tracks_offset, including all_shader_gani_tracks.
     """
     # Create list of tuples: (tracks_offset, original_index, all_data)
     combined = []
@@ -929,6 +916,7 @@ def sort_gani_data_by_file_offset(
             all_skl_lists[i] if all_skl_lists and i < len(all_skl_lists) else None,
             all_mtp_lists[i] if all_mtp_lists and i < len(all_mtp_lists) else None,
             all_mtp_parent_lists[i] if all_mtp_parent_lists and i < len(all_mtp_parent_lists) else None,
+            all_shader_gani_tracks[i] if all_shader_gani_tracks and i < len(all_shader_gani_tracks) else [],
         ))
     
     # Sort by tracks_offset
@@ -945,6 +933,7 @@ def sort_gani_data_by_file_offset(
     sorted_skl_lists = [item[9] for item in combined]
     sorted_mtp_lists = [item[10] for item in combined]
     sorted_mtp_parent_lists = [item[11] for item in combined]
+    sorted_shader_gani_tracks = [item[12] for item in combined]
 
     return (
         sorted_gani_tracks,
@@ -957,6 +946,7 @@ def sort_gani_data_by_file_offset(
         sorted_skl_lists,
         sorted_mtp_lists,
         sorted_mtp_parent_lists,
+        sorted_shader_gani_tracks,
     )
 
 def import_mtar(
@@ -1040,6 +1030,7 @@ def import_mtar_data(
     all_skl_lists: List[Optional[List[str]]] = []
     all_mtp_lists: List[Optional[List[str]]] = []
     all_mtp_parent_lists: List[Optional[List[str]]] = []
+    all_shader_gani_tracks: List[List[ShaderTrackWrapper]] = []  # ShaderTrackWrapper lists (old-format only)
 
     if gani_indices is not None:
         if gani_indices:
@@ -1058,6 +1049,7 @@ def import_mtar_data(
             all_skl_lists = [results_dict[i][7] for i in sorted(results_dict.keys())]
             all_mtp_lists = [results_dict[i][8] for i in sorted(results_dict.keys())]
             all_mtp_parent_lists = [results_dict[i][9] for i in sorted(results_dict.keys())]
+            all_shader_gani_tracks = [results_dict[i][10] for i in sorted(results_dict.keys())]
             Debug.log(f"Imported {len(all_gani_tracks)} GANI file(s)")
             Debug.log(f"List lengths: gani_tracks={len(all_gani_tracks)}, motion_point_tracks={len(all_motion_point_gani_tracks)}, "
                      f"motion_events={len(all_motion_events)}, track_mini_headers={len(all_track_mini_headers)}, "
@@ -1066,7 +1058,7 @@ def import_mtar_data(
     else:
         # Import all GANIs
         Debug.log("Importing all GANIs")
-        all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers, all_skl_lists, all_mtp_lists, all_mtp_parent_lists = reader.read_all_ganies()
+        all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers, all_skl_lists, all_mtp_lists, all_mtp_parent_lists, all_shader_gani_tracks = reader.read_all_ganies()
         Debug.log(f"Found {len(all_gani_tracks)} GANI file(s)")
 
     # Reverse-sort GANIs to match the order of the data in the file instead of the order in the header
@@ -1076,7 +1068,7 @@ def import_mtar_data(
         Debug.log_warning("Missing settings property: context.scene.mtar_properties.settings_props.sort_gani")
         sort_enabled = False
     if sort_enabled and all_file_headers:
-        all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers, all_skl_lists, all_mtp_lists, all_mtp_parent_lists = sort_gani_data_by_file_offset(
+        all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers, all_skl_lists, all_mtp_lists, all_mtp_parent_lists, all_shader_gani_tracks = sort_gani_data_by_file_offset(
             all_gani_tracks,
             all_motion_point_gani_tracks,
             all_motion_events,
@@ -1087,6 +1079,7 @@ def import_mtar_data(
             all_skl_lists,
             all_mtp_lists,
             all_mtp_parent_lists,
+            all_shader_gani_tracks,
         )
 
     # Get layout track for metadata storage
@@ -1236,7 +1229,34 @@ def import_mtar_data(
         strip_padding,
         gani_actions  # Reference actions for frame synchronization
     )
-    
+
+    # Create shader nodes animation actions (old-format only; empty lists for new-format)
+    Debug.update_progress(67, "Creating Shader Nodes...")
+    shader_actions = create_shader_animation_actions(
+        context,
+        mtar_file_name,
+        all_shader_gani_tracks,
+        all_file_headers,
+        path_to_indices,
+        use_verbose_naming,
+        gani_hash_dict=gani_hash_dict,
+    )
+
+    # Create and setup shader nodes armature with animation data
+    # Pass gani_actions as reference to synchronize frame offsets across armatures
+    Debug.update_progress(68, "Setting up Shader Nodes...")
+    _shader_nodes_armature = create_and_setup_shader_nodes_armature(
+        context,
+        mtar_file_name,
+        all_shader_gani_tracks,
+        shader_actions,
+        all_file_headers,
+        path_to_indices,
+        use_verbose_naming,
+        strip_padding,
+        gani_actions  # Reference actions for frame synchronization
+    )
+
     Debug.log("\n=== MTAR Import Completed Successfully ===")
     Debug.update_progress(70, "Import MTAR Data Finished")
 

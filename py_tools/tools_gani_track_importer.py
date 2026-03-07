@@ -21,6 +21,7 @@ from ..py_utilities.utilities_transforms import (
 )
 from ..py_utilities.utilities_blender_animation import (
     MTAR_ARMATURE_SLOT_NAME,
+    MTAR_SHADER_SLOT_NAME,
     ensure_action_fcurve,
     build_data_path_for_bone,
 )
@@ -32,14 +33,22 @@ def import_keyframes_track(
     context: bpy.types.Context,
     action: bpy.types.Action,
     keyframes_track: TrackDataBlobWrapper,
+    slot_name: Optional[str] = MTAR_ARMATURE_SLOT_NAME,
+    apply_transforms: bool = True,
 ) -> int:
     """Import a single track data blob into a Blender action.
 
     Args:
-        context:         Blender context (used to access import settings such as
-                         ``ik_up_distance``).
-        action:          Blender action to add keyframes to.
-        keyframes_track: :class:`TrackDataBlobWrapper` containing animation data.
+        context:          Blender context (used to access import settings such as
+                          ``ik_up_distance``).
+        action:           Blender action to add keyframes to.
+        keyframes_track:  :class:`TrackDataBlobWrapper` containing animation data.
+        slot_name:        Action slot name to use when creating FCurves.  Defaults
+                          to :data:`MTAR_ARMATURE_SLOT_NAME`; pass
+                          :data:`MTAR_SHADER_SLOT_NAME` for shader tracks.
+        apply_transforms: When ``True`` (default), axis swaps, rotation offsets,
+                          rest-pose corrections and IK conversions are applied.
+                          Pass ``False`` for raw tracks such as shader nodes.
 
     Returns:
         Maximum frame number encountered in this track.
@@ -62,82 +71,83 @@ def import_keyframes_track(
     rotation_axis_map: Optional[List[Dict[str, Union[str, bool]]]] = None
 
     if keyframes_track.data_blob.type in [SegmentType.QUAT, SegmentType.QUAT_DIFF]:
-        if keyframes_track.rotation_offset:
-            rotation_offset_quats = prepare_rotation_offset_quats(keyframes_track.rotation_offset)
-        if keyframes_track.rotation_axis_map:
-            rotation_axis_map = keyframes_track.rotation_axis_map
-            axis_str = ','.join(
-                [('-' if m['negate'] else '') + m['axis'] for m in rotation_axis_map]
-            )
-            Debug.log(f"    Applying rotation axis mapping transformation: {axis_str}")
+        if apply_transforms:
+            if keyframes_track.rotation_offset:
+                rotation_offset_quats = prepare_rotation_offset_quats(keyframes_track.rotation_offset)
+            if keyframes_track.rotation_axis_map:
+                rotation_axis_map = keyframes_track.rotation_axis_map
+                axis_str = ','.join(
+                    [('-' if m['negate'] else '') + m['axis'] for m in rotation_axis_map]
+                )
+                Debug.log(f"    Applying rotation axis mapping transformation: {axis_str}")
 
-        # IK special case: quaternion rotation converted to directional location
-        if keyframes_track.as_ik_up:
-            ik_data = keyframes_track.as_ik_up
-            axis = ik_data.axis
+            # IK special case: quaternion rotation converted to directional location
+            if keyframes_track.as_ik_up:
+                ik_data = keyframes_track.as_ik_up
+                axis = ik_data.axis
 
-            distance: float = 1.0
-            if hasattr(context.scene, 'mtar_properties'):
-                distance = context.scene.mtar_properties.import_props.ik_up_distance
+                distance: float = 1.0
+                if hasattr(context.scene, 'mtar_properties'):
+                    distance = context.scene.mtar_properties.import_props.ik_up_distance
 
-            Debug.log(
-                f"    Converting rotation to directional location "
-                f"(axis={axis}, distance={distance})"
-            )
-
-            converted_locations = []
-            absolute_frame = 0
-            for keyframe in keyframes_track.data_blob.keyframes:
-                absolute_frame += keyframe.frame_count
-                quat = apply_rotation_transforms(
-                    keyframe.data.value,
-                    rotation_axis_map,
-                    rotation_offset_quats,
-                    offset_first=True,
+                Debug.log(
+                    f"    Converting rotation to directional location "
+                    f"(axis={axis}, distance={distance})"
                 )
 
-                if keyframes_track.space_r:
-                    pass
-                elif keyframes_track.map_r_rest_pose:
-                    quat = apply_rest_pose_correction_local(quat, keyframes_track.map_r_rest_pose)
-
-                bone_base_location = Vector((0.0, 0.0, 0.0))
-                target_location = calculate_directional_location(
-                    bone_location=bone_base_location,
-                    bone_rotation_quat=quat,
-                    axis=axis,
-                    distance=distance,
-                )
-                converted_locations.append((absolute_frame, target_location))
-                max_frame = max(max_frame, absolute_frame)
-
-            for i in range(3):
-                try:
-                    data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
-                    fcurve: bpy.types.FCurve = ensure_action_fcurve(
-                        action,
-                        data_path=data_path_str,
-                        index=i,
-                        action_group_name=group_name,
-                        slot_name=MTAR_ARMATURE_SLOT_NAME,
+                converted_locations = []
+                absolute_frame = 0
+                for keyframe in keyframes_track.data_blob.keyframes:
+                    absolute_frame += keyframe.frame_count
+                    quat = apply_rotation_transforms(
+                        keyframe.data.value,
+                        rotation_axis_map,
+                        rotation_offset_quats,
+                        offset_first=True,
                     )
-                except Exception as e:
-                    data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
-                    Debug.log_warning(
-                        f"Could not create fcurve '{data_path_str}[{i}]' "
-                        f"on action '{getattr(action, 'name', '<unknown>')}': {e}"
-                    )
-                    continue
-                for frame_count, target_location in converted_locations:
-                    kf_point: bpy.types.Keyframe = fcurve.keyframe_points.insert(
-                        frame_count, target_location[i]
-                    )
-                    kf_point.interpolation = 'LINEAR'
 
-            Debug.log(f"    Added directional location keyframes (frames 0-{max_frame})")
+                    if keyframes_track.space_r:
+                        pass
+                    elif keyframes_track.map_r_rest_pose:
+                        quat = apply_rest_pose_correction_local(quat, keyframes_track.map_r_rest_pose)
 
-        # Normal rotation
-        else:
+                    bone_base_location = Vector((0.0, 0.0, 0.0))
+                    target_location = calculate_directional_location(
+                        bone_location=bone_base_location,
+                        bone_rotation_quat=quat,
+                        axis=axis,
+                        distance=distance,
+                    )
+                    converted_locations.append((absolute_frame, target_location))
+                    max_frame = max(max_frame, absolute_frame)
+
+                for i in range(3):
+                    try:
+                        data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
+                        fcurve: bpy.types.FCurve = ensure_action_fcurve(
+                            action,
+                            data_path=data_path_str,
+                            index=i,
+                            action_group_name=group_name,
+                            slot_name=slot_name,
+                        )
+                    except Exception as e:
+                        data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
+                        Debug.log_warning(
+                            f"Could not create fcurve '{data_path_str}[{i}]' "
+                            f"on action '{getattr(action, 'name', '<unknown>')}': {e}"
+                        )
+                        continue
+                    for frame_count, target_location in converted_locations:
+                        kf_point: bpy.types.Keyframe = fcurve.keyframe_points.insert(
+                            frame_count, target_location[i]
+                        )
+                        kf_point.interpolation = 'LINEAR'
+
+                Debug.log(f"    Added directional location keyframes (frames 0-{max_frame})")
+                return max_frame  # IK path terminates here
+
+            # Normal rotation with transforms
             converted_quaternions = []
             absolute_frame = 0
             for keyframe in keyframes_track.data_blob.keyframes:
@@ -164,42 +174,54 @@ def import_keyframes_track(
                 converted_quaternions.append((absolute_frame, quat))
                 max_frame = max(max_frame, absolute_frame)
 
-            for i in range(4):
-                try:
-                    data_path_str = build_data_path_for_bone(
-                        keyframes_track.name, 'rotation_quaternion'
-                    )
-                    fcurve: bpy.types.FCurve = ensure_action_fcurve(
-                        action,
-                        data_path=data_path_str,
-                        index=i,
-                        action_group_name=group_name,
-                        slot_name=MTAR_ARMATURE_SLOT_NAME,
-                    )
-                except Exception as e:
-                    data_path_str = build_data_path_for_bone(
-                        keyframes_track.name, 'rotation_quaternion'
-                    )
-                    Debug.log_warning(
-                        f"Could not create fcurve '{data_path_str}[{i}]' "
-                        f"on action '{getattr(action, 'name', '<unknown>')}': {e}"
-                    )
-                    continue
-                for frame_count, quat in converted_quaternions:
-                    quat_component: float = quat[i]
-                    kf_point: bpy.types.Keyframe = fcurve.keyframe_points.insert(
-                        frame_count, quat_component
-                    )
-                    kf_point.interpolation = 'LINEAR'
+        else:
+            # Raw quaternion values — no transforms (shader tracks)
+            converted_quaternions = []
+            absolute_frame = 0
+            for keyframe in keyframes_track.data_blob.keyframes:
+                absolute_frame += keyframe.frame_count
+                converted_quaternions.append((absolute_frame, keyframe.data.value))
+                max_frame = max(max_frame, absolute_frame)
 
-            Debug.log(f"    Added quaternion rotation keyframes (frames 0-{max_frame})")
+        for i in range(4):
+            try:
+                data_path_str = build_data_path_for_bone(
+                    keyframes_track.name, 'rotation_quaternion'
+                )
+                fcurve: bpy.types.FCurve = ensure_action_fcurve(
+                    action,
+                    data_path=data_path_str,
+                    index=i,
+                    action_group_name=group_name,
+                    slot_name=slot_name,
+                )
+            except Exception as e:
+                data_path_str = build_data_path_for_bone(
+                    keyframes_track.name, 'rotation_quaternion'
+                )
+                Debug.log_warning(
+                    f"Could not create fcurve '{data_path_str}[{i}]' "
+                    f"on action '{getattr(action, 'name', '<unknown>')}': {e}"
+                )
+                continue
+            for frame_count, quat in converted_quaternions:
+                quat_component: float = quat[i]
+                kf_point: bpy.types.Keyframe = fcurve.keyframe_points.insert(
+                    frame_count, quat_component
+                )
+                kf_point.interpolation = 'LINEAR'
+
+        Debug.log(f"    Added quaternion rotation keyframes (frames 0-{max_frame})")
 
     elif keyframes_track.data_blob.type in [SegmentType.VECTOR3, SegmentType.VECTOR_DIFF]:
         converted_vectors = []
         absolute_frame = 0
         for keyframe in keyframes_track.data_blob.keyframes:
             absolute_frame += keyframe.frame_count
-            blender_vec: List[float] = fox_to_blender_vector(keyframe.data.value)
+            if apply_transforms:
+                blender_vec: List[float] = fox_to_blender_vector(keyframe.data.value)
+            else:
+                blender_vec = list(keyframe.data.value)
             converted_vectors.append((absolute_frame, blender_vec))
             max_frame = max(max_frame, absolute_frame)
 
@@ -211,6 +233,7 @@ def import_keyframes_track(
                     data_path=data_path_str,
                     index=i,
                     action_group_name=group_name,
+                    slot_name=slot_name,
                 )
             except Exception as e:
                 data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
@@ -248,6 +271,7 @@ def import_keyframes_track(
                 data_path=data_path_str,
                 index=0,
                 action_group_name=group_name,
+                slot_name=slot_name,
             )
         except Exception as e:
             data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
@@ -280,6 +304,7 @@ def import_keyframes_track(
                     data_path=data_path_str,
                     index=i,
                     action_group_name=group_name,
+                    slot_name=slot_name,
                 )
             except Exception as e:
                 data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
@@ -308,13 +333,17 @@ def import_gani_track(
     context: bpy.types.Context,
     action: bpy.types.Action,
     gani_track: TrackUnitWrapper,
+    slot_name: Optional[str] = MTAR_ARMATURE_SLOT_NAME,
+    apply_transforms: bool = True,
 ) -> int:
     """Import a :class:`TrackUnitWrapper` (all its segments) into a Blender action.
 
     Args:
-        context:    Blender context.
-        action:     Blender action to add keyframes to.
-        gani_track: :class:`TrackUnitWrapper` containing per-segment keyframe data.
+        context:          Blender context.
+        action:           Blender action to add keyframes to.
+        gani_track:       :class:`TrackUnitWrapper` containing per-segment keyframe data.
+        slot_name:        Action slot name forwarded to :func:`import_keyframes_track`.
+        apply_transforms: When ``False``, coordinate transforms are skipped (shader tracks).
 
     Returns:
         Maximum frame number encountered across all segments.
@@ -328,7 +357,11 @@ def import_gani_track(
     )
 
     for keyframes_track in gani_track.segments_track_data:
-        track_max_frame: int = import_keyframes_track(context, action, keyframes_track)
+        track_max_frame: int = import_keyframes_track(
+            context, action, keyframes_track,
+            slot_name=slot_name,
+            apply_transforms=apply_transforms,
+        )
         max_frame = max(max_frame, track_max_frame)
 
     return max_frame
