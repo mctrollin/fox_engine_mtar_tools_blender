@@ -26,6 +26,7 @@ from .foxwrap_misc_export import GaniExportData
 from .foxwrap_metadata import (
     read_track_header_properties_from_action,
     parse_foxdata_stringlist_from_action,
+    iter_all_node_params_from_action,
     PROP_MTP_LIST,
     PROP_MTP_PARENT_LIST,
     PROP_NO_SKL_LIST,
@@ -674,6 +675,9 @@ class MtarWriter:
         skeleton_list = [] if no_skl_list else None  # []: suppress; None: auto-derive
         motion_point_list = parse_foxdata_stringlist_from_action(action, PROP_MTP_LIST) if action else None
         motion_point_parent_list = parse_foxdata_stringlist_from_action(action, PROP_MTP_PARENT_LIST) if action else None
+        node_params = gani_data.node_params if gani_data.node_params is not None else (
+            iter_all_node_params_from_action(action) if action else {}
+        )
         self.gani_writer.write_gani_to_buffer(
             buffer=buffer,
             gani_tracks=gani_data.tracks_data.gani_tracks,
@@ -684,6 +688,7 @@ class MtarWriter:
             skeleton_list=skeleton_list,
             motion_point_list=motion_point_list,
             motion_point_parent_list=motion_point_parent_list,
+            node_params=node_params,
             shader_tracks=(
                 [
                     (name, tracks, hdr)

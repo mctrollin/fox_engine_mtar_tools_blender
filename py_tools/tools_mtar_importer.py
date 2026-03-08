@@ -21,7 +21,7 @@ from ..py_foxwrap.foxwrap_metadata import (
     store_track_header_properties_on_action,
     store_track_metadata_on_action,
     store_mtar_properties_on_action,
-    store_gani_params_on_action,
+    store_node_params_on_action,
 )
 from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper, TrackDataBlobWrapper, Tracks
@@ -254,6 +254,7 @@ def create_animation_actions(
     all_skl_lists: Optional[List[Optional[List[str]]]] = None,
     all_mtp_lists: Optional[List[Optional[List[str]]]] = None,
     all_mtp_parent_lists: Optional[List[Optional[List[str]]]] = None,
+    all_node_params: Optional[List[Dict]] = None,
 ) -> Tuple[Optional[bpy.types.Action], List[bpy.types.Action], int]:
     """Create Blender animation actions from MTAR data.
     
@@ -365,7 +366,11 @@ def create_animation_actions(
         track_mini_header = all_track_mini_headers[gani_index]
         track_metadata_list = TrackMetaData.from_gani_tracks(gani_tracks, track_mini_header.segment_headers)
         store_track_metadata_on_action(action, track_metadata_list, include_segments=False, include_hash=False)
-        store_gani_params_on_action(action, track_mini_header.params)
+        # Store all non-SHADER node params from this GANI (MOTION, ROOT, etc.) for lossless round-trip
+        gani_node_params = all_node_params[gani_index] if all_node_params and gani_index < len(all_node_params) else {}
+        for node_key, params in gani_node_params.items():
+            if not node_key.startswith("SHADER"):
+                store_node_params_on_action(action, node_key, params)
         
         # Store mtar_const.TABL_PATH for re-export: full asset path if unhashed, raw decimal hash string otherwise
         if hasattr(file_header, 'path'):
@@ -875,6 +880,7 @@ def sort_gani_data_by_file_offset(
     all_mtp_lists: List[Optional[List[str]]],
     all_mtp_parent_lists: List[Optional[List[str]]],
     all_shader_gani_tracks: List[List[ShaderTrackWrapper]],
+    all_node_params: List[Dict],
 ) -> Tuple[
     List[List[TrackUnitWrapper]],
     List[List[TrackUnitWrapper]],
@@ -887,6 +893,7 @@ def sort_gani_data_by_file_offset(
     List[Optional[List[str]]],
     List[Optional[List[str]]],
     List[List],
+    List[Dict],
 ]:
     """Sort all GANI data lists by tracks_offset from file headers.
     
@@ -917,6 +924,7 @@ def sort_gani_data_by_file_offset(
             all_mtp_lists[i] if all_mtp_lists and i < len(all_mtp_lists) else None,
             all_mtp_parent_lists[i] if all_mtp_parent_lists and i < len(all_mtp_parent_lists) else None,
             all_shader_gani_tracks[i] if all_shader_gani_tracks and i < len(all_shader_gani_tracks) else [],
+            all_node_params[i] if all_node_params and i < len(all_node_params) else {},
         ))
     
     # Sort by tracks_offset
@@ -934,6 +942,7 @@ def sort_gani_data_by_file_offset(
     sorted_mtp_lists = [item[10] for item in combined]
     sorted_mtp_parent_lists = [item[11] for item in combined]
     sorted_shader_gani_tracks = [item[12] for item in combined]
+    sorted_node_params = [item[13] for item in combined]
 
     return (
         sorted_gani_tracks,
@@ -947,6 +956,7 @@ def sort_gani_data_by_file_offset(
         sorted_mtp_lists,
         sorted_mtp_parent_lists,
         sorted_shader_gani_tracks,
+        sorted_node_params,
     )
 
 def import_mtar(
@@ -1031,6 +1041,7 @@ def import_mtar_data(
     all_mtp_lists: List[Optional[List[str]]] = []
     all_mtp_parent_lists: List[Optional[List[str]]] = []
     all_shader_gani_tracks: List[List[ShaderTrackWrapper]] = []  # ShaderTrackWrapper lists (old-format only)
+    all_node_params: List[Dict] = []  # Per-GANI node_params dicts (old-format only; {} for new-format)
 
     if gani_indices is not None:
         if gani_indices:
@@ -1050,6 +1061,7 @@ def import_mtar_data(
             all_mtp_lists = [results_dict[i][8] for i in sorted(results_dict.keys())]
             all_mtp_parent_lists = [results_dict[i][9] for i in sorted(results_dict.keys())]
             all_shader_gani_tracks = [results_dict[i][10] for i in sorted(results_dict.keys())]
+            all_node_params = [results_dict[i][11] for i in sorted(results_dict.keys())]
             Debug.log(f"Imported {len(all_gani_tracks)} GANI file(s)")
             Debug.log(f"List lengths: gani_tracks={len(all_gani_tracks)}, motion_point_tracks={len(all_motion_point_gani_tracks)}, "
                      f"motion_events={len(all_motion_events)}, track_mini_headers={len(all_track_mini_headers)}, "
@@ -1058,7 +1070,7 @@ def import_mtar_data(
     else:
         # Import all GANIs
         Debug.log("Importing all GANIs")
-        all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers, all_skl_lists, all_mtp_lists, all_mtp_parent_lists, all_shader_gani_tracks = reader.read_all_ganies()
+        all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers, all_skl_lists, all_mtp_lists, all_mtp_parent_lists, all_shader_gani_tracks, all_node_params = reader.read_all_ganies()
         Debug.log(f"Found {len(all_gani_tracks)} GANI file(s)")
 
     # Reverse-sort GANIs to match the order of the data in the file instead of the order in the header
@@ -1068,7 +1080,7 @@ def import_mtar_data(
         Debug.log_warning("Missing settings property: context.scene.mtar_properties.settings_props.sort_gani")
         sort_enabled = False
     if sort_enabled and all_file_headers:
-        all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers, all_skl_lists, all_mtp_lists, all_mtp_parent_lists, all_shader_gani_tracks = sort_gani_data_by_file_offset(
+        all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers, all_skl_lists, all_mtp_lists, all_mtp_parent_lists, all_shader_gani_tracks, all_node_params = sort_gani_data_by_file_offset(
             all_gani_tracks,
             all_motion_point_gani_tracks,
             all_motion_events,
@@ -1080,6 +1092,7 @@ def import_mtar_data(
             all_mtp_lists,
             all_mtp_parent_lists,
             all_shader_gani_tracks,
+            all_node_params,
         )
 
     # Get layout track for metadata storage
@@ -1183,6 +1196,7 @@ def import_mtar_data(
         all_skl_lists=all_skl_lists,
         all_mtp_lists=all_mtp_lists,
         all_mtp_parent_lists=all_mtp_parent_lists,
+        all_node_params=all_node_params,
     )
     
     # Create and setup the armature with animation data (optional secondary task)
@@ -1240,6 +1254,7 @@ def import_mtar_data(
         path_to_indices,
         use_verbose_naming,
         gani_hash_dict=gani_hash_dict,
+        all_node_params=all_node_params,
     )
 
     # Create and setup shader nodes armature with animation data

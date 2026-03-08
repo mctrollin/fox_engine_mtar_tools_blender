@@ -47,6 +47,7 @@ from ..py_foxwrap.foxwrap_gani2_reader import apply_track_naming
 from ..py_foxwrap.foxwrap_metadata import (
     TrackMetaData,
     store_track_metadata_on_action,
+    store_node_params_on_action,
 )
 
 from ..py_fox.fox_mtar_types import MtarTableList2
@@ -149,6 +150,7 @@ def create_shader_animation_actions(
     path_to_indices: Dict[int, Tuple[int, int]],
     use_verbose_naming: bool,
     gani_hash_dict: Optional[Dict[int, str]] = None,
+    all_node_params: Optional[List[Dict]] = None,
 ) -> List[Optional[bpy.types.Action]]:
     """Create Blender animation actions for shader nodes from MTAR data.
 
@@ -186,9 +188,7 @@ def create_shader_animation_actions(
         file_header = all_file_headers[gani_index]
         h_idx, d_idx = path_to_indices.get(file_header.path, (0, 0))
 
-        gani_full_path, gani_name_segment = resolve_gani_name_segment(
-            file_header, gani_hash_dict
-        )
+        gani_full_path, gani_name_segment = resolve_gani_name_segment(file_header, gani_hash_dict)
 
         action_name: str = format_action_name(
             mtar_file_name, gani_index, h_idx, d_idx,
@@ -212,15 +212,11 @@ def create_shader_animation_actions(
         # Accumulate per-action track metadata for lossless round-trip export
         all_track_metadata: List[TrackMetaData] = []
 
-        Debug.log(
-            f"  Processing {len(shader_tracks)} shader property node(s)..."
-        )
+        Debug.log(f"  Processing {len(shader_tracks)} shader property node(s)...")
         for shader_track in shader_tracks:
             Debug.log(f"    Property: {shader_track.property_name}")
 
-            unit_wrappers, _prop_name = _convert_shader_track_to_unit_wrappers(
-                shader_track
-            )
+            unit_wrappers, _prop_name = _convert_shader_track_to_unit_wrappers(shader_track)
 
             # Use the track header frame_count from the property's Tracks object
             if shader_track.tracks and shader_track.tracks.header:
@@ -263,9 +259,13 @@ def create_shader_animation_actions(
 
             # Store per-property TrackHeader for lossless round-trip
             if shader_track.tracks and shader_track.tracks.header:
-                _store_shader_property_header_on_action(
-                    action, shader_track.property_name, shader_track.tracks.header
-                )
+                _store_shader_property_header_on_action(action, shader_track.property_name, shader_track.tracks.header)
+
+        # Store all SHADER node params (container and per-property) for lossless round-trip
+        if all_node_params and gani_index < len(all_node_params):
+            for node_key, params in all_node_params[gani_index].items():
+                if node_key.startswith("SHADER"):
+                    store_node_params_on_action(action, node_key, params)
 
         # Store per-unit metadata on the action (bits, flags — no segment abbrevs
         # or hash needed since the bone name already encodes the decimal hash).

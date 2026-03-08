@@ -36,14 +36,14 @@ A negative offset means the target is *before* the source in the buffer.
 
 import io
 import struct
-from typing import Optional, List
+from typing import Optional, List, Tuple, Union, Dict
 
 from ..py_utilities.utilities_logging import Debug
 from ..py_utilities.utilities_binary_write import align_buffer
 from ..py_utilities.utilities_hashing import is_hash_string, parse_hash_string
 from ..py_utilities.utilities_hashing_cityhash import strcode32
 
-from ..py_fox.fox_foxdata_types import FoxDataHeader, FoxDataNode, FoxDataNodeType
+from ..py_fox.fox_foxdata_types import FoxDataHeader, FoxDataNode, FoxDataNodeType, FoxDataParamType
 from ..py_fox.fox_gani_types import TrackHeader, TrackUnit, EvpHeader, TrackData, TrackUnitFlags
 from ..py_fox.fox_misc_types import StrCode32
 from ..py_fox.fox_gani_constants import (
@@ -76,11 +76,13 @@ _NODE_OFF_PARAMETERS_OFFSET   = 36
 # Inline name string area appended after ROOT and MOTION node bodies (16 bytes, align-16)
 _CONTAINER_NAME_STRING_SIZE = 16  # null-terminated name + zero padding to 16-byte boundary
 
-# MOTION node FoxDataNodeParameter entries (SLOPE_ANGLE + SLOPE_DIR, both FLOAT 0.0)
-# Each entry: ushort type(2=FLOAT) + short next_off + uint name_hash + uint name_str_off(0) + uint value_bits
-# Entry size = 16 bytes
-_MOTION_PARAM_ENTRY_SIZE = 16
-_MOTION_PARAM_COUNT      = 2   # SLOPE_ANGLE then SLOPE_DIR
+# FoxDataNodeParameter entry sizes (from bt template)
+# FLOAT (type=2) and UINT (type=0): 16 bytes each.
+# STRING (type=1): 20-byte base (Value is a FoxDataName = 8 bytes); inline strings
+# append null-terminated UTF-8 bytes followed by padding to a 16-byte boundary.
+_FLOAT_PARAM_ENTRY_SIZE  = 16
+_STRING_PARAM_ENTRY_SIZE = 20  # base size; inline entries are larger
+_MOTION_PARAM_COUNT      = 2   # SLOPE_ANGLE then SLOPE_DIR (default MOTION params)
 
 
 class GaniWriter:
@@ -115,6 +117,7 @@ class GaniWriter:
         motion_point_list: Optional[List] = None,
         motion_point_parent_list: Optional[List] = None,
         shader_tracks: Optional[List[tuple]] = None,
+        node_params: Optional[Dict[str, List[Tuple[int, Union[float, str, int]]]]] = None,
     ) -> None:
         """Write a FoxData GANI blob to a seekable BytesIO buffer.
 
@@ -143,6 +146,9 @@ class GaniWriter:
                                       is a ``(property_name: str, tracks: List[TrackUnitWrapper])``
                                       tuple representing one SHADER child property.
                                       ``None`` -> no SHADER node written.
+            node_params:              Unified node params dict keyed by node path (e.g.
+                                      ``"MOTION"``, ``"SHADER/TENSION_CHEEKL"``).
+                                      ``None`` -> MOTION node defaults to SLOPE_ANGLE=0.0, SLOPE_DIR=0.0.
 
         Raises:
             ValueError: If ``gani_tracks`` is empty.
@@ -183,8 +189,8 @@ class GaniWriter:
         # Build SHADER Tracks structures (old-format only: SHADER is a ROOT sibling of MOTION)
         # Each element is (property_name, Tracks) ready for _write_tracks_node().
         # Accepts 2-tuples (prop_name, prop_tracks) or 3-tuples
-        # (prop_name, prop_tracks, header_overrides) where header_overrides is an optional
-        # dict with keys: t_id, unknown_a, unknown_b, frame_count, frame_rate.
+        # (prop_name, prop_tracks, header_overrides) where header_overrides is optional.
+        # Per-property params are supplied via node_params (e.g. "SHADER/TENSION_CHEEKL").
         shader_tracks_built = None
         if shader_tracks:
             shader_tracks_built = []
@@ -242,6 +248,7 @@ class GaniWriter:
             motion_point_list=effective_mtp_list,
             motion_point_parent_list=effective_mtp_parent_list,
             shader_tracks=shader_tracks_built,
+            node_params=node_params,
         )
 
         Debug.log(
@@ -266,6 +273,7 @@ class GaniWriter:
         motion_point_list: Optional[List] = None,
         motion_point_parent_list: Optional[List] = None,
         shader_tracks: Optional[List[tuple]] = None,
+        node_params: Optional[Dict[str, List[Tuple[int, Union[float, str, int]]]]] = None,
     ) -> None:
         """Write the complete FoxData GANI structure.
 
@@ -303,10 +311,10 @@ class GaniWriter:
         motion_node_pos = buffer.tell()
         self._write_placeholder_node(buffer, FOXDATA_HASH_MOTION, flags=0, name_string="MOTION")
 
-        # ── MOTION parameters: SLOPE_ANGLE and SLOPE_DIR (always present, both 0.0) ─────
+        # ── MOTION parameters: SLOPE_ANGLE and SLOPE_DIR ─────────────────────────────
         # parameters_offset is relative to MOTION node start; name string area is 16 bytes
         motion_params_offset = buffer.tell() - motion_node_pos
-        self._write_motion_parameters(buffer)
+        self._write_node_parameters(buffer, (node_params or {}).get("MOTION"))
 
         # Backfill MOTION.parameters_offset
         self._backfill_int(
@@ -360,7 +368,7 @@ class GaniWriter:
         shader_node_pos: Optional[int] = None
         if shader_tracks:
             shader_node_pos, shader_children = self._write_shader_node(
-                buffer, shader_tracks
+                buffer, shader_tracks, node_params=node_params
             )
             root_children.append(("SHADER", shader_node_pos))
         else:
@@ -472,6 +480,7 @@ class GaniWriter:
         self,
         buffer: io.BytesIO,
         shader_tracks: List[tuple],
+        node_params: Optional[Dict[str, List[Tuple[int, Union[float, str, int]]]]] = None,
     ) -> tuple:
         """Write the SHADER container node and its property children.
 
@@ -483,6 +492,9 @@ class GaniWriter:
             buffer:        Seekable BytesIO buffer.
             shader_tracks: List of ``(property_name, tracks)`` pairs.  ``tracks``
                            must be a pre-built :class:`Tracks` structure.
+            node_params:   Unified node params dict keyed by node path (e.g.
+                           ``"SHADER/TENSION_CHEEKL"``). Per-property params are
+                           looked up via ``node_params.get(f"SHADER/{prop_name}")``).
 
         Returns:
             ``(shader_node_pos, property_children)`` where ``property_children``
@@ -496,7 +508,7 @@ class GaniWriter:
 
         # Write each property as a TRACKS child node
         property_children: List[tuple] = []  # (prop_name, node_pos, payload_end)
-        for prop_name, tracks in shader_tracks:
+        for i, (prop_name, tracks) in enumerate(shader_tracks):
             # Compute hash for this property node
             prop_name_str = str(prop_name)
             if prop_name_str.startswith("shader_prop."):
@@ -515,6 +527,17 @@ class GaniWriter:
                 prop_hash = strcode32(prop_name_str)
 
             pos, _, payload_end = self._write_tracks_node(buffer, prop_hash, tracks)
+            
+            # Write per-property parameters if present, and backfill parameters_offset
+            child_params = (node_params or {}).get(f"SHADER/{prop_name_str}")
+            if child_params:
+                params_offset = buffer.tell() - pos
+                self._write_node_parameters(buffer, child_params)
+                self._backfill_int(buffer, pos + _NODE_OFF_PARAMETERS_OFFSET, params_offset)
+                Debug.log(
+                    f"  Shader property '{prop_name_str}': wrote {len(child_params)} param(s)"
+                )
+            
             property_children.append((prop_name_str, pos, payload_end))
 
         if not property_children:
@@ -602,32 +625,94 @@ class GaniWriter:
             buffer.write(b'\x00' * pad_len)
         return node_pos
 
-    def _write_motion_parameters(self, buffer: io.BytesIO) -> None:
-        """Write the two MOTION node parameters: SLOPE_ANGLE and SLOPE_DIR (both FLOAT 0.0).
+    def _write_node_parameters(self, buffer: io.BytesIO, params: Optional[List[Tuple[int, Union[float, str, int]]]] = None) -> None:
+        """Write FoxDataNodeParameter chain for any node.
 
-        FoxDataNodeParameter layout (16 bytes each)::
+        Writes the FoxDataNodeParameter chain.  If *params* is ``None`` or empty,
+        falls back to the canonical defaults (SLOPE_ANGLE=0.0, SLOPE_DIR=0.0)
+        for MOTION nodes.
 
-            ushort type            # 2 = FLOAT
-            short  next_param_off  # offset to next entry (16), or 0 if last
-            uint32 name_hash       # StrCode32
-            uint32 name_str_off    # 0 = no inline string
-            uint32 value_bits      # IEEE-754 bits of the float value
+        Entry formats (all little-endian):
 
-        Both parameters have value 0.0 (0x00000000). This is universal across all
-        observed old-format GANI files.
+        - **FLOAT** (``value`` is ``float``, 16 bytes)::
+
+              ushort type=2, short next_off, uint32 name_hash, uint32 name_str_off=0, float value
+
+        - **STRING hash-only** (``value`` is ``int``, 20 bytes)::
+
+              ushort type=1, short next_off, uint32 name_hash, uint32 name_str_off=0,
+              uint32 value_hash=value, uint32 value_str_off=0
+
+        - **STRING inline** (``value`` is ``str``, 20 bytes + string + align-16)::
+
+              ushort type=1, short next_off, uint32 name_hash, uint32 name_str_off=0,
+              uint32 value_hash=strcode32(value), uint32 value_str_off=8,
+              <null-terminated UTF-8 string>, <zero padding to 16-byte boundary>
+
+        ``next_off`` is 0 for the last entry; for all others it equals the total size
+        of the current entry (including any inline string bytes and alignment padding).
+
+        Args:
+            buffer: Seekable BytesIO buffer to write to.
+            params: List of ``(name_hash, value)`` tuples where ``value`` is
+                    ``float`` (FLOAT), ``int`` (STRING hash-only), or
+                    ``str`` (STRING inline).  If ``None`` or empty, defaults to
+                    ``[(SLOPE_ANGLE, 0.0), (SLOPE_DIR, 0.0)]``.
         """
-        # Param 1: SLOPE_ANGLE — NextParamOffset=16 (points to next entry)
-        buffer.write(struct.pack('<hhIII',
-            2, 16,
-            FOXDATA_HASH_PARAM_SLOPE_ANGLE, 0,
-            0,  # 0.0f bits
-        ))
-        # Param 2: SLOPE_DIR — NextParamOffset=0 (last)
-        buffer.write(struct.pack('<hhIII',
-            2, 0,
-            FOXDATA_HASH_PARAM_SLOPE_DIR, 0,
-            0,  # 0.0f bits
-        ))
+        effective_params: List[Tuple[int, Union[float, str, int]]] = params if params else [
+            (FOXDATA_HASH_PARAM_SLOPE_ANGLE, 0.0),
+            (FOXDATA_HASH_PARAM_SLOPE_DIR, 0.0),
+        ]
+
+        # Pre-compute per-entry sizes so next_off can be set correctly before writing.
+        entry_sizes: List[int] = []
+        for _, value in effective_params:
+            if isinstance(value, str):
+                raw = value.encode('utf-8') + b'\x00'
+                total = _STRING_PARAM_ENTRY_SIZE + len(raw)
+                entry_sizes.append((total + 15) & ~15)  # align to 16
+            elif isinstance(value, int):
+                entry_sizes.append(_STRING_PARAM_ENTRY_SIZE)
+            else:  # float
+                entry_sizes.append(_FLOAT_PARAM_ENTRY_SIZE)
+
+        n = len(effective_params)
+        for i, (name_hash, value) in enumerate(effective_params):
+            is_last = (i == n - 1)
+            next_off = 0 if is_last else entry_sizes[i]
+
+            if isinstance(value, float):
+                buffer.write(struct.pack('<HhIIf',
+                    FoxDataParamType.FLOAT, next_off,
+                    name_hash, 0,
+                    value,
+                ))
+            elif isinstance(value, int):
+                # STRING hash-only: Value.hash = value, Value.StringOffset = 0
+                buffer.write(struct.pack('<HhIIII',
+                    FoxDataParamType.STRING, next_off,
+                    name_hash, 0,
+                    value, 0,
+                ))
+            elif isinstance(value, str):
+                # STRING inline: Value.StringOffset = 8 (relative to Value.hash field)
+                # String starts immediately after the 20-byte entry.
+                raw = value.encode('utf-8') + b'\x00'
+                total = _STRING_PARAM_ENTRY_SIZE + len(raw)
+                pad = ((total + 15) & ~15) - total
+                buffer.write(struct.pack('<HhIIII',
+                    FoxDataParamType.STRING, next_off,
+                    name_hash, 0,
+                    strcode32(value), 8,
+                ))
+                buffer.write(raw)
+                buffer.write(b'\x00' * pad)
+
+        # Align the buffer to 16 bytes after the params chain so the next
+        # structure (node header or payload) always starts at an aligned offset.
+        # FLOAT entries (16 bytes each) are already aligned in practice; this
+        # is critical for STRING hash-only entries which are 20 bytes.
+        align_buffer(buffer, 16)
 
     def _write_tracks_node(
         self,

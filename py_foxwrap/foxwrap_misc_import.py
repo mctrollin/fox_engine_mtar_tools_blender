@@ -1,9 +1,9 @@
 """
 Import-only fake types for MTAR importer.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import io
-from typing import Optional, List
+from typing import Optional, List, Tuple, Union, Dict
 
 from .foxwrap_misc import Tracks, TrackUnitWrapper
 from .foxwrap_motionpoint import MotionPointWrapper
@@ -50,6 +50,11 @@ class GaniImportData:
         motion_point_layout: Motion point Tracks object structure (optional)
         motion_point_track_header: Motion point TrackHeader (optional)
         shader_tracks: List of facial/shader property animation tracks (optional, empty if not present)
+        node_params: Dict mapping FoxData node keys to their parameter lists.
+            Keys use the format: ``"MOTION"``, ``"MOTION/UNIT"``, ``"SHADER"``,
+            ``"SHADER/{property_name}"``, etc. Values are lists of ``(name_hash, value)``
+            tuples where ``value`` is ``float`` (FLOAT), ``str`` (STRING inline),
+            or ``int`` (STRING hash-only).
     """
     # TODO: make it clear (at least via comment) which vars are used for gani and which for gani2.
     bone_tracks: List[TrackUnitWrapper]
@@ -63,6 +68,7 @@ class GaniImportData:
     skeleton_list: Optional[List[str]] = None
     motion_point_list: Optional[List[str]] = None
     motion_point_parent_list: Optional[List[str]] = None
+    node_params: Dict[str, List[Tuple[int, Union[float, str, int]]]] = field(default_factory=dict)
     
     def __post_init__(self):
         """Initialize shader_tracks to empty list if None."""

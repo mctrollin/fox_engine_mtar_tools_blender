@@ -3,7 +3,7 @@ Reader for MTAR (Metal Gear Solid V animation) files.
 """
 import io
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from ..py_fox.fox_gani_types import EvpHeader, TrackMiniHeader, TrackHeader
 from ..py_fox.fox_mtar_types import (
@@ -120,7 +120,7 @@ class MtarReader:
         except Exception as e:
             return False, f"Error reading MTAR header: {str(e)}"
 
-    def read_all_ganies(self) -> Tuple[List[List[TrackUnitWrapper]], List[List[TrackUnitWrapper]], List[Optional[EvpHeader]], List[TrackMiniHeader], List[Optional[Tracks]], List[MtarTableList2], List[Optional[TrackHeader]], List[Optional[List[str]]], List[Optional[List[str]]], List[Optional[List[str]]], List[List]]:
+    def read_all_ganies(self) -> Tuple[List[List[TrackUnitWrapper]], List[List[TrackUnitWrapper]], List[Optional[EvpHeader]], List[TrackMiniHeader], List[Optional[Tracks]], List[MtarTableList2], List[Optional[TrackHeader]], List[Optional[List[str]]], List[Optional[List[str]]], List[Optional[List[str]]], List[List], List[Dict]]:
         """Read all animation tracks from the MTAR file.
         
         Returns:
@@ -156,9 +156,10 @@ class MtarReader:
         all_mtp_lists: List[Optional[List[str]]] = []
         all_mtp_parent_lists: List[Optional[List[str]]] = []
         all_shader_gani_tracks: List[List[ShaderTrackWrapper]] = []
+        all_node_params: List[Dict] = []
         
         for idx in sorted(results_dict.keys()):
-            gani_tracks, motion_point_tracks, motion_events, track_mini_header, motion_point_layout, file_header, motion_point_track_header, skeleton_list, motion_point_list, motion_point_parent_list, shader_tracks = results_dict[idx]
+            gani_tracks, motion_point_tracks, motion_events, track_mini_header, motion_point_layout, file_header, motion_point_track_header, skeleton_list, motion_point_list, motion_point_parent_list, shader_tracks, node_params = results_dict[idx]
             all_gani_tracks.append(gani_tracks)
             all_motion_point_gani_tracks.append(motion_point_tracks)
             all_motion_events.append(motion_events)
@@ -170,8 +171,9 @@ class MtarReader:
             all_mtp_lists.append(motion_point_list)
             all_mtp_parent_lists.append(motion_point_parent_list)
             all_shader_gani_tracks.append(shader_tracks if shader_tracks else [])
+            all_node_params.append(node_params if node_params else {})
         
-        return all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers, all_skl_lists, all_mtp_lists, all_mtp_parent_lists, all_shader_gani_tracks
+        return all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers, all_skl_lists, all_mtp_lists, all_mtp_parent_lists, all_shader_gani_tracks, all_node_params
 
     def read_selected_ganis(self, gani_indices: List[int]) -> dict:
         """Read specific GANI files by index from MTAR file.
@@ -298,6 +300,7 @@ class MtarReader:
                 getattr(import_data, 'motion_point_list', None),
                 getattr(import_data, 'motion_point_parent_list', None),
                 getattr(import_data, 'shader_tracks', []),   # [10] old-format only; [] for new
+                getattr(import_data, 'node_params', {}),     # [11] old-format only; {} for new
             )
 
         return results

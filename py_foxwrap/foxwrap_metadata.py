@@ -5,7 +5,7 @@ This module contains helper functions used throughout the importer and
 exporter for parsing track metadata strings stored either in mapping files
 or on Blender action properties.
 """
-from typing import List, Optional, Dict, Any, Tuple
+from typing import List, Optional, Dict, Any, Tuple, Union
 from dataclasses import dataclass, field
 import copy
 
@@ -32,7 +32,8 @@ from ..py_utilities.utilities_parsing import format_float_for_metadata
 
 TRACK_PROP_PREFIX = "track_"  # used by make_/parse_track_property_key
 EVENT_PROP_PREFIX = "event_"  # used by make_/parse_event_property_key
-PROP_PARAMS = "params"        # used by store_/parse_gani_params_on_action
+PROP_PARAMS = "params"        # DEPRECATED (kept for GANI2 compatibility); replaced by PROP_NODE_PARAMS_PREFIX
+PROP_NODE_PARAMS_PREFIX = "gfox_node_params_"  # used by store_/parse_node_params_on_action
 
 # FoxData StringData list action properties (old-format GANI round-trip)
 # SKL_LIST names are NOT stored here — they are applied directly to bone track names
@@ -144,38 +145,138 @@ def iter_track_properties(action: bpy.types.Action) -> List[Tuple[int, str, str]
     return results
 
 
-def store_gani_params_on_action(action: bpy.types.Action, params: List[Tuple[int, float]]) -> None:
-    """Store Gani2 params as a single custom property on a Blender action.
+# Generic Node Parameters ####################################################################
+# Unified store/parse for FoxData node parameters accessible by node path key (e.g., "MOTION",
+# "SHADER/TENSION_CHEEKL"). Format: "NAME:value,NAME:value" with implicit type inference from
+# value content ('.' → float, digits-only → int, else → str).
 
-    Params are serialized as ``"<hash>:<value>,<hash>:<value>"`` using
-    :func:`format_float_for_metadata` for each float value.  Always writes the
-    property, even if ``params`` is empty (empty string value), so the key is
-    consistently present on every GANI action.
+def store_node_params_on_action(
+    action: bpy.types.Action,
+    node_key: str,
+    params: List[Tuple[int, Union[float, str, int]]],
+) -> None:
+    """Store FoxData node params under a generic node-path key on a Blender action.
+
+    Params are serialized as ``"<name>:<value>,<name>:<value>"`` pairs.
+    FLOAT values are formatted with :func:`format_float_for_metadata` (always
+    contains ``'.'``).  STRING inline values are stored as plain strings.
+    STRING hash-only values are stored as decimal integers (no ``'.'``), so the
+    parser can distinguish them from floats.
 
     Args:
         action: Blender action to store params on.
-        params: List of ``(name_hash, value)`` tuples from
-            :attr:`TrackMiniHeader.params <py_fox.fox_gani_types.TrackMiniHeader.params>`.
+        node_key: Node path string (e.g., ``"MOTION"``, ``"SHADER/TENSION_CHEEKL"``).
+        params: List of ``(name_hash, value)`` tuples.
     """
-    # Convert parameter identifiers to readable strings if possible.
-    items: list[str] = []
+    if not params:
+        return
 
+    key = f"{PROP_NODE_PARAMS_PREFIX}{node_key}"
+    items = []
     for name, value in params:
-        # name may already be a string (unhashed) or an integer hash.
-        if isinstance(name, int):
-            name_str = unhash_param_name(name) or str(name)
+        name_str = unhash_param_name(name) if isinstance(name, int) else str(name)
+        if isinstance(value, float):
+            items.append(f"{name_str}:{format_float_for_metadata(value)}")
         else:
-            name_str = str(name)
-        items.append(f"{name_str}:{format_float_for_metadata(value)}")
-    value_str = ','.join(items)
-    action[PROP_PARAMS] = value_str
-    action.id_properties_ui(PROP_PARAMS).update(
-        description="Gani2 params: comma-separated hash:value pairs (e.g. SLOPE_ANGLE hash:0.5)"
+            # int (hash-only STRING) or str (inline STRING): store as-is
+            items.append(f"{name_str}:{value}")
+
+    action[key] = ','.join(items)
+    action.id_properties_ui(key).update(
+        description=f"FoxData node params for '{node_key}': comma-separated name:value pairs"
     )
 
 
-def parse_gani_params_from_action(action: bpy.types.Action) -> List[Tuple[int, float]]:
-    """Read Gani2 params back from a Blender action custom property.
+def parse_node_params_from_action(
+    action: bpy.types.Action,
+    node_key: str,
+) -> List[Tuple[int, Union[float, str, int]]]:
+    """Read FoxData node params back from a Blender action custom property by node key.
+
+    The value type is inferred from the stored string:
+
+    - Contains ``'.'`` → ``float`` (FLOAT parameter).
+    - All digits (no ``'.'``) → ``int`` (STRING hash-only parameter).
+    - Otherwise → ``str`` (STRING inline parameter).
+
+    Args:
+        action: Blender action to read params from.
+        node_key: Node path string (e.g., ``"MOTION"``, ``"SHADER/TENSION_CHEEKL"``).
+
+    Returns:
+        List of ``(name_hash, value)`` tuples, or empty list if the property is absent.
+    """
+    key = f"{PROP_NODE_PARAMS_PREFIX}{node_key}"
+    value_str = action.get(key)
+    if not value_str:
+        return []
+
+    result: List[Tuple[int, Union[float, str, int]]] = []
+    for pair in value_str.split(','):
+        pair = pair.strip()
+        if not pair or ':' not in pair:
+            continue
+        name_str, val_str = pair.split(':', 1)
+        val_str = val_str.strip()
+        if '.' in val_str:
+            try:
+                value: Union[float, str, int] = float(val_str)
+            except ValueError:
+                Debug.log_warning(f"parse_node_params_from_action: skipping invalid pair '{pair}'")
+                continue
+        elif val_str.isdigit():
+            value = int(val_str)
+        else:
+            value = val_str
+        name_str = name_str.strip()
+        if is_hash_string(name_str):
+            name_hash = parse_hash_string(name_str)
+        else:
+            name_hash = strcode32(name_str)
+        result.append((name_hash, value))
+    return result
+
+
+def iter_all_node_params_from_action(action: bpy.types.Action) -> Dict[str, List[Tuple[int, Union[float, str, int]]]]:
+    """Scan a Blender action for all FoxData node params and return them as a dict.
+
+    Scans all custom properties with prefix ``PROP_NODE_PARAMS_PREFIX`` and parses
+    each using :func:`parse_node_params_from_action`.
+
+    Args:
+        action: Blender action to scan.
+
+    Returns:
+        Dict mapping node_key → params list. Empty dict if no params found.
+    """
+    result: Dict[str, List[Tuple[int, Union[float, str, int]]]] = {}
+    for key in action.keys():
+        if key.startswith(PROP_NODE_PARAMS_PREFIX):
+            node_key = key[len(PROP_NODE_PARAMS_PREFIX):]
+            params = parse_node_params_from_action(action, node_key)
+            if params:
+                result[node_key] = params
+    return result
+
+
+def store_gani_params_on_action(action: bpy.types.Action, params: List[Tuple[int, Union[float, str, int]]]) -> None:
+    """Store Gani2/MOTION params as a single custom property on a Blender action.
+
+    **Wrapper around** :func:`store_node_params_on_action` **with node_key="MOTION".**
+    Kept for backward compatibility (used by GANI2 reader and old-format MOTION node params).
+
+    Args:
+        action: Blender action to store params on.
+        params: List of ``(name_hash, value)`` tuples.
+    """
+    store_node_params_on_action(action, "MOTION", params)
+
+
+def parse_gani_params_from_action(action: bpy.types.Action) -> List[Tuple[int, Union[float, str, int]]]:
+    """Read Gani2/MOTION params back from a Blender action custom property.
+
+    **Wrapper around** :func:`parse_node_params_from_action` **with node_key="MOTION".**
+    Kept for backward compatibility (used by GANI2 writer and export path).
 
     Args:
         action: Blender action to read params from.
@@ -184,30 +285,45 @@ def parse_gani_params_from_action(action: bpy.types.Action) -> List[Tuple[int, f
         List of ``(name_hash, value)`` tuples, or empty list if the property is
         absent or the action carries no params.
     """
-    value_str = action.get(PROP_PARAMS)
-    if not value_str:
-        return []
-    # We stored human-readable names during import; when parsing back we must
-    # convert them to numeric hashes for export.
-    result: List[Tuple[int, float]] = []
-    for pair in value_str.split(','):
-        pair = pair.strip()
-        if not pair or ':' not in pair:
-            continue
-        name_str, val_str = pair.split(':', 1)
-        try:
-            value = float(val_str.strip())
-        except ValueError:
-            Debug.log_warning(f"parse_gani_params_from_action: skipping invalid pair '{pair}'")
-            continue
-        name_str = name_str.strip()
-        if is_hash_string(name_str):
-            name_hash = parse_hash_string(name_str)
-        else:
-            # Hash the string to StrCode32
-            name_hash = strcode32(name_str)
-        result.append((name_hash, value))
-    return result
+    return parse_node_params_from_action(action, "MOTION")
+
+
+def store_shader_node_params_on_action(
+    action: bpy.types.Action,
+    prop_name: str,
+    params: List[Tuple[int, Union[float, str, int]]],
+) -> None:
+    """Store per-property shader node params on a Blender action.
+
+    **Wrapper around** :func:`store_node_params_on_action` **with node_key=f"SHADER/{prop_name}".**
+    Kept for backward compatibility and convenience.
+
+    Args:
+        action: Blender action to store params on.
+        prop_name: Property name (e.g., "TENSION_CHEEKL").
+        params: List of ``(name_hash, value)`` tuples.
+    """
+    store_node_params_on_action(action, f"SHADER/{prop_name}", params)
+
+
+def parse_shader_node_params_from_action(
+    action: bpy.types.Action,
+    prop_name: str,
+) -> List[Tuple[int, Union[float, str, int]]]:
+    """Read per-property shader node params back from a Blender action custom property.
+
+    **Wrapper around** :func:`parse_node_params_from_action` **with node_key=f"SHADER/{prop_name}".**
+    Kept for backward compatibility and convenience.
+
+    Args:
+        action: Blender action to read params from.
+        prop_name: Property name (e.g., "TENSION_CHEEKL").
+
+    Returns:
+        List of ``(name_hash, value)`` tuples, or empty list if the property is
+        absent or the action carries no params for this property.
+    """
+    return parse_node_params_from_action(action, f"SHADER/{prop_name}")
 
 
 def store_foxdata_stringlist_on_action(

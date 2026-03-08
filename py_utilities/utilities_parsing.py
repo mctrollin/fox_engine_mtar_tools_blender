@@ -24,7 +24,14 @@ def format_float_for_metadata(value: float) -> str:
         Compact string representation, e.g. ``"0.3"`` instead of
         ``"0.30000001192092896"``.
     """
-    return f"{value:.{FLOAT_SERIALIZATION_PRECISION}g}"
+    s = f"{value:.{FLOAT_SERIALIZATION_PRECISION}g}"
+    # To ensure parameter type parsing to work properly 
+    # ensure the result looks like a float by including a decimal point if
+    # the formatting produced an integer-like string.  Exponential notation
+    # ("e"/"E") already implies a float.
+    if "." not in s and "e" not in s and "E" not in s:
+        s += ".0"
+    return s
 
 
 

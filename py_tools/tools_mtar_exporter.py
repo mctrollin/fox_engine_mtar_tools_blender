@@ -30,7 +30,7 @@ from ..py_utilities.utilities_blender_animation import (
 from ..py_utilities.utilities_fcurve_processing import bake_and_clean_export_fcurves
 
 from ..py_foxwrap.foxwrap_motionevent import read_motion_events_from_action
-from ..py_foxwrap.foxwrap_metadata import read_track_header_properties_from_action, read_mtar_properties_from_action
+from ..py_foxwrap.foxwrap_metadata import read_track_header_properties_from_action, read_mtar_properties_from_action, iter_all_node_params_from_action
 from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_foxwrap.foxwrap_metadata import TrackMetaData, merge_track_metadata, get_all_track_metadata_from_action
@@ -1727,6 +1727,7 @@ def export_mtar(context: bpy.types.Context,
         Debug.start_timer(f"4.{action_idx}.4 Shader Nodes")
 
         shader_nodes_data = None
+        shader_node_action_data = None
         if shader_nodes_actions_data:
             shader_node_action_data: Optional[ExportActionData] = find_shader_action_for_gani(
                 gani_name, shader_nodes_actions_by_gani_index
@@ -1812,7 +1813,18 @@ def export_mtar(context: bpy.types.Context,
             motion_events_data=motion_events_data,
             shader_nodes_data=shader_nodes_data,
         )
-        
+
+        # Merge node_params from tracks and shader actions for lossless round-trip
+        node_params = {
+            k: v for k, v in iter_all_node_params_from_action(gani_action).items()
+            if not k.startswith("SHADER")
+        }
+        if shader_node_action_data:
+            for k, v in iter_all_node_params_from_action(shader_node_action_data.action).items():
+                if k.startswith("SHADER"):
+                    node_params[k] = v
+        gani_data.node_params = node_params or None
+
         # Add to writer
         writer.add_gani_data(gani_data)
         if motion_point_tracks:

@@ -4,7 +4,7 @@ Export-only fake types for MTAR exporter.
 from dataclasses import dataclass
 import io
 import copy
-from typing import Optional, List, Dict, Tuple, Callable
+from typing import Optional, List, Dict, Tuple, Callable, Union
 
 import bpy
 
@@ -362,6 +362,12 @@ class GaniExportData:
         tracks_data: Main animation track data (GaniTracksData)
         motion_points_data: Optional motion point track data (GaniMotionPointsData)
         motion_events_data: Optional motion event data (GaniMotionEventsData)
+        node_params: Dict mapping FoxData node keys to their parameter lists.
+            Keys use the format: ``"MOTION"``, ``"MOTION/UNIT"``, ``"SHADER"``,
+            ``"SHADER/{property_name}"``, etc. Values are lists of ``(name_hash, value)``
+            tuples where ``value`` is ``float`` (FLOAT), ``str`` (STRING inline),
+            or ``int`` (STRING hash-only). Populated during export from all actions
+            via :func:`iter_all_node_params_from_action`.
     """
     name: str
     frame_count: int
@@ -373,6 +379,7 @@ class GaniExportData:
     motion_points_data: Optional[GaniExportMotionPointsData] = None
     motion_events_data: Optional[GaniMotionEventsData] = None
     shader_nodes_data: Optional['GaniExportShaderData'] = None
+    node_params: Optional[Dict[str, List[Tuple[int, Union[float, str, int]]]]] = None
 
     def count_segments(self) -> int:
         """Count the total number of segments across all tracks in this GANI file.

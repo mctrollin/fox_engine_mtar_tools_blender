@@ -24,6 +24,26 @@ class FoxDataNodeType(IntEnum):
     EVENTS     = 3  # NODE_TYPE_EVENTS — payload is EvpHeader (e.g. EVP)
 
 
+class FoxDataParamType(IntEnum):
+    """Parameter type codes in FoxDataNodeParameter.type.
+
+    Entry sizes from the binary template:
+
+        - UINT   (0): 16 bytes — ``uint32 value``
+        - STRING (1): 20 bytes — ``uint32 value_hash, uint32 value_str_off`` (FoxDataName)
+        - FLOAT  (2): 16 bytes — ``float value``
+
+    STRING entries may carry an inline null-terminated string appended right after the
+    20-byte entry when ``value_str_off != 0`` (``value_str_off`` is relative to the
+    ``value_hash`` field at entry offset +12, so an offset of 8 places the string at
+    entry offset +20).  The region from the entry start through the string including
+    null terminator is then padded to a 16-byte boundary.
+    """
+    UINT   = 0  # FOX_DATA_NODE_ENTRY_PARAM_TYPE_UINT
+    STRING = 1  # FOX_DATA_NODE_ENTRY_PARAM_TYPE_STRING
+    FLOAT  = 2  # FOX_DATA_NODE_ENTRY_PARAM_TYPE_FLOAT
+
+
 @dataclass
 class FoxDataHeader:
     """32-byte FoxData container header.

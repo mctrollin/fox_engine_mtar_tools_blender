@@ -8,13 +8,13 @@ mirroring the interface of Gani2Reader but extracting data from FoxData structur
 
 import io
 import struct
-from typing import Optional, List, BinaryIO, Tuple
+from typing import Optional, List, BinaryIO, Tuple, Union, Dict
 
 from ..py_utilities.utilities_logging import Debug
-from ..py_utilities.utilities_hashing import unhash_gani_node, unhash_shader_prop, is_hash_string, parse_hash_string
+from ..py_utilities.utilities_hashing import unhash_gani_node, unhash_shader_prop, unhash_param_name, is_hash_string, parse_hash_string
 from ..py_utilities.utilities_hashing_cityhash import strcode32
 
-from ..py_fox.fox_foxdata_types import FoxDataHeader, FoxDataNode
+from ..py_fox.fox_foxdata_types import FoxDataHeader, FoxDataNode, FoxDataParamType
 from ..py_fox.fox_gani_types import TrackMiniHeader, EvpHeader, Gani2TrackData
 from ..py_fox.fox_gani_constants import (
     FOXDATA_HASH_ROOT, FOXDATA_HASH_MOTION, FOXDATA_HASH_UNIT,
@@ -135,11 +135,20 @@ class GaniReader:
         
         nodes_start = gani_start + foxdata_header.nodes_offset
         
+        # Unified dict to collect all FoxData node parameters
+        node_params: Dict[str, List[Tuple[int, Union[float, str, int]]]] = {}
+        
         # --- Find ROOT (always first node, but use search for safety) ---
         root_result = self._find_node_by_hash(file_data, nodes_start, FOXDATA_HASH_ROOT, endian)
         if root_result is None:
             raise ValueError("GANI has no ROOT node")
         root_node, root_node_pos = root_result
+        
+        # Check ROOT node itself for unexpected parameters
+        if root_node.parameters_offset != 0:
+            root_params = self._read_node_parameters(file_data, root_node_pos, root_node.parameters_offset, endian)
+            if root_params:
+                node_params["ROOT"] = root_params
         
         # --- Enumerate ROOT's children ---
         unit_tracks: Tracks = Tracks(header=None, track_units=[])
@@ -164,11 +173,23 @@ class GaniReader:
                     motion_node = child_node
                     motion_node_pos = child_pos
                 elif child_hash == FOXDATA_HASH_SHADER:
-                    # Debug.log_warning("SHADER node found — facial animation import not yet implemented")
-                    shader_tracks = self._read_shader_tracks(br, file_data, child_node, child_pos, endian)
+                    # Read SHADER container parameters (if present)
+                    if child_node.parameters_offset != 0:
+                        shader_params = self._read_node_parameters(file_data, child_pos, child_node.parameters_offset, endian)
+                        if shader_params:
+                            node_params["SHADER"] = shader_params
+                    # Read SHADER children and their parameters
+                    shader_tracks, shader_child_params = self._read_shader_tracks(br, file_data, child_node, child_pos, endian)
+                    node_params.update(shader_child_params)
                 else:
-                    resolved = unhash_gani_node(child_hash) or f"0x{child_hash:08X}"
-                    Debug.log_warning(f"Unrecognized ROOT child node '{resolved}' — skipping (no Blender import)")
+                    resolved = unhash_gani_node(child_hash) or str(child_hash)
+                    # Store parameters from unhandled ROOT children
+                    if child_node.parameters_offset != 0:
+                        unhandled_params = self._read_node_parameters(file_data, child_pos, child_node.parameters_offset, endian)
+                        if unhandled_params:
+                            node_params[f"ROOT/{resolved}"] = unhandled_params
+                    else:
+                        Debug.log(f"Unrecognized ROOT child node '{resolved}' — no parameters, skipping")
                 
                 if child_node.next_node_offset == 0:
                     break
@@ -189,20 +210,56 @@ class GaniReader:
                 
                 if child_hash == FOXDATA_HASH_UNIT:
                     unit_tracks = self._read_node_payload_as_tracks(br, file_data, child_node, child_pos, endian)
+                    # Store UNIT node parameters
+                    if child_node.parameters_offset != 0:
+                        unit_params = self._read_node_parameters(file_data, child_pos, child_node.parameters_offset, endian)
+                        if unit_params:
+                            node_params["MOTION/UNIT"] = unit_params
                 elif child_hash == FOXDATA_HASH_MTP:
                     mtp_raw_tracks = self._read_node_payload_as_tracks(br, file_data, child_node, child_pos, endian)
+                    # Store MTP node parameters
+                    if child_node.parameters_offset != 0:
+                        mtp_params = self._read_node_parameters(file_data, child_pos, child_node.parameters_offset, endian)
+                        if mtp_params:
+                            node_params["MOTION/MTP"] = mtp_params
                 elif child_hash == FOXDATA_HASH_EVP:
                     br.seek(child_node.payload_abs_offset(child_pos))
                     events = EvpHeader.read(br, endian)
+                    # Store EVP node parameters
+                    if child_node.parameters_offset != 0:
+                        evp_params = self._read_node_parameters(file_data, child_pos, child_node.parameters_offset, endian)
+                        if evp_params:
+                            node_params["MOTION/EVP"] = evp_params
                 elif child_hash == FOXDATA_HASH_SKL_LIST:
                     skeleton_list = self._read_stringdata_payload(file_data, child_node, child_pos, endian)
+                    # Store SKL_LIST node parameters
+                    if child_node.parameters_offset != 0:
+                        skl_params = self._read_node_parameters(file_data, child_pos, child_node.parameters_offset, endian)
+                        if skl_params:
+                            node_params["MOTION/SKL_LIST"] = skl_params
                 elif child_hash == FOXDATA_HASH_MTP_LIST:
                     motion_point_list = self._read_stringdata_payload(file_data, child_node, child_pos, endian)
+                    # Store MTP_LIST node parameters
+                    if child_node.parameters_offset != 0:
+                        mtp_list_params = self._read_node_parameters(file_data, child_pos, child_node.parameters_offset, endian)
+                        if mtp_list_params:
+                            node_params["MOTION/MTP_LIST"] = mtp_list_params
                 elif child_hash == FOXDATA_HASH_MTP_PARENT_LIST:
                     motion_point_parent_list = self._read_stringdata_payload(file_data, child_node, child_pos, endian)
+                    # Store MTP_PARENT_LIST node parameters
+                    if child_node.parameters_offset != 0:
+                        mtp_parent_params = self._read_node_parameters(file_data, child_pos, child_node.parameters_offset, endian)
+                        if mtp_parent_params:
+                            node_params["MOTION/MTP_PARENT_LIST"] = mtp_parent_params
                 else:
-                    resolved = unhash_gani_node(child_hash) or f"0x{child_hash:08X}"
-                    Debug.log_warning(f"Unimplemented MOTION child node '{resolved}' — skipping (no Blender import)")
+                    resolved = unhash_gani_node(child_hash) or str(child_hash)
+                    # Store parameters from unhandled MOTION children
+                    if child_node.parameters_offset != 0:
+                        unhandled_motion_params = self._read_node_parameters(file_data, child_pos, child_node.parameters_offset, endian)
+                        if unhandled_motion_params:
+                            node_params[f"MOTION/{resolved}"] = unhandled_motion_params
+                    else:
+                        Debug.log(f"Unimplemented MOTION child node '{resolved}' — no parameters, skipping")
                 
                 if child_node.next_node_offset == 0:
                     break
@@ -227,7 +284,15 @@ class GaniReader:
             motion_point_layout = mtp_raw_tracks
             motion_point_track_header = mtp_raw_tracks.header
         
-        # Synthesize TrackMiniHeader from UNIT TrackHeader
+        # Store MOTION node parameters
+        if motion_node.parameters_offset != 0:
+            motion_params = self._read_node_parameters(
+                file_data, motion_node_pos, motion_node.parameters_offset, endian
+            )
+            if motion_params:
+                node_params["MOTION"] = motion_params
+        
+        # Synthesize TrackMiniHeader from UNIT TrackHeader (no MOTION params for old format)
         track_mini_header = self._synthesize_mini_header(unit_tracks)
         
         Debug.log(f"Loaded old-format GANI: {len(bone_tracks)} bone track(s), "
@@ -247,6 +312,7 @@ class GaniReader:
             skeleton_list=skeleton_list,
             motion_point_list=motion_point_list,
             motion_point_parent_list=motion_point_parent_list,
+            node_params=node_params,
         )
     
     def _find_node_by_hash(
@@ -420,7 +486,7 @@ class GaniReader:
         
         return results
     
-    def _read_shader_tracks(self, br: BinaryIO, file_data: bytes, shader_node: FoxDataNode, shader_node_pos: int, endian: str = '<') -> List:
+    def _read_shader_tracks(self, br: BinaryIO, file_data: bytes, shader_node: FoxDataNode, shader_node_pos: int, endian: str = '<') -> Tuple[List[ShaderTrackWrapper], Dict[str, List[Tuple[int, Union[float, str, int]]]]]:
         """Read SHADER node children and their animation data.
         
         The SHADER node is a container with no payload; its children are individual
@@ -434,15 +500,18 @@ class GaniReader:
             endian: Endianness marker
             
         Returns:
-            List of ShaderTrackWrapper objects, one per child property
+            Tuple of:
+                - List of ShaderTrackWrapper objects, one per child property
+                - Dict mapping SHADER/{property_name} keys to their parameter lists
         """
         
         shader_tracks = []
+        shader_child_params: Dict[str, List[Tuple[int, Union[float, str, int]]]] = {}
         
         # Traverse SHADER node's children (stored via child_node_offset)
         if shader_node.child_node_offset == 0:
             Debug.log("SHADER node has no children")
-            return shader_tracks
+            return shader_tracks, shader_child_params
         
         # Read first child node (child_node_offset is relative to shader node position)
         child_pos = shader_node_pos + shader_node.child_node_offset
@@ -456,6 +525,11 @@ class GaniReader:
                 try:
                     payload_tracks = self._read_node_payload_as_tracks(br, file_data, child_node, child_pos, endian)
                     
+                    # Read and store child node's parameters
+                    child_params = self._read_node_parameters(
+                        file_data, child_pos, child_node.parameters_offset, endian
+                    )
+                    
                     # Resolve property name from dictionary or use decimal hash fallback
                     property_name = unhash_shader_prop(child_node.name_hash)
                     if not property_name:
@@ -463,12 +537,16 @@ class GaniReader:
                         # for a multi-segment index by parse_segment_suffix (which uses '_').
                         property_name = f"shader_prop.{child_node.name_hash}"
                     
+                    # Store child parameters in node_params dict
+                    if child_params:
+                        shader_child_params[f"SHADER/{property_name}"] = child_params
+                    
                     # TODO(shader-export): Store property name mapping for future export path
                     Debug.log(f"  Shader property: {property_name} - {len(payload_tracks.track_units)} track unit(s)")
                     
                     shader_track = ShaderTrackWrapper(
                         property_name=property_name,
-                        tracks=payload_tracks
+                        tracks=payload_tracks,
                     )
                     shader_tracks.append(shader_track)
                 except Exception as e:
@@ -482,25 +560,135 @@ class GaniReader:
             br.seek(child_pos)
             child_node = FoxDataNode.read(br, endian)
         
-        return shader_tracks
+        return shader_tracks, shader_child_params
     
-    def _synthesize_mini_header(self, tracks: Tracks) -> TrackMiniHeader:
+    def _read_node_parameters(
+        self,
+        file_data: bytes,
+        node_start: int,
+        parameters_offset: int,
+        endian: str = '<',
+    ) -> List[Tuple[int, Union[float, str, int]]]:
+        """Read the FoxDataNodeParameter chain attached to a node.
+
+        Entry sizes depend on type (from bt template):
+
+            - FLOAT  (type=2): 16 bytes — ``uint32 name_hash, uint32 name_str_off, float value``
+            - UINT   (type=0): 16 bytes — ``uint32 name_hash, uint32 name_str_off, uint32 value``
+            - STRING (type=1): 20 bytes — ``uint32 name_hash, uint32 name_str_off,
+              uint32 value_hash, uint32 value_str_off``.  When ``value_str_off != 0``
+              the null-terminated string is at ``param_pos + 12 + value_str_off``.
+
+        Traversal follows the ``NextParameterOffset`` chain:
+        ``param_pos += param.NextParameterOffset`` until ``NextParameterOffset == 0``.
+
+        Args:
+            file_data:         Complete file contents as bytes.
+            node_start:        Absolute offset of the owning FoxDataNode in *file_data*.
+            parameters_offset: Value of ``FoxDataNode.parameters_offset`` (relative to
+                               *node_start*).  If 0, returns an empty list immediately.
+            endian:            Endianness marker (``'<'`` little, ``'>'`` big).
+
+        Returns:
+            List of ``(name_hash, value)`` tuples:
+
+            - FLOAT  parameters: ``value`` is ``float``.
+            - STRING with inline string (``value_str_off != 0``): ``value`` is ``str``.
+            - STRING hash-only (``value_str_off == 0``): ``value`` is ``int``
+              (the raw ``value_hash`` stored as a decimal integer in metadata).
+            - UINT and unknown types: skipped with a warning.
+        """
+        if parameters_offset == 0:
+            return []
+
+        results: List[Tuple[int, Union[float, str, int]]] = []
+        param_pos = node_start + parameters_offset
+        _PARAM_MIN_SIZE    = 16  # minimum entry size (FLOAT / UINT)
+        _PARAM_STRING_SIZE = 20  # STRING entry size (Value is a FoxDataName = 8 bytes)
+
+        while True:
+            if param_pos + _PARAM_MIN_SIZE > len(file_data):
+                Debug.log_warning(
+                    f"_read_node_parameters: parameter at 0x{param_pos:X} exceeds "
+                    f"file bounds (file size 0x{len(file_data):X}) — stopping early"
+                )
+                break
+
+            # Read common header: type (H=ushort), next_off (h=signed short),
+            # name_hash (I), name_str_off (I)  — 12 bytes total
+            type_code, next_off, name_hash, _name_str_off = struct.unpack_from(
+                endian + 'HhII', file_data, param_pos
+            )
+
+            if type_code == FoxDataParamType.FLOAT:
+                value = struct.unpack_from(endian + 'f', file_data, param_pos + 12)[0]
+                results.append((name_hash, value))
+
+            elif type_code == FoxDataParamType.STRING:
+                if param_pos + _PARAM_STRING_SIZE > len(file_data):
+                    resolved = unhash_param_name(name_hash) or f"0x{name_hash:08X}"
+                    Debug.log_warning(
+                        f"_read_node_parameters: STRING parameter '{resolved}' at "
+                        f"0x{param_pos:X} exceeds file bounds — stopping early"
+                    )
+                    break
+                value_hash, value_str_off = struct.unpack_from(
+                    endian + 'II', file_data, param_pos + 12
+                )
+                if value_str_off != 0:
+                    # Inline string: null-terminated at param_pos + 12 + value_str_off
+                    str_pos = param_pos + 12 + value_str_off
+                    end = str_pos
+                    while end < len(file_data) and file_data[end] != 0:
+                        end += 1
+                    str_value = file_data[str_pos:end].decode('utf-8', errors='replace')
+                    results.append((name_hash, str_value))
+                else:
+                    # Hash-only: no inline string.  Store the raw value_hash as int so
+                    # the writer can reproduce a hash-only STRING entry (no '.' in
+                    # the serialised form keeps it distinct from FLOAT).
+                    results.append((name_hash, value_hash))
+
+            elif type_code == FoxDataParamType.UINT:
+                resolved = unhash_param_name(name_hash) or f"0x{name_hash:08X}"
+                Debug.log_warning(
+                    f"_read_node_parameters: parameter '{resolved}' has unsupported type "
+                    f"UINT (0) — skipping"
+                )
+            else:
+                resolved = unhash_param_name(name_hash) or f"0x{name_hash:08X}"
+                Debug.log_warning(
+                    f"_read_node_parameters: parameter '{resolved}' has unknown type "
+                    f"{type_code} — skipping"
+                )
+
+            if next_off == 0:
+                break
+            param_pos += next_off
+
+        return results
+
+    def _synthesize_mini_header(self, tracks: Tracks, params: Optional[List[Tuple[int, Union[float, str, int]]]] = None) -> TrackMiniHeader:
         """Synthesize a TrackMiniHeader from a Tracks object.
         
         For old-format GANI, there is no separate TrackMiniHeader in the file,
         so we construct one from the TrackHeader and TrackUnit metadata.
         
         Args:
-            tracks: Tracks object from MOTION node
+            tracks: Tracks object from MOTION node.
+            params: Optional parameter list (GANI2 only; for old-format, MOTION and all
+                other node params are collected into ``GaniImportData.node_params`` instead).
             
         Returns:
-            TrackMiniHeader with frame count, unit flags, and segment headers
+            TrackMiniHeader with frame count, unit flags, segment headers, and params.
         """
+        effective_params = params if params is not None else []
+
         if not tracks or not tracks.header:
             return TrackMiniHeader(
                 frame_count=0,
-                param_count=0,
-                params=[],
+                param_count=len(effective_params),
+                params=effective_params,
                 unit_flags=[],
                 segment_headers=[]
             )
@@ -526,8 +714,8 @@ class GaniReader:
         
         return TrackMiniHeader(
             frame_count=header.frame_count,
-            param_count=0,
-            params=[],
+            param_count=len(effective_params),
+            params=effective_params,
             unit_flags=unit_flags,
             segment_headers=segment_headers
         )
