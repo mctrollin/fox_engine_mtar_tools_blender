@@ -156,22 +156,36 @@ class GaniWriter:
         if not gani_tracks:
             raise ValueError("gani_tracks cannot be empty")
 
-        # Sort UNIT track order to match SKL_LIST -------------------------------------------
-        # _write_stringdata_node sorts the SKL_LIST alphabetically, so the UNIT
-        # node must carry the same order to keep track indices consistent.
-        #
-        # Tracks whose names are unresolved hash strings are *not* in the
-        # SKL_LIST (the canonical example is the root motion track, whose name
-        # hash was never resolved to a string).  Those tracks are placed first,
-        # preserving their original relative order.  Real-name tracks are sorted
-        # alphabetically to align with the SKL_LIST sort.
+        # UNIT track order -------------------------------------------
+        # Tracks are written in the order received (original binary order from import).
+        # Tracks with unresolved hash-string names are excluded from the SKL_LIST
+        # (primary guard — catches tracks whose name was never resolved).
+        # An additional guard below catches root motion tracks that have been
+        # renamed to a readable string (e.g. via mapping / unhashing).
         non_skl_tracks = [w for w in gani_tracks if is_hash_string(str(w.name))]
         skl_tracks      = [w for w in gani_tracks if not is_hash_string(str(w.name))]
 
-        # Validate: every non-SKL track placed first should be a root motion
-        # track (all-DIFF segments).  Warn loudly if that assumption is violated.
+        # Secondary guard: if the first track in the original list has at least
+        # one segment and all segments are DIFF types, treat it as a root motion
+        # track regardless of its name (handles renamed / unhashed root tracks).
+        if (gani_tracks
+                and gani_tracks[0].segments_track_data
+                and is_root_motion_track(gani_tracks[0])):
+            first = gani_tracks[0]
+            if first not in non_skl_tracks:
+                try:
+                    skl_tracks.remove(first)
+                except ValueError:
+                    pass
+                non_skl_tracks.insert(0, first)
+                Debug.log(
+                    f"write_gani_to_buffer: treating first track '{first.name}' as root motion "
+                    "(binary index 0, DIFF-only segments) — excluded from SKL_LIST"
+                )
+
+        # Validate: every non-SKL track placed first should be a root motion track.
         for track in non_skl_tracks:
-            if not is_root_motion_track(track):
+            if not (track.segments_track_data and is_root_motion_track(track)):
                 Debug.log_warning(
                     f"write_gani_to_buffer: Non-SKL track '{track.name}' is placed "
                     f"before SKL tracks but does not appear to be a root motion track "
@@ -179,7 +193,6 @@ class GaniWriter:
                     f"UNIT node order may be incorrect."
                 )
 
-        skl_tracks.sort(key=lambda w: str(w.name))
         gani_tracks = non_skl_tracks + skl_tracks
 
         # Build UNIT (bone) and optional MTP Tracks structures -------------------------------------------
@@ -792,9 +805,9 @@ class GaniWriter:
             parameters_offset=0,
         ).write(buffer)
 
-        # Sort names alphabetically (hash-string fallbacks sort before real names
-        # since ASCII digits precede uppercase letters, which is acceptable).
-        names = sorted(names, key=str)
+        # Names are written in the order they are passed in — callers are
+        # responsible for providing them in the desired output order so that
+        # the SKL_LIST / MTP_LIST in the binary file matches the UNIT track order.
 
         # Resolve each name to (hash_val, name_str_or_None)
         entries = []

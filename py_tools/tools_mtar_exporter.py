@@ -1456,7 +1456,8 @@ def export_mtar(context: bpy.types.Context,
         # Uses two-pass grouping: a bone named "BoneName_N" (N>=1) is treated as segment N
         # of the base track "BoneName" when that base bone also exists in the armature.
         track_segment_bone_mapping = TrackSegmentBoneMapping()
-        Debug.log("\nNo track mapping provided, using armature bone order...")
+        Debug.log_info("No track mapping provided — falling back to armature bone order. "
+                       "Original binary track order is not guaranteed without a mapping file.")
         bone_names = [bone.name for bone in armature.data.bones]
         for track_idx, (_base_name, segments) in enumerate(group_bones_by_segment(bone_names)):
             for seg_idx, seg_bone_name in segments:
