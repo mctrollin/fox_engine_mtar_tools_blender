@@ -7,8 +7,9 @@ unlike GANI2 (TPP) which uses flat GANI2TrackData blobs with a shared CommonInfo
 
 **Animation Node Name Hashes:**
 Well-known StrCode32 hashes for animation FoxData nodes (e.g., MOTION, MTP, EVP, SHADER, 
-SKL_LIST, MTP_LIST) are managed via the dictionary system (dic/mtar_dictionary.txt and related
-files). Use the hash lookup utilities from py_utilities.utilities_hashing for name resolution.
+SKL_LIST, MTP_LIST) are managed via the dictionary system (``dic/str32/`` for StrCode32 names,
+``dic/path64/`` for PathCode64 asset paths). Use the hash lookup utilities from
+py_utilities.utilities_hashing for name resolution.
 """
 
 from dataclasses import dataclass

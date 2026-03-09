@@ -373,7 +373,7 @@ def hash_animation_name_from_blender_context(input_string: str) -> Tuple[bool, D
 
 
 def build_gani_hash_dictionary_by_external_generator(dictionary_path: str, hash_generator_exe_path: str) -> Dict[int, str]:
-    """Build a GANI path hash dictionary from mtar_dictionary.txt using the hash generator.
+    """Build a GANI path hash dictionary from dic/path64/mtar_dictionary.txt using the hash generator.
 
     Replicates what BuildMtarHashDic.bat does: for each path in the dictionary file,
     appends '.gani' and calls the external executable with -d -hwe to get the 64-bit hash,
@@ -382,7 +382,7 @@ def build_gani_hash_dictionary_by_external_generator(dictionary_path: str, hash_
     Each phase is wrapped in a timing log so the cost of reading vs. hashing is visible.
 
     Args:
-        dictionary_path: Path to mtar_dictionary.txt (one plain asset path per line, no hashes)
+        dictionary_path: Path to dic/path64/mtar_dictionary.txt (one plain asset path per line, no hashes)
         exe_path: Path to the hash generator executable (GzsTool)
 
     Returns:
@@ -443,7 +443,7 @@ def build_gani_hash_dictionary_by_external_generator(dictionary_path: str, hash_
 
 
 def build_gani_hash_dictionary(dictionary_path: str) -> Dict[int, str]:
-    """Build a GANI path hash dictionary from mtar_dictionary.txt using pure Python CityHash.
+    """Build a GANI path hash dictionary from dic/path64/mtar_dictionary.txt using pure Python CityHash.
 
     Replaces the external executable approach with a pure-Python CityHash v1.0.3
     implementation, making it dramatically faster and cross-platform.
@@ -454,7 +454,7 @@ def build_gani_hash_dictionary(dictionary_path: str) -> Dict[int, str]:
     Each phase is wrapped in a timing log so the cost of reading vs. hashing is visible.
 
     Args:
-        dictionary_path: Path to mtar_dictionary.txt (one plain asset path per line, no hashes)
+        dictionary_path: Path to dic/path64/mtar_dictionary.txt (one plain asset path per line, no hashes)
 
     Returns:
         Dict mapping 64-bit hash integer to asset path string (same format as

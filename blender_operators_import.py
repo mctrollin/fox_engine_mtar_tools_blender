@@ -358,7 +358,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
         gani_hash_dict = None
         if import_props.import_use_hash_dictionary:
             addon_dir = os.path.dirname(os.path.abspath(__file__))
-            dict_path = os.path.join(addon_dir, 'dic', 'mtar_dictionary.txt')
+            dict_path = os.path.join(addon_dir, 'dic', 'path64', 'mtar_dictionary.txt')
             Debug.start_timer("Build GANI hash dict (import)")
             gani_hash_dict = build_gani_hash_dictionary(dict_path)
             Debug.stop_timer("Build GANI hash dict (import)")

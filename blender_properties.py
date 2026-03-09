@@ -234,7 +234,7 @@ class MTAR_PG_ImportProperties(PropertyGroup):
     import_use_hash_dictionary: BoolProperty(
         name="Unhash GANI Names",
         description=(
-            "Use dic/mtar_dictionary.txt and the Hash Generator executable to build a hash lookup "
+            "Use dic/path64/mtar_dictionary.txt and the Hash Generator executable to build a hash lookup "
             "table on-the-fly, resolving GANI path hashes to readable names during import. "
             "When resolved, the action is named using the last path component (e.g. 'walk_idle') "
             "and the full asset path is stored for re-export. "

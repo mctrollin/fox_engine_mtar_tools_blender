@@ -54,11 +54,32 @@ def load_strcode32_dictionary(dict_path: str) -> None:
     Debug.log(f"Loaded {loaded_count} StrCode32 entries from '{abs_path}'")
 
 
+def preload_strcode32_dictionaries() -> None:
+    """Load every ``*.txt`` file found in ``dic/str32/`` into the unified cache.
+
+    Scans the ``dic/str32/`` folder next to the addon root and calls
+    :func:`load_strcode32_dictionary` for every ``.txt`` file found there.
+    Already-loaded files are skipped automatically (no-op on repeated calls).
+    The plugin does not need to know which individual files exist or how they
+    are named — all files in the folder are treated as StrCode32 dictionaries.
+    """
+    str32_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'dic', 'str32'
+    )
+    if not os.path.isdir(str32_dir):
+        Debug.log_warning(f"StrCode32 dictionary folder not found: {str32_dir}")
+        return
+    for filename in sorted(os.listdir(str32_dir)):
+        if filename.lower().endswith('.txt'):
+            load_strcode32_dictionary(os.path.join(str32_dir, filename))
+
+
 def lookup_strcode32(hash_val: int) -> Optional[str]:
     """Look up a StrCode32 hash value in the unified cache.
 
-    The caller is responsible for loading the relevant dictionaries first via
-    :func:`load_strcode32_dictionary`.
+    Calls :func:`preload_strcode32_dictionaries` on the first invocation so
+    that all ``dic/str32/*.txt`` files are available without any explicit
+    preload call from the caller.
 
     Args:
         hash_val: The 32-bit StrCode32 hash to look up.
@@ -66,13 +87,9 @@ def lookup_strcode32(hash_val: int) -> Optional[str]:
     Returns:
         The name string if found in the cache, ``None`` otherwise.
     """
+    if not _loaded_dict_paths:
+        preload_strcode32_dictionaries()
     return _strcode32_cache.get(hash_val)
-
-
-def _get_rig_dict_path() -> str:
-    """Return the absolute path to dic/rig_dictionary.txt."""
-    addon_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(addon_dir, 'dic', 'rig_dictionary.txt')
 
 
 def unhash_rig_type(hash_value: int) -> Optional[str]:
@@ -82,7 +99,7 @@ def unhash_rig_type(hash_value: int) -> Optional[str]:
     all fingers of the hand or just a foot.
     It does not mean the same as a bone in Blender.
 
-    Lazily loads ``dic/rig_dictionary.txt`` on first call.
+    All ``dic/str32/*.txt`` files are loaded automatically on the first lookup.
 
     Args:
         hash_value: The integer hash value of the rig type name.
@@ -90,20 +107,13 @@ def unhash_rig_type(hash_value: int) -> Optional[str]:
     Returns:
         The resolved rig type name string, or ``None`` if not found.
     """
-    load_strcode32_dictionary(_get_rig_dict_path())
     return lookup_strcode32(hash_value)
-
-
-def _get_events_dict_path() -> str:
-    """Return the absolute path to dic/events_dictionary.txt."""
-    addon_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(addon_dir, 'dic', 'events_dictionary.txt')
 
 
 def unhash_event_name(hash_value: int) -> Optional[str]:
     """Convert an event name hash to its corresponding string.
 
-    Lazily loads ``dic/events_dictionary.txt`` on first call.
+    All ``dic/str32/*.txt`` files are loaded automatically on the first lookup.
 
     Args:
         hash_value: The 32-bit StrCode32 hash of the event name.
@@ -112,20 +122,13 @@ def unhash_event_name(hash_value: int) -> Optional[str]:
         The event name string (e.g. ``"FX_CREATE_EFFECT_WITH_SKL"``), or
         ``None`` if the hash is not found in the dictionary.
     """
-    load_strcode32_dictionary(_get_events_dict_path())
     return lookup_strcode32(hash_value)
-
-
-def _get_param_dict_path() -> str:
-    """Return the absolute path to dic/param_dictionary.txt."""
-    addon_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(addon_dir, 'dic', 'param_dictionary.txt')
 
 
 def unhash_param_name(hash_value: int) -> Optional[str]:
     """Convert a Gani2 param name hash to its corresponding string.
 
-    Lazily loads ``dic/param_dictionary.txt`` on first call.
+    All ``dic/str32/*.txt`` files are loaded automatically on the first lookup.
 
     Args:
         hash_value: The 32-bit StrCode32 hash of the param name.
@@ -134,14 +137,7 @@ def unhash_param_name(hash_value: int) -> Optional[str]:
         The param name string (e.g. ``"SLOPE_ANGLE"``), or
         ``None`` if the hash is not found in the dictionary.
     """
-    load_strcode32_dictionary(_get_param_dict_path())
     return lookup_strcode32(hash_value)
-
-
-def _get_gani_dict_path() -> str:
-    """Return the absolute path to dic/gani_dictionary.txt."""
-    addon_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(addon_dir, 'dic', 'gani_dictionary.txt')
 
 
 def unhash_gani_node(hash_value: int) -> Optional[str]:
@@ -150,7 +146,7 @@ def unhash_gani_node(hash_value: int) -> Optional[str]:
     Resolves hashes for old-format GANI node names such as ``ROOT``, ``MOTION``,
     ``UNIT``, ``SKL_LIST``, ``EVP``, etc.
 
-    Lazily loads ``dic/gani_dictionary.txt`` on first call.
+    All ``dic/str32/*.txt`` files are loaded automatically on the first lookup.
 
     Args:
         hash_value: The 32-bit StrCode32 hash of the node name.
@@ -158,14 +154,7 @@ def unhash_gani_node(hash_value: int) -> Optional[str]:
     Returns:
         The node name string (e.g. ``"UNIT"``), or ``None`` if not found.
     """
-    load_strcode32_dictionary(_get_gani_dict_path())
     return lookup_strcode32(hash_value)
-
-
-def _get_shader_dict_path() -> str:
-    """Return the absolute path to dic/shader_dictionary.txt."""
-    addon_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(addon_dir, 'dic', 'shader_dictionary.txt')
 
 
 def unhash_shader_prop(hash_value: int) -> Optional[str]:
@@ -174,7 +163,7 @@ def unhash_shader_prop(hash_value: int) -> Optional[str]:
     Resolves hashes for facial animation property nodes that are children of the
     SHADER node in old-format GANI files (e.g. ``TENSION_CHEEKL``).
 
-    Lazily loads ``dic/shader_dictionary.txt`` on first call.
+    All ``dic/str32/*.txt`` files are loaded automatically on the first lookup.
 
     Args:
         hash_value: The 32-bit StrCode32 hash of the shader property name.
@@ -183,7 +172,6 @@ def unhash_shader_prop(hash_value: int) -> Optional[str]:
         The property name string (e.g. ``"TENSION_CHEEKL"``), or ``None`` if
         not found.
     """
-    load_strcode32_dictionary(_get_shader_dict_path())
     return lookup_strcode32(hash_value)
 
 

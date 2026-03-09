@@ -161,11 +161,11 @@ class MTAR_PT_ImportPanel(Panel):
             # Hash dictionary for GANI name unhashing (advanced setting)
             draw_bool_prop_checkbox_icon(adv_box, import_props, "import_use_hash_dictionary")
             if import_props.import_use_hash_dictionary:
-                dict_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dic', 'mtar_dictionary.txt')
+                dict_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dic', 'path64', 'mtar_dictionary.txt')
                 if not os.path.exists(dict_path):
                     row = adv_box.row()
                     row.alert = True
-                    row.label(text="dic/mtar_dictionary.txt not found", icon='ERROR')
+                    row.label(text="dic/path64/mtar_dictionary.txt not found", icon='ERROR')
 
         # Strip padding (advanced setting)
         if settings_props.show_advanced_settings:
