@@ -7,7 +7,7 @@ from bpy.types import Panel, Context
 from .blender_operators_export import (
     MTAR_OT_ExportAnimationToMTAR,
 )
-from .py_utilities.utilities_blender_animation import is_relevant_strip, try_find_layout_track_action
+from .py_utilities.utilities_blender_animation import is_relevant_strip, try_find_layout_track_action, read_mtar_properties_from_any_action
 from .py_foxwrap.foxwrap_metadata import read_mtar_properties_from_action
 from .py_fox import fox_mtar_constants as mtar_const
 
@@ -42,11 +42,24 @@ class MTAR_PT_ExportPanel(Panel):
             # visibility check and the format info box below.
             _layout_action = try_find_layout_track_action()
             _fmt_flags = 0x1000  # default: new format
+            # For old-format MTARs (no layout action), collect fallback NLA actions
+            _fallback_nla_actions = []
             if _layout_action:
                 _fmt_mtar_props = read_mtar_properties_from_action(_layout_action)
                 _fmt_flags = _fmt_mtar_props.get(mtar_const.MTAR_FLAGS, 0x1000)
+            elif export_props.armature and export_props.armature.animation_data:
+                # Old-format: collect NLA actions for fallback MTAR property reading
+                anim_data = export_props.armature.animation_data
+                for track in anim_data.nla_tracks:
+                    if not track.mute:
+                        for strip in track.strips:
+                            if is_relevant_strip(strip) and strip.action:
+                                _fallback_nla_actions.append(strip.action)
+                if _fallback_nla_actions:
+                    _fmt_mtar_props = read_mtar_properties_from_any_action(_layout_action, _fallback_nla_actions)
+                    _fmt_flags = _fmt_mtar_props.get(mtar_const.MTAR_FLAGS, 0x1000)
             # Show shader nodes armature picker only for old-format (FoxData / GZ) MTARs
-            if _layout_action and not bool(_fmt_flags & 0x1000):  # old format (no UseMini flag)
+            if not bool(_fmt_flags & 0x1000):  # old format (no UseMini flag)
                 box_rig.prop(export_props, "shader_nodes_armature", text="", icon='SHADING_RENDERED')
 
         if settings_props.show_advanced_settings:
@@ -75,19 +88,17 @@ class MTAR_PT_ExportPanel(Panel):
                 export_count = 0
                 animinfo_box.label(text="No animation data", icon='ERROR')
 
-        # Show format info (detected from layout action properties)
+        # Show format info (detected from layout action or per-GANI fallback)
         # Only show if armature is selected (user is actively configuring an export)
         if export_props.armature:
             format_info_box = box_rig.box()
-            layout_action = _layout_action  # already resolved above
-            if layout_action:
-                # Read MTAR properties from the layout action
-                flags = _fmt_flags
-                is_new_format = bool(flags & 0x1000)  # UseMini flag
-                
+            is_new_format = bool(_fmt_flags & 0x1000)  # UseMini flag
+            
+            if _layout_action:
+                # Layout action exists (GANI2 / new-format)
                 # Check if properties are explicitly set (not defaults)
-                has_stored_props = (mtar_const.MTAR_VERSION in layout_action.keys() and 
-                                   mtar_const.MTAR_FLAGS in layout_action.keys())
+                has_stored_props = (mtar_const.MTAR_VERSION in _layout_action.keys() and 
+                                   mtar_const.MTAR_FLAGS in _layout_action.keys())
                 
                 if is_new_format:
                     format_info_box.label(text="Format: GANI2 (TPP)", icon='CHECKMARK')
@@ -102,8 +113,16 @@ class MTAR_PT_ExportPanel(Panel):
                     warn_box.label(text="Defaulting to GANI2 (new format)")
                     warn_box.label(text="Re-import an MTAR to preserve format")
             else:
-                # No layout action found
-                format_info_box.label(text="No layout track action found", icon='INFO')
+                # No layout action found — old-format or no NLA data
+                if _fallback_nla_actions or (export_props.armature and export_props.armature.animation_data):
+                    # Old-format with NLA data: show detected format
+                    if is_new_format:
+                        format_info_box.label(text="Format: GANI2 (TPP)", icon='CHECKMARK')
+                    else:
+                        format_info_box.label(text="Format: GANI (GZ/old)", icon='INFO')
+                else:
+                    # No animation data to detect format
+                    format_info_box.label(text="No animation or layout data found", icon='INFO')
 
 
         # Mapping file (optional)

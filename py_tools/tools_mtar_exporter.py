@@ -26,11 +26,12 @@ from ..py_utilities.utilities_transforms import (
 from ..py_utilities.utilities_blender_animation import (
     FCurveCache, iter_action_fcurves, is_relevant_strip, try_find_layout_track_action,
     build_data_path_for_bone, assign_action_to_datablock, MTAR_ARMATURE_SLOT_NAME,
+    read_mtar_properties_from_any_action,
 )
 from ..py_utilities.utilities_fcurve_processing import bake_and_clean_export_fcurves
 
 from ..py_foxwrap.foxwrap_motionevent import read_motion_events_from_action
-from ..py_foxwrap.foxwrap_metadata import read_track_header_properties_from_action, read_mtar_properties_from_action, iter_all_node_params_from_action
+from ..py_foxwrap.foxwrap_metadata import read_track_header_properties_from_action, iter_all_node_params_from_action
 from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_foxwrap.foxwrap_metadata import TrackMetaData, merge_track_metadata, get_all_track_metadata_from_action
@@ -124,6 +125,35 @@ def clamp_bit_size_for_segment(segment_type: SegmentType, component_bit_size: in
             )
             return valid
     return component_bit_size
+
+
+def _merge_metadata_from_actions(
+    actions: List[bpy.types.Action],
+) -> Dict[str, TrackMetaData]:
+    """Builds a union metadata dict from multiple per-GANI actions.
+    
+    For each track name, takes the entry with the most segments (widest definition).
+    Used for old-format GANI1 export where no shared layout action exists.
+    
+    Args:
+        actions: List of GANI actions to merge metadata from
+        
+    Returns:
+        Dictionary mapping fox_track_name -> TrackMetaData with union of segments
+    """
+    merged: Dict[str, TrackMetaData] = {}
+    for action in actions:
+        if action is None:
+            continue
+        per_action_dict = get_all_track_metadata_from_action(action)
+        for track_name, meta in per_action_dict.items():
+            existing = merged.get(track_name)
+            if existing is None:
+                merged[track_name] = meta
+            elif len(meta.segment_types) > len(existing.segment_types):
+                # Take the entry with more segments (union)
+                merged[track_name] = meta
+    return merged
 
 
 # Layout and MetaData #############################################################
@@ -1458,9 +1488,16 @@ def export_mtar(context: bpy.types.Context,
     layout_action = try_find_layout_track_action()
     metadata_dict = None
     
+    # Collect actions to export first (needed for metadata merging in old-format)
+    actions_to_export = collect_actions_for_export_from_armature(
+        armature, 
+        use_nla,
+        export_clean_threshold=export_props.export_fcurve_clean_threshold
+    )
+    
     if layout_action:
-        # Parse metadata from layout track action
-        Debug.log("\nParsing layout track metadata...")
+        # GANI2 / new-format: Parse metadata from layout track action
+        Debug.log("\nParsing layout track metadata (GANI2/new-format)...")
         metadata_dict = get_all_track_metadata_from_action(layout_action)
 
         # Finalize mapping using layout metadata so missing per-segment mappings
@@ -1473,32 +1510,23 @@ def export_mtar(context: bpy.types.Context,
         Debug.log("\nBuilding layout track structure...")
         layout_track = build_layout_track_from_metadata(track_segment_bone_mapping, metadata_dict, layout_action, force_highest_bit_encoding)
     else:
-        # Create placeholder layout track without metadata
+        # Old-format GANI1: Merge metadata from all per-GANI actions
+        Debug.log("\nNo layout action found — assuming old-format (GANI1/FoxData)...")
+        all_export_actions = [sd.action for sd in actions_to_export if sd.action]
+        metadata_dict = _merge_metadata_from_actions(all_export_actions)
+
+        # Finalize mapping with merged metadata
+        if track_segment_bone_mapping and metadata_dict:
+            Debug.log("  Finalizing mapping with merged per-GANI metadata...")
+            track_segment_bone_mapping.finalize_with_layout_metadata(metadata_dict)
         
-        Debug.log_warning("\nNo Layout track action found! creating placeholder layout track but this will probably cause issues.")
-        # Count number of tracks
-        track_count = track_segment_bone_mapping.get_total_track_count()
-        placeholder_header = TrackHeader(
-            unit_count=track_count,
-            segment_count=0,
-            t_id=0,
-            unknown_a=0,
-            unknown_b=0,
-            frame_count=0,
-            frame_rate=60,
-            unit_offsets=[]
-        )
-        layout_track = Tracks(
-            header=placeholder_header,
-            track_units=[]
-        )
-    
-    # Collect actions to export
-    actions_to_export = collect_actions_for_export_from_armature(
-        armature, 
-        use_nla,
-        export_clean_threshold=export_props.export_fcurve_clean_threshold
-    )
+        # Build layout track from merged metadata
+        Debug.log("\nBuilding layout track structure from merged per-GANI metadata...")
+        layout_track = build_layout_track_from_metadata(
+            track_segment_bone_mapping, metadata_dict if metadata_dict else {}, 
+            layout_action=None,  # No layout action for old-format
+            force_highest_bit_encoding=force_highest_bit_encoding)
+
     
     if not actions_to_export:
         Debug.log_error("  Error: No actions found to export")
@@ -1517,9 +1545,10 @@ def export_mtar(context: bpy.types.Context,
     # Set the layout track on the writer
     writer.set_layout_track(layout_track)
     
-    # Set MTAR version and flags from layout action
+    # Set MTAR version and flags (Step 5a: fallback to per-GANI for old-format)
     # This determines whether to use new format (GANI2) or old format (FoxData)
-    mtar_props = read_mtar_properties_from_action(layout_action)
+    all_export_actions = [sd.action for sd in actions_to_export if sd.action]
+    mtar_props = read_mtar_properties_from_any_action(layout_action, all_export_actions)
     writer.set_mtar_version(
         mtar_props.get(mtar_const.MTAR_VERSION, 201403250),
         mtar_props.get(mtar_const.MTAR_FLAGS, 0x1000)
@@ -1635,11 +1664,20 @@ def export_mtar(context: bpy.types.Context,
         Debug.log(f"\n4.{action_idx}.1 Main Animation Tracks ----------------------------------------")
         Debug.start_timer(f"4.{action_idx}.1 Main Animation Tracks")
 
+        # Step 5d: For old-format, use per-strip metadata instead of global metadata_dict
+        effective_metadata_dict = metadata_dict
+        if layout_action is None and action_data.action is not None:
+            # Old-format: per-GANI metadata overrides the merged dict for this strip
+            per_strip_dict = get_all_track_metadata_from_action(action_data.action)
+            effective_metadata_dict = per_strip_dict if per_strip_dict else metadata_dict
+            if per_strip_dict:
+                Debug.log("  Using per-GANI metadata for this strip (overrides merged layout)")
+
         gani_tracks: List[TrackUnitWrapper] = export_gani_tracks_from_action(
             armature,
             action_data,
             track_segment_bone_mapping,
-            metadata_dict,
+            effective_metadata_dict,
             force_highest_bit_encoding
         )
 
@@ -1798,7 +1836,9 @@ def export_mtar(context: bpy.types.Context,
         Debug.log(f"\n4.{action_idx}.5 Storing Data ----------------------------------------")
 
         # Read frame rate from layout action header properties (stored during import); default 60.
-        header_props = read_track_header_properties_from_action(layout_action)
+        # For old-format (no layout action), fall back to reading from the per-GANI action.
+        header_action = layout_action if layout_action is not None else action_data.action
+        header_props = read_track_header_properties_from_action(header_action)
         frame_rate = header_props.get(gani_const.TRKH_FRAME_RATE, 60)
 
         # Create GaniExportData object

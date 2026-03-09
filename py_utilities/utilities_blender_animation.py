@@ -1051,3 +1051,49 @@ def is_fcurve_linear(fcurve: bpy.types.FCurve) -> bool:
             return False
     
     return True
+
+
+def get_metadata_dict_for_action(
+    action: bpy.types.Action,
+) -> Optional[Dict[str, 'TrackMetaData']]:
+    """Returns a metadata dict built from a single action's custom properties.
+    
+    Used for old-format GANI1 export where each action carries its own full layout.
+    
+    Args:
+        action: Blender action to extract metadata from
+        
+    Returns:
+        Metadata dict if action has track properties, None otherwise
+    """
+    from ..py_foxwrap.foxwrap_metadata import get_all_track_metadata_from_action
+    meta = get_all_track_metadata_from_action(action)
+    return meta if meta else None
+
+
+def read_mtar_properties_from_any_action(
+    layout_action: Optional[bpy.types.Action],
+    fallback_actions: Optional[List[bpy.types.Action]] = None,
+) -> Dict[str, any]:
+    """Reads MTAR_VERSION and MTAR_FLAGS from layout_action or per-GANI fallback.
+    
+    For new-format GANI2, reads from the dedicated layout action.
+    For old-format GANI1, reads from the first per-GANI action when no layout exists.
+    
+    Args:
+        layout_action: Optional layout track action
+        fallback_actions: Optional list of per-GANI actions to try if layout_action is None
+        
+    Returns:
+        Dictionary with MTAR version and flags (may be empty if neither source is available)
+    """
+    from ..py_foxwrap.foxwrap_metadata import read_mtar_properties_from_action
+    if layout_action is not None:
+        return read_mtar_properties_from_action(layout_action)
+    if fallback_actions:
+        for action in fallback_actions:
+            if action is not None:
+                props = read_mtar_properties_from_action(action)
+                if props:
+                    return props
+    return {}

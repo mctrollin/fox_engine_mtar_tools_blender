@@ -13,7 +13,6 @@ from ..py_utilities.utilities_blender_animation import (
     action_has_fcurves,
     iter_action_fcurves,
     is_relevant_strip,
-    build_data_path_for_bone,
 )
 
 from ..py_fox.fox_gani_types import TrackUnitFlags, EvpHeader, SegmentType
@@ -25,6 +24,7 @@ from .foxwrap_metadata import (
     parse_gani_params_from_action,
     iter_track_properties,
     parse_action_track_metadata,
+    infer_segment_types_from_fcurves,
 )
 from .foxwrap_misc import Tracks, TrackUnitWrapper
 from .foxwrap_mapping import parse_segment_suffix
@@ -203,18 +203,19 @@ def build_track_metadata_dict_from_fcurves(
             continue
 
         bone_name = bone.name
-        has_rotation = False
-        has_location = False
 
-        if action_has_fcurves(action):
-            rotation_quat_path = build_data_path_for_bone(bone_name, 'rotation_quaternion')
-            rotation_euler_path = build_data_path_for_bone(bone_name, 'rotation_euler')
-            location_path = build_data_path_for_bone(bone_name, 'location')
-            for fc in iter_action_fcurves(action):
-                if fc.data_path in (rotation_quat_path, rotation_euler_path):
-                    has_rotation = True
-                elif fc.data_path == location_path:
-                    has_location = True
+        # Determine whether we have any FCurves for this bone, used for
+        # deciding if the bone is present in the action at all.  We also
+        # infer segment types (and default bit sizes) from the curves when
+        # needed.
+        has_fcurves = action_has_fcurves(action)
+        segment_types: List[SegmentType] = []
+        default_bits: Optional[List[int]] = None
+        if has_fcurves:
+            segment_types, default_bits = infer_segment_types_from_fcurves(action, bone_name)
+
+        # has_rotation/has_location flags used only for the old bool-based
+        # detection; they are no longer needed.
 
         component_bit_sizes = None
         unit_flags = 0
@@ -238,21 +239,25 @@ def build_track_metadata_dict_from_fcurves(
                                 unit_flags = TrackUnitFlags.track_unit_flags_to_int(flag_enums)
                 break
 
-        bone_present_in_action = found_metadata_in_action or has_rotation or has_location
+        bone_present_in_action = found_metadata_in_action or has_fcurves
         if bone_present_in_action and not found_metadata_in_action:
             missing_metadata_bones.append(bone_name)
 
         if not bone_present_in_action:
             continue
 
-        segment_types: List[SegmentType] = []
-        if has_rotation:
-            segment_types.append(SegmentType.QUAT)
-        if has_location:
-            segment_types.append(SegmentType.VECTOR3)
+        # If we haven't already inferred segment_types above, do it now.  The
+        # helper may return an empty list in pathological cases (no fcurves);
+        # fall back to metadata-only FLOAT detection as before.
+        if not segment_types:
+            segment_types = []
         if not segment_types and found_metadata_in_action:
-            # FLOAT: single location[0] component; inferred when no QUAT/VEC3
             segment_types.append(SegmentType.FLOAT)
+
+        # ensure component_bit_sizes defaults are assigned when no explicit
+        # metadata was found
+        if component_bit_sizes is None:
+            component_bit_sizes = default_bits
 
         # Compute name hash
         if name_hash_extractor is not None:

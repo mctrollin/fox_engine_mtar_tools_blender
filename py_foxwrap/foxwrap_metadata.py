@@ -5,7 +5,7 @@ This module contains helper functions used throughout the importer and
 exporter for parsing track metadata strings stored either in mapping files
 or on Blender action properties.
 """
-from typing import List, Optional, Dict, Any, Tuple, Union
+from typing import List, Optional, Dict, Any, Set, Tuple, Union
 from dataclasses import dataclass, field
 import copy
 
@@ -1177,6 +1177,84 @@ def parse_as_ik_up_parameter(param_value: str) -> Optional[dict]:
         return None
 
 
+# FCurve Helper #############################################################
+
+def infer_segment_types_from_fcurves(
+    action: bpy.types.Action,
+    bone_name: str,
+) -> Tuple[List[SegmentType], List[int]]:
+    """Infer track segment types and default component bit sizes for a bone.
+
+    This helper examines *action* for F‑curves belonging to *bone_name* and
+    returns a pair ``(segment_types, default_bit_sizes)``.  The bit sizes are
+    **defaults only**; if explicit metadata is stored on the action it
+    overrides these values during export.
+
+    The algorithm mirrors the logic previously embedded in
+    :meth:`TrackMetaData.from_fcurves` and
+    ``build_track_metadata_dict_from_fcurves``:
+
+    * ``rotation_quaternion`` or ``rotation_euler`` curves → ``QUAT`` added.
+    * ``location`` curves are inspected by channel index:
+        - ``{0}`` → ``FLOAT``
+        - ``{0,1}`` → ``VECTOR2``
+        - any non-empty set containing 0,1,2 → ``VECTOR3``
+    * Both a rotation and a location type may be returned.
+
+    Unexpected situations (e.g. deriving ``VECTOR3`` with only one location
+    curve) generate a ``Debug.log_warning`` message so users can investigate.
+
+    Args:
+        action:      Blender action containing F‑curves.
+        bone_name:   Name of the bone whose curves to inspect.
+
+    Returns:
+        Tuple of (segment_types:list of SegmentType, default_bit_sizes:list of int).
+        May return ``([], [])`` if no relevant F‑curves are found.
+    """
+    
+
+    if not action or not action_has_fcurves(action):
+        return [], []
+
+    rotation_quat_path = build_data_path_for_bone(bone_name, 'rotation_quaternion')
+    rotation_euler_path = build_data_path_for_bone(bone_name, 'rotation_euler')
+    location_path = build_data_path_for_bone(bone_name, 'location')
+
+    has_rotation = False
+    location_indices: Set[int] = set()
+
+    for fc in iter_action_fcurves(action):
+        if fc.data_path in (rotation_quat_path, rotation_euler_path):
+            has_rotation = True
+        elif fc.data_path == location_path:
+            location_indices.add(fc.array_index)
+
+    segment_types: List[SegmentType] = []
+    if has_rotation:
+        segment_types.append(SegmentType.QUAT)
+
+    if location_indices == {0}:
+        segment_types.append(SegmentType.FLOAT)
+    elif location_indices == {0, 1}:
+        segment_types.append(SegmentType.VECTOR2)
+    elif location_indices:
+        segment_types.append(SegmentType.VECTOR3)
+
+    # warn about odd combinations
+    if location_indices and segment_types and segment_types[-1] == SegmentType.VECTOR3 and len(location_indices) < 3:
+        Debug.log_warning(
+            f"infer_segment_types_from_fcurves: bone '{bone_name}' has "
+            f"location indices {location_indices} but inferred VECTOR3"
+        )
+
+    # compute default bit sizes in parallel
+    default_bits: List[int] = []
+    for st in segment_types:
+        default_bits.append(15 if st in (SegmentType.QUAT, SegmentType.QUAT_DIFF) else 16)
+
+    return segment_types, default_bits
+
 # Track MetaData wrapper #############################################################
 
 @dataclass
@@ -1198,8 +1276,8 @@ class TrackMetaData:
     # unit_flags integer value (optional)
     unit_flags: Optional[int] = None
     flags_list: Optional[List[str]] = None
-    # Rig unit type string e.g. 'ARM', 'ROOT', 'ORIENTATION'
-    rig_unit_type: Optional[str] = None
+    # Rig unit type: RigUnitType enum value e.g. ROOT, ARM, ORIENTATION
+    rig_unit_type: Optional['RigUnitType'] = None
     # Additional optional parameters parsed from mapping or action
     rotation_offset: Optional[Dict[str, Any]] = None
     rotation_axis_map: Optional[List[Dict[str, Any]]] = None
@@ -1289,62 +1367,22 @@ class TrackMetaData:
         Returns:
             TrackMetaData with segment_types inferred from fcurves, or None if no fcurves found
         """
+        # Use the shared inference utility so that all callers behave
+        # identically.  The helper returns default bit sizes which are used
+        # only when no explicit metadata is stored on the action.
         if not action or not action_has_fcurves(action):
             return None
-        
-        # Check which fcurve types exist for this bone
-        rotation_quat_path = build_data_path_for_bone(bone_name, 'rotation_quaternion')
-        rotation_euler_path = build_data_path_for_bone(bone_name, 'rotation_euler')
-        location_path = build_data_path_for_bone(bone_name, 'location')
-        
-        has_rotation = any(
-            fc.data_path in [rotation_quat_path, rotation_euler_path]
-            for fc in iter_action_fcurves(action)
-        )
-        location_fcurves = [
-            fc for fc in iter_action_fcurves(action)
-            if fc.data_path == location_path
-        ]
-        location_indices = {fc.array_index for fc in location_fcurves}
 
-        # Build segment types list
-        segment_types = []
-        if has_rotation:
-            segment_types.append(SegmentType.QUAT)
-
-        # Infer location-family segment type from which channel indices have FCurves.
-        # For round-tripped data the importer always writes all 3 channels for VECTOR3
-        # (even constant zeros), so {0} alone unambiguously means FLOAT. For
-        # user-created animations {0} is ambiguous (could be a VECTOR3 with only X
-        # keyed) — add segments=q,v to the track's action custom property to force the
-        # correct type. See copilot/todos/segment_type_fcurve_inference.md.
-        if location_indices == {0}:
-            segment_types.append(SegmentType.FLOAT)       # X-only → FLOAT
-        elif location_indices == {0, 1}:
-            segment_types.append(SegmentType.VECTOR2)     # XY-only → VECTOR2
-        elif location_indices:                             # {0,1,2} or any superset
-            segment_types.append(SegmentType.VECTOR3)     # has location → VECTOR3
-        
-        # If no segments found, return None
+        segment_types, default_bits = infer_segment_types_from_fcurves(action, bone_name)
         if not segment_types:
             return None
-        
-        # Create minimal metadata with type-safe default bit sizes
-        # QUAT: 15 bits (max valid for Fox quaternion encoding)
-        # VECTOR3: 16 bits (standard half-float)
-        component_bit_sizes = []
-        for st in segment_types:
-            if st in [SegmentType.QUAT, SegmentType.QUAT_DIFF]:
-                component_bit_sizes.append(15)
-            else:
-                component_bit_sizes.append(16)
 
         return TrackMetaData(
             track_name=bone_name,
             segment_types=segment_types,
             unit_flags=0,  # No special flags
             name_hash=StrCode32.from_string(bone_name).to_int(),
-            component_bit_sizes=component_bit_sizes,
+            component_bit_sizes=default_bits,
             rig_unit_type=None
         )
 

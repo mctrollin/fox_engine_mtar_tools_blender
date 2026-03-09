@@ -245,9 +245,10 @@ def create_animation_actions(
     all_track_mini_headers: List[TrackMiniHeader],
     all_file_headers: List[MtarTableList2],
     layout_track: Optional['Tracks'],
-    all_motion_events: List[Optional[EvpHeader]],
-    path_to_indices: Dict[int, Tuple[int, int]],
-    use_verbose_naming: bool,
+    all_gani_layout_tracks: Optional[List[Optional['Tracks']]] = None,
+    all_motion_events: List[Optional[EvpHeader]] = None,
+    path_to_indices: Dict[int, Tuple[int, int]] = None,
+    use_verbose_naming: bool = False,
     gani_hash_dict: Optional[Dict[int, str]] = None,
     mtar_version: int = 201403250,
     mtar_flags: int = 0x1000,
@@ -290,10 +291,15 @@ def create_animation_actions(
     Debug.log(f"  all_file_headers: {len(all_file_headers)}")
     Debug.log(f"  all_motion_events: {len(all_motion_events)}")
     
+    # Detect old-format vs new-format MTAR
+    is_old_format = not bool(mtar_flags & 0x1000)  # UseMini flag absent = old format
+    Debug.log(f"Format detected: {'old (GANI1/FoxData)' if is_old_format else 'new (GANI2/CommonInfo)'}")
+    
     # Create layout track action to store metadata
     layout_action: Optional[bpy.types.Action] = None
-    if layout_track and layout_track.track_units:
-        Debug.log("Creating layout track action for metadata storage...")
+    if layout_track and layout_track.track_units and not is_old_format:
+        # GANI2 / new-format: create layout action (unchanged)
+        Debug.log("Creating layout track action for metadata storage (GANI2)...")
         layout_action_name = format_action_name(mtar_file_name, 0, 0, 0, False, is_layout=True)
         layout_action = bpy.data.actions.new(name=layout_action_name)
         layout_action.use_fake_user = True
@@ -364,8 +370,32 @@ def create_animation_actions(
         # Store metadata from the actual animation data (GaniTracks) on this action
         # Convert to TrackMetaData and store
         track_mini_header = all_track_mini_headers[gani_index]
-        track_metadata_list = TrackMetaData.from_gani_tracks(gani_tracks, track_mini_header.segment_headers)
-        store_track_metadata_on_action(action, track_metadata_list, include_segments=False, include_hash=False)
+        
+        # For old-format: store full metadata (including segment types) from per-GANI layout
+        # For GANI2: store only bits and flags (segments=False) since layout action has full info
+        if is_old_format and all_gani_layout_tracks and gani_index < len(all_gani_layout_tracks):
+            per_gani_layout = all_gani_layout_tracks[gani_index]
+            if per_gani_layout is not None:
+                # Old-format: use per-GANI layout_track which has full segment information
+                track_metadata_list = TrackMetaData.from_layout_track_units(
+                    per_gani_layout.track_units,
+                    gani_tracks=gani_tracks)  # Pass gani_tracks to resolve rig_unit_type from FRIG
+                store_track_metadata_on_action(
+                    action, track_metadata_list,
+                    include_segments=True,  # Full segment types stored for old-format
+                    include_hash=True)      # Name hash stored
+                store_track_header_properties_on_action(action, per_gani_layout.header)
+                store_mtar_properties_on_action(action, mtar_version, mtar_flags)
+                Debug.log(f"Stored full metadata on old-format GANI action from per-GANI layout")
+            else:
+                # Fallback: no per-GANI layout available
+                track_metadata_list = TrackMetaData.from_gani_tracks(gani_tracks, track_mini_header.segment_headers)
+                store_track_metadata_on_action(action, track_metadata_list, include_segments=False, include_hash=False)
+                Debug.log_warning(f"No per-GANI layout available for old-format GANI {gani_index}, using FCurve inference fallback")
+        else:
+            # GANI2 path: metadata already on layout action; per-GANI only stores bits+flags
+            track_metadata_list = TrackMetaData.from_gani_tracks(gani_tracks, track_mini_header.segment_headers)
+            store_track_metadata_on_action(action, track_metadata_list, include_segments=False, include_hash=False)
         # Store all non-SHADER node params from this GANI (MOTION, ROOT, etc.) for lossless round-trip
         gani_node_params = all_node_params[gani_index] if all_node_params and gani_index < len(all_node_params) else {}
         for node_key, params in gani_node_params.items():
@@ -881,6 +911,7 @@ def sort_gani_data_by_file_offset(
     all_mtp_parent_lists: List[Optional[List[str]]],
     all_shader_gani_tracks: List[List[ShaderTrackWrapper]],
     all_node_params: List[Dict],
+    all_gani_layout_tracks: Optional[List] = None,
 ) -> Tuple[
     List[List[TrackUnitWrapper]],
     List[List[TrackUnitWrapper]],
@@ -894,6 +925,7 @@ def sort_gani_data_by_file_offset(
     List[Optional[List[str]]],
     List[List],
     List[Dict],
+    Optional[List],
 ]:
     """Sort all GANI data lists by tracks_offset from file headers.
     
@@ -903,9 +935,10 @@ def sort_gani_data_by_file_offset(
     Args:
         All GANI data lists (must have same length).
         all_shader_gani_tracks: Per-GANI shader track lists (old-format only).
+        all_gani_layout_tracks: Per-GANI layout tracks (old-format only).
         
     Returns:
-        Same lists sorted by tracks_offset, including all_shader_gani_tracks.
+        Same lists sorted by tracks_offset, including all_shader_gani_tracks and all_gani_layout_tracks.
     """
     # Create list of tuples: (tracks_offset, original_index, all_data)
     combined = []
@@ -925,6 +958,7 @@ def sort_gani_data_by_file_offset(
             all_mtp_parent_lists[i] if all_mtp_parent_lists and i < len(all_mtp_parent_lists) else None,
             all_shader_gani_tracks[i] if all_shader_gani_tracks and i < len(all_shader_gani_tracks) else [],
             all_node_params[i] if all_node_params and i < len(all_node_params) else {},
+            all_gani_layout_tracks[i] if all_gani_layout_tracks and i < len(all_gani_layout_tracks) else None,
         ))
     
     # Sort by tracks_offset
@@ -943,6 +977,7 @@ def sort_gani_data_by_file_offset(
     sorted_mtp_parent_lists = [item[11] for item in combined]
     sorted_shader_gani_tracks = [item[12] for item in combined]
     sorted_node_params = [item[13] for item in combined]
+    sorted_gani_layout_tracks = [item[14] for item in combined]
 
     return (
         sorted_gani_tracks,
@@ -957,6 +992,7 @@ def sort_gani_data_by_file_offset(
         sorted_mtp_parent_lists,
         sorted_shader_gani_tracks,
         sorted_node_params,
+        sorted_gani_layout_tracks,
     )
 
 def import_mtar(
@@ -1080,7 +1116,7 @@ def import_mtar_data(
         Debug.log_warning("Missing settings property: context.scene.mtar_properties.settings_props.sort_gani")
         sort_enabled = False
     if sort_enabled and all_file_headers:
-        all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers, all_skl_lists, all_mtp_lists, all_mtp_parent_lists, all_shader_gani_tracks, all_node_params = sort_gani_data_by_file_offset(
+        all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers, all_skl_lists, all_mtp_lists, all_mtp_parent_lists, all_shader_gani_tracks, all_node_params, all_gani_layout_tracks = sort_gani_data_by_file_offset(
             all_gani_tracks,
             all_motion_point_gani_tracks,
             all_motion_events,
@@ -1093,6 +1129,7 @@ def import_mtar_data(
             all_mtp_parent_lists,
             all_shader_gani_tracks,
             all_node_params,
+            all_gani_layout_tracks=reader.all_gani_layout_tracks,
         )
 
     # Get layout track for metadata storage
@@ -1187,9 +1224,10 @@ def import_mtar_data(
         all_track_mini_headers,
         all_file_headers,
         layout_track,
-        all_motion_events,
-        path_to_indices,
-        use_verbose_naming,
+        all_gani_layout_tracks=all_gani_layout_tracks,
+        all_motion_events=all_motion_events,
+        path_to_indices=path_to_indices,
+        use_verbose_naming=use_verbose_naming,
         gani_hash_dict=gani_hash_dict,
         mtar_version=reader.mtar_version,
         mtar_flags=reader.mtar_flags,

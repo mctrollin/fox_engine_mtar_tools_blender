@@ -42,6 +42,7 @@ class MtarReader:
         self.gani_reader: GaniReader = GaniReader()
         self.common_info: Optional[CommonInfo] = None
         self.layout_track: Optional[Tracks] = None  # Set for both old and new formats
+        self.all_gani_layout_tracks: List[Tracks] = []  # Preserves ALL per-GANI layout_track objects before winner selection
         self.is_new_format: bool = False  # Determined after reading header
         self.mtar_version: int = 0  # Version from MTAR header
         self.mtar_flags: int = 0    # Flags from MTAR header
@@ -277,7 +278,9 @@ class MtarReader:
                 # Using the max-segment layout ensures the layout action captures all
                 # possible segment types; the FCurve-presence check in the exporter
                 # will then correctly filter out segments absent from individual GANIs.
+                # ALWAYS append (even None) to maintain 1:1 index correspondence with GANI indices
                 candidate = import_data.layout_track
+                self.all_gani_layout_tracks.append(candidate)  # Preserve all per-GANI layouts (including None)
                 if candidate is not None:
                     if (self.layout_track is None or
                             candidate.header.segment_count > self.layout_track.header.segment_count):

@@ -506,6 +506,13 @@ class GaniWriter:
         # SHADER is a container node (like ROOT / MOTION) with an inline name string
         self._write_placeholder_node(buffer, FOXDATA_HASH_SHADER, flags=0, name_string="SHADER")
 
+        # Write SHADER container parameters if present (e.g., TARGET_NAME)
+        shader_container_params = (node_params or {}).get("SHADER")
+        if shader_container_params:
+            params_offset = buffer.tell() - shader_node_pos
+            self._write_node_parameters(buffer, shader_container_params)
+            self._backfill_int(buffer, shader_node_pos + _NODE_OFF_PARAMETERS_OFFSET, params_offset)
+
         # Write each property as a TRACKS child node
         property_children: List[tuple] = []  # (prop_name, node_pos, payload_end)
         for i, (prop_name, tracks) in enumerate(shader_tracks):
@@ -534,9 +541,7 @@ class GaniWriter:
                 params_offset = buffer.tell() - pos
                 self._write_node_parameters(buffer, child_params)
                 self._backfill_int(buffer, pos + _NODE_OFF_PARAMETERS_OFFSET, params_offset)
-                Debug.log(
-                    f"  Shader property '{prop_name_str}': wrote {len(child_params)} param(s)"
-                )
+                Debug.log(f"  Shader property '{prop_name_str}': wrote {len(child_params)} param(s)")
             
             property_children.append((prop_name_str, pos, payload_end))
 
