@@ -7,8 +7,8 @@ from bpy.types import Panel, Context
 from .blender_operators_export import (
     MTAR_OT_ExportAnimationToMTAR,
 )
-from .py_utilities.utilities_blender_animation import is_relevant_strip, try_find_layout_track_action, read_mtar_properties_from_any_action
-from .py_foxwrap.foxwrap_metadata import read_mtar_properties_from_action
+from .py_utilities.utilities_blender_animation import is_relevant_strip, try_find_layout_track_action
+from .py_foxwrap.foxwrap_metadata import read_mtar_properties_from_action, read_mtar_properties_from_any_action
 from .py_fox import fox_mtar_constants as mtar_const
 
 # Import shared utilities and properties from the import panel module

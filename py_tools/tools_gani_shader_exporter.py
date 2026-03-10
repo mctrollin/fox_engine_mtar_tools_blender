@@ -103,6 +103,7 @@ def build_shader_nodes_metadata_dict(
         armature_label="shader nodes",
         bone_skip_predicate=lambda b: b.parent is None,
         name_hash_extractor=_shader_hash,
+        warn_on_missing_metadata=False,
     )
 
 

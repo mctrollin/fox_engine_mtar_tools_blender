@@ -166,6 +166,7 @@ def build_motion_point_metadata_dict(
         armature_label="motion points",
         bone_skip_predicate=None,
         name_hash_extractor=_mtp_hash,
+        warn_on_missing_metadata=False,
     )
 
 

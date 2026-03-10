@@ -975,19 +975,29 @@ def remove_action_fcurve(action: bpy.types.Action, fcurve) -> None:
     # Best-effort else: nothing to do
 
 
-def add_dummy_keyframes_to_action(action: bpy.types.Action) -> None:
-    """Add dummy location keyframes at frames -100 and -50 to the layout track action.
-    
-    This creates a baseline reference that prevents the action from being empty
-    and establishes the frame range for the NLA strip. The dummy keyframes are
-    added to a virtual bone called "dummy" (as pose.bones["dummy"].location)
-    so the action is suitable to be applied on armature objects via NLA strips.
-    
+def add_dummy_keyframes_to_action(
+    action: bpy.types.Action,
+    frames: Optional[list[float]] = None,
+) -> None:
+    """Add dummy location keyframes to a layout‑track action.
+
+    The function creates a baseline reference so the action is never empty and
+    therefore suitable for use in an NLA strip.  By default two keyframes are
+    inserted at ``-100`` and ``-50``; a custom list of frames may be supplied
+    to control the range.  The keyframes live on a virtual bone named ``dummy``
+    (``pose.bones["dummy"].location``) which is ignored during export.
+
     Args:
-        action: The layout track action to add keyframe to
+        action: The layout track action to add keyframes to.
+        frames: Optional list of frame numbers at which to insert dummy keys.
+            If ``None`` the default ``[-100.0, -50.0]`` range is used.
     """
     Debug.log(f"Adding dummy location keyframes to layout action '{action.name}'")
-    
+
+    # Use provided frames or fall back to legacy values
+    if frames is None:
+        frames = [-100.0, -50.0]
+
     # Create a single dummy location track on a virtual bone named "dummy"
     data_path = 'pose.bones["dummy"].location'
     values = [0.0, 0.0, 0.0]
@@ -997,14 +1007,21 @@ def add_dummy_keyframes_to_action(action: bpy.types.Action) -> None:
 
     # Create FCurve(s) for each component (X, Y, Z)
     for component_idx, value in enumerate(values):
-        fcurve = ensure_action_fcurve(action, data_path=data_path, index=component_idx, action_group_name=group_name, slot_name=MTAR_ARMATURE_SLOT_NAME)
-        # Add keyframes at frames -100 and -50
-        keyframe_start = fcurve.keyframe_points.insert(frame=-100.0, value=value)
-        keyframe_start.interpolation = 'LINEAR'
-        keyframe_end = fcurve.keyframe_points.insert(frame=-50.0, value=value)
-        keyframe_end.interpolation = 'LINEAR'
-    
-    Debug.log("    Added dummy location keyframes at frames -100 and -50: (0.0, 0.0, 0.0)")
+        fcurve = ensure_action_fcurve(
+            action,
+            data_path=data_path,
+            index=component_idx,
+            action_group_name=group_name,
+            slot_name=MTAR_ARMATURE_SLOT_NAME,
+        )
+        # Add keyframes at all requested frames
+        for frame in frames:
+            keyframe = fcurve.keyframe_points.insert(frame=frame, value=value)
+            keyframe.interpolation = 'LINEAR'
+
+    Debug.log(
+        f"    Added dummy location keyframes at frames {frames}: (0.0, 0.0, 0.0)"
+    )
 
 
 # #########################################
@@ -1051,49 +1068,3 @@ def is_fcurve_linear(fcurve: bpy.types.FCurve) -> bool:
             return False
     
     return True
-
-
-def get_metadata_dict_for_action(
-    action: bpy.types.Action,
-) -> Optional[Dict[str, 'TrackMetaData']]:
-    """Returns a metadata dict built from a single action's custom properties.
-    
-    Used for old-format GANI1 export where each action carries its own full layout.
-    
-    Args:
-        action: Blender action to extract metadata from
-        
-    Returns:
-        Metadata dict if action has track properties, None otherwise
-    """
-    from ..py_foxwrap.foxwrap_metadata import get_all_track_metadata_from_action
-    meta = get_all_track_metadata_from_action(action)
-    return meta if meta else None
-
-
-def read_mtar_properties_from_any_action(
-    layout_action: Optional[bpy.types.Action],
-    fallback_actions: Optional[List[bpy.types.Action]] = None,
-) -> Dict[str, any]:
-    """Reads MTAR_VERSION and MTAR_FLAGS from layout_action or per-GANI fallback.
-    
-    For new-format GANI2, reads from the dedicated layout action.
-    For old-format GANI1, reads from the first per-GANI action when no layout exists.
-    
-    Args:
-        layout_action: Optional layout track action
-        fallback_actions: Optional list of per-GANI actions to try if layout_action is None
-        
-    Returns:
-        Dictionary with MTAR version and flags (may be empty if neither source is available)
-    """
-    from ..py_foxwrap.foxwrap_metadata import read_mtar_properties_from_action
-    if layout_action is not None:
-        return read_mtar_properties_from_action(layout_action)
-    if fallback_actions:
-        for action in fallback_actions:
-            if action is not None:
-                props = read_mtar_properties_from_action(action)
-                if props:
-                    return props
-    return {}

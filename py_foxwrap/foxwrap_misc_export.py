@@ -156,6 +156,7 @@ def build_track_metadata_dict_from_fcurves(
     armature_label: str,
     bone_skip_predicate: Optional[Callable[['bpy.types.Bone'], bool]] = None,
     name_hash_extractor: Optional[Callable[[str, 'bpy.types.Bone'], Optional[int]]] = None,
+    warn_on_missing_metadata: bool = True,
 ) -> Dict[str, TrackMetaData]:
     """Build a per-bone metadata dictionary by inspecting FCurves and stored properties.
 
@@ -163,6 +164,11 @@ def build_track_metadata_dict_from_fcurves(
     Both callers have no layout-track action, so segment types are inferred from
     FCurve existence (``rotation_quaternion`` → QUAT, ``location`` → VECTOR3 or
     FLOAT) and bit-sizes / flags are read from the action's stored metadata.
+
+    The helper also reports bones that are animated but lack an explicit
+    metadata string; this is useful for layout‑track exports but generates
+    noise for motion-point/shader exports.  Set ``warn_on_missing_metadata`` to
+    ``False`` to suppress the warning and emit only a debug message instead.
 
     Args:
         armature:              Armature object whose bones are iterated.
@@ -180,6 +186,10 @@ def build_track_metadata_dict_from_fcurves(
                                ``StrCode32.from_string(bone_name).to_int()``.
                                The shader caller passes a function that parses the
                                decimal suffix after the last ``.`` in the bone name.
+        warn_on_missing_metadata: If ``True`` (the default), log a warning when
+                               bones have animation but no stored metadata.
+                               Set to ``False`` to downgrade the message to
+                               a normal debug log.
 
     Returns:
         ``{bone_name: TrackMetaData}`` for every bone present in *action*.
@@ -275,11 +285,15 @@ def build_track_metadata_dict_from_fcurves(
         )
 
     if missing_metadata_bones:
-        Debug.log_warning(
-            f"  Warning: No stored metadata for {len(missing_metadata_bones)} "
+        message = (
+            f"  No stored metadata for {len(missing_metadata_bones)} "
             f"{armature_label} bone(s) in armature '{armature.name}': "
             + ", ".join(missing_metadata_bones)
         )
+        if warn_on_missing_metadata:
+            Debug.log_warning(message)
+        else:
+            Debug.log(message)
 
     return metadata_dict
 

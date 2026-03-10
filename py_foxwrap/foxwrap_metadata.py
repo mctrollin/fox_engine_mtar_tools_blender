@@ -630,6 +630,32 @@ def read_mtar_properties_from_action(action: Optional[bpy.types.Action]) -> Dict
     
     return result
 
+def read_mtar_properties_from_any_action(
+        layout_action: Optional[bpy.types.Action],
+        fallback_actions: Optional[List[bpy.types.Action]] = None,
+        ) -> Dict[str, any]:
+    """Reads MTAR_VERSION and MTAR_FLAGS from layout_action or per-GANI fallback.
+    
+    For new-format GANI2, reads from the dedicated layout action.
+    For old-format GANI1, reads from the first per-GANI action when no layout exists.
+    
+    Args:
+        layout_action: Optional layout track action
+        fallback_actions: Optional list of per-GANI actions to try if layout_action is None
+        
+    Returns:
+        Dictionary with MTAR version and flags (may be empty if neither source is available)
+    """
+    
+    if layout_action is not None:
+        return read_mtar_properties_from_action(layout_action)
+    if fallback_actions:
+        for action in fallback_actions:
+            if action is not None:
+                props = read_mtar_properties_from_action(action)
+                if props:
+                    return props
+    return {}
 
 # Track Metadata Parsing Helpers #############################################################
 

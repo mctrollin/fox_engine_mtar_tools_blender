@@ -25,13 +25,12 @@ from ..py_utilities.utilities_transforms import (
 )
 from ..py_utilities.utilities_blender_animation import (
     FCurveCache, iter_action_fcurves, is_relevant_strip, try_find_layout_track_action,
-    build_data_path_for_bone, assign_action_to_datablock, MTAR_ARMATURE_SLOT_NAME,
-    read_mtar_properties_from_any_action,
+    build_data_path_for_bone, assign_action_to_datablock, MTAR_ARMATURE_SLOT_NAME    
 )
 from ..py_utilities.utilities_fcurve_processing import bake_and_clean_export_fcurves
 
 from ..py_foxwrap.foxwrap_motionevent import read_motion_events_from_action
-from ..py_foxwrap.foxwrap_metadata import read_track_header_properties_from_action, iter_all_node_params_from_action
+from ..py_foxwrap.foxwrap_metadata import read_track_header_properties_from_action, read_mtar_properties_from_any_action, iter_all_node_params_from_action
 from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_foxwrap.foxwrap_metadata import TrackMetaData, merge_track_metadata, get_all_track_metadata_from_action
@@ -127,9 +126,7 @@ def clamp_bit_size_for_segment(segment_type: SegmentType, component_bit_size: in
     return component_bit_size
 
 
-def _merge_metadata_from_actions(
-    actions: List[bpy.types.Action],
-) -> Dict[str, TrackMetaData]:
+def _merge_metadata_from_actions(actions: List[bpy.types.Action]) -> Dict[str, TrackMetaData]:
     """Builds a union metadata dict from multiple per-GANI actions.
     
     For each track name, takes the entry with the most segments (widest definition).
@@ -460,10 +457,14 @@ def collect_actions_for_export_from_armature(armature: bpy.types.Object,
     return actions_to_export
 
 
-def get_bone_keyframe_numbers_from_action(action: bpy.types.Action, bone_name: str, 
-                              segment_type: SegmentType, frame_start: int, frame_end: int,
-                              bone_params: Optional[BoneParameters] = None,
-                              fcurve_cache: Optional[FCurveCache] = None) -> List[int]:
+def get_bone_keyframe_numbers_from_action(action: bpy.types.Action, 
+                                          bone_name: str, 
+                                          segment_type: SegmentType, 
+                                          frame_start: int, 
+                                          frame_end: int,
+                                          bone_params: Optional[BoneParameters] = None,
+                                          fcurve_cache: Optional[FCurveCache] = None
+                                          ) -> List[int]:
     """Get the actual frames that have keyframes for a specific bone and segment type.
     
     Note: This function returns frames in the same coordinate system as frame_start/frame_end.
@@ -696,10 +697,13 @@ def export_keyframes_track(armature: bpy.types.Object,
             Debug.log_warning(f"    Warning: Unsupported segment type {segment_type}")
         return []
 
-def _get_rotation_transform_fn(bone_params: BoneParameters, armature: bpy.types.Object,
-                               blender_bone_name: str, space_bone: Optional[str],
+def _get_rotation_transform_fn(bone_params: BoneParameters, 
+                               armature: bpy.types.Object,
+                               blender_bone_name: str, 
+                               space_bone: Optional[str],
                                rig_unit_type: Optional[RigUnitType],
-                               transform_cache: Optional[TransformsCache] = None):
+                               transform_cache: Optional[TransformsCache] = None
+                               ):
     """Return a callable that produces rotation quaternion for a given frame.
     
     This helper eliminates code duplication between as_ik_up and normal rotation paths.
@@ -751,11 +755,15 @@ def _get_rotation_transform_fn(bone_params: BoneParameters, armature: bpy.types.
         
         return get_rotation_normal
 
-def export_rotation_segment(armature: bpy.types.Object, blender_bone_name: str,
-                            bone_params: BoneParameters, export_frames: List[int],
-                            frame_start: int, is_static: bool, 
+def export_rotation_segment(armature: bpy.types.Object, 
+                            blender_bone_name: str,
+                            bone_params: BoneParameters, 
+                            export_frames: List[int],
+                            frame_start: int, 
+                            is_static: bool, 
                             rig_unit_type: Optional[RigUnitType] = None,
-                            transform_cache: Optional[TransformsCache] = None) -> List['AnimKeyframe']:
+                            transform_cache: Optional[TransformsCache] = None
+                            ) -> List['AnimKeyframe']:
     """Export rotation segment keyframes."""
     keyframes = []
     Debug.start_timer("export_rotation_segment")
@@ -829,13 +837,17 @@ def export_rotation_segment(armature: bpy.types.Object, blender_bone_name: str,
     Debug.stop_timer("export_rotation_segment")
     return keyframes
 
-def export_location_segment(armature: bpy.types.Object, blender_bone_name: str,
-                            bone_params: BoneParameters, export_frames: List[int],
-                            frame_start: int, is_static: bool,
+def export_location_segment(armature: bpy.types.Object, 
+                            blender_bone_name: str,
+                            bone_params: BoneParameters, 
+                            export_frames: List[int],
+                            frame_start: int, 
+                            is_static: bool,
                             rig_unit_type: Optional[RigUnitType] = None,
                             transform_cache: Optional[TransformsCache] = None,
                             no_coordinate_transform: bool = False,
-                            num_components: int = 3) -> List['AnimKeyframe']:
+                            num_components: int = 3
+                            ) -> List['AnimKeyframe']:
     """Export location segment keyframes.
 
     Args:
@@ -1456,7 +1468,7 @@ def export_mtar(context: bpy.types.Context,
         # Uses two-pass grouping: a bone named "BoneName_N" (N>=1) is treated as segment N
         # of the base track "BoneName" when that base bone also exists in the armature.
         track_segment_bone_mapping = TrackSegmentBoneMapping()
-        Debug.log_info("No track mapping provided — falling back to armature bone order. "
+        Debug.log("No track mapping provided — falling back to armature bone order. "
                        "Original binary track order is not guaranteed without a mapping file.")
         bone_names = [bone.name for bone in armature.data.bones]
         for track_idx, (_base_name, segments) in enumerate(group_bones_by_segment(bone_names)):

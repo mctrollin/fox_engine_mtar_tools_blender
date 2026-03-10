@@ -318,7 +318,11 @@ def create_animation_actions(
         store_mtar_properties_on_action(layout_action, mtar_version, mtar_flags)
         
         # Add dummy keyframes at frames -100 and -50
-        add_dummy_keyframes_to_action(layout_action)
+        dummy_frames = [-100.0, -50.0]
+        add_dummy_keyframes_to_action(layout_action, frames=dummy_frames)
+        
+        # ensure action frame range reflects the dummy frames as well
+        configure_action(layout_action, frame_start=dummy_frames[0], frame_end=dummy_frames[-1])
         
         Debug.log(f"Created layout track action: {layout_action_name}")
 
@@ -386,12 +390,12 @@ def create_animation_actions(
                     include_hash=True)      # Name hash stored
                 store_track_header_properties_on_action(action, per_gani_layout.header)
                 store_mtar_properties_on_action(action, mtar_version, mtar_flags)
-                Debug.log(f"Stored full metadata on old-format GANI action from per-GANI layout")
+                Debug.log(f"Stored full metadata on old-format GANI action (idx={gani_index}) from per-GANI layout")
             else:
                 # Fallback: no per-GANI layout available
                 track_metadata_list = TrackMetaData.from_gani_tracks(gani_tracks, track_mini_header.segment_headers)
                 store_track_metadata_on_action(action, track_metadata_list, include_segments=False, include_hash=False)
-                Debug.log_warning(f"No per-GANI layout available for old-format GANI {gani_index}, using FCurve inference fallback")
+                Debug.log_warning(f"No per-GANI layout available for old-format GANI (idx={gani_index}), using FCurve inference fallback")
         else:
             # GANI2 path: metadata already on layout action; per-GANI only stores bits+flags
             track_metadata_list = TrackMetaData.from_gani_tracks(gani_tracks, track_mini_header.segment_headers)
