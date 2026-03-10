@@ -3,6 +3,8 @@
 from dataclasses import dataclass, field
 from typing import List, Tuple, Optional, Dict
 
+from ..py_foxwrap.foxwrap_misc_import import GaniImportData
+
 import bpy
 from mathutils import Euler
 
@@ -75,20 +77,27 @@ def create_track_armature(
 
 # Rest Pose Utilities #############################################################
 
-def gather_known_bone_names_from_tracks(all_gani_tracks: List[List]) -> set:
+def gather_known_bone_names_from_tracks(all_gani_tracks: List[List] | List[GaniImportData]) -> set:
     """Gather all bone names that exist in track data.
     
-    This builds a set of bone names from track wrappers, used to identify which
-    bones are part of the actual animation data (vs Blender utility bones).
+    The input may be either the legacy ``List[List[TrackUnitWrapper]]`` or a
+    list of :class:`GaniImportData` objects.  If ``GaniImportData`` objects are
+    provided, their ``bone_tracks`` lists are used internally.
     
     Args:
-        all_gani_tracks: List of track lists (each inner list contains TrackUnitWrapper objects)
+        all_gani_tracks: Either raw track lists or a list of GaniImportData objects.
         
     Returns:
         Set of bone names found in the track data
     """
+    # normalize to list-of-lists
+    if all_gani_tracks and isinstance(all_gani_tracks[0], GaniImportData):
+        track_lists = [d.bone_tracks for d in all_gani_tracks]
+    else:
+        track_lists = all_gani_tracks  # type: ignore
+
     known_bone_names = set()
-    for gani_tracks in all_gani_tracks:
+    for gani_tracks in track_lists:
         for track_unit in gani_tracks:
             for track_blob in track_unit.segments_track_data:
                 if track_blob.name:

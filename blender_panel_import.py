@@ -94,8 +94,8 @@ class MTAR_PT_ImportPanel(Panel):
                     header_info = reader.get_header_info()
                     
                     row = info_box.row()
-                    row.label(text=f"v: {header_info.version}")
-                    row.label(text=f"Files: {header_info.file_count}")
+                    gani_verstion_str = header_info.gani_version if hasattr(header_info, 'gani_version') and header_info.gani_version is not None else ""
+                    row.label(text=f"v{header_info.version} [gani{('2' if header_info.is_new_format else '1 v')}{gani_verstion_str}]")
                     
                     # Validate MTAR header and show warning if invalid
                     is_valid, error_msg = reader.validate_header()
@@ -147,7 +147,7 @@ class MTAR_PT_ImportPanel(Panel):
                 err_row.alert = True
                 err_row.label(text=f"Invalid GANI selection: {parse_error_msg}", icon='ERROR')
             else:
-                label_text = f"{selected_count} animation{'s' if selected_count != 1 else ''} selected"
+                label_text = f"{selected_count} of {header_info.file_count} animation{'s' if selected_count != 1 else ''} selected"
                 row = box.row()
                 row.label(text=label_text, icon='ANIM')
         

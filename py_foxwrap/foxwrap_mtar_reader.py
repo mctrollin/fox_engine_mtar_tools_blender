@@ -3,36 +3,54 @@ Reader for MTAR (Metal Gear Solid V animation) files.
 """
 import io
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
-from ..py_fox.fox_gani_types import EvpHeader, TrackMiniHeader, TrackHeader
 from ..py_fox.fox_mtar_types import (
     MtarHeader,
     MtarTableList2,
     MtarTableList,
 )
+from ..py_fox.fox_foxdata_types import FoxDataHeader
 
 from .foxwrap_gani2_reader import Gani2Reader
 from .foxwrap_gani_reader import GaniReader
-from .foxwrap_misc import TrackUnitWrapper, Tracks
-from .foxwrap_misc_import import CommonInfo, GaniImportData, ShaderTrackWrapper
+from .foxwrap_misc import Tracks
+from .foxwrap_misc_import import CommonInfo, GaniImportData
 
 from ..py_utilities.utilities_logging import Debug
 
 
 @dataclass
 class MtarHeaderInfo:
-    """Header metadata for an MTAR file."""
+    """Header metadata for an MTAR file.
+    
+    Attributes:
+        version: MTAR version number from header
+        file_count: Number of files contained in the MTAR
+        total_size_mb: Size of the MTAR file in megabytes (approx)
+        has_common_info: Whether the file contains a CommonInfo block
+        is_new_format: ``True`` if the MTAR uses the new GANI2/CommonInfo format,
+            ``False`` for old FoxData GANIs.
+        gani_version: Optional version of the first GANI file inside the MTAR.
+            For old-format (FoxData) GANIs this reads the FoxData header version.
+            For new-format (GANI2) this value is ``None`` (no explicit version stored).
+    """
     version: int
     file_count: int
     total_size_mb: float
     has_common_info: bool
+    is_new_format: bool = False
+    gani_version: Optional[int] = None
     
     def __str__(self) -> str:
         """Human-readable summary."""
-        return (f"MTAR v{self.version}: {self.file_count} files, "
-                f"{self.total_size_mb:.2f} MB" +
-                (", with CommonInfo" if self.has_common_info else ""))
+        base = (f"MTAR v{self.version}: {self.file_count} files, "
+                f"{self.total_size_mb:.2f} MB")
+        fmt = "new (GANI2)" if self.is_new_format else "old (FoxData)"
+        base += f" [{fmt}]"
+        if self.gani_version is not None:
+            base += f" (GANI v{self.gani_version})"
+        return base
 
 
 class MtarReader:
@@ -52,6 +70,12 @@ class MtarReader:
     def get_header_info(self) -> MtarHeaderInfo:
         """Get MTAR header metadata without loading animation data.
         
+        This reads only the top-level MTAR header and, if possible, peeks into
+        the first GANI file to obtain its version number.  Reading the GANI
+        version requires accessing the first file table entry and then parsing
+        either a FoxDataHeader (old format) or simply noting the lack of a
+        version for new-format GANI2 files.
+        
         Returns:
             MtarHeaderInfo with version, file count, size, etc.
         """
@@ -62,12 +86,38 @@ class MtarReader:
             # Get file size
             f.seek(0, 2)  # Seek to end
             file_size = f.tell()
-            
+
+            gani_version: Optional[int] = None
+            if header.file_count > 0:
+                # seek to first file table entry
+                f.seek(MtarHeader.SIZE)
+                try:
+                    if header.flags & 0x1000:
+                        # new-format: table entries are 32 bytes
+                        table = MtarTableList2.read(f)
+                        # GANI2 files do not store a version number we can easily
+                        # expose here; leave as None to indicate "unknown".
+                    else:
+                        table = MtarTableList.read(f)
+                        # old-format: read FoxDataHeader to obtain GANI version
+                        try:
+                            f.seek(table.tracks_offset)
+                            fox_header, _ = FoxDataHeader.read(f)
+                            gani_version = fox_header.version
+                        except Exception:
+                            # ignore any errors - version remains None
+                            gani_version = None
+                except Exception:
+                    # if anything goes wrong reading the table entry, just skip
+                    gani_version = None
+
             return MtarHeaderInfo(
                 version=header.version,
                 file_count=header.file_count,
                 total_size_mb=file_size / (1024 * 1024),
-                has_common_info=header.common_info_offset > 0
+                has_common_info=header.common_info_offset > 0,
+                is_new_format=bool(header.flags & 0x1000),
+                gani_version=gani_version,
             )
 
     def validate_header(self) -> Tuple[bool, Optional[str]]:
@@ -121,22 +171,12 @@ class MtarReader:
         except Exception as e:
             return False, f"Error reading MTAR header: {str(e)}"
 
-    def read_all_ganies(self) -> Tuple[List[List[TrackUnitWrapper]], List[List[TrackUnitWrapper]], List[Optional[EvpHeader]], List[TrackMiniHeader], List[Optional[Tracks]], List[MtarTableList2], List[Optional[TrackHeader]], List[Optional[List[str]]], List[Optional[List[str]]], List[Optional[List[str]]], List[List], List[Dict]]:
+    def read_all_ganies(self) -> List[GaniImportData]:
         """Read all animation tracks from the MTAR file.
         
-        Returns:
-            Tuple containing:
-            - all_gani_tracks: List of GaniTrack objects for each file
-            - all_motion_point_gani_tracks: List of motion point GaniTrack objects for each file
-            - all_motion_events: List of event headers for each file
-            - all_track_mini_headers: List of TrackMiniHeader objects for each file (contains segment_headers with component_bit_size for main tracks)
-            - all_motion_point_layouts: List of Tracks objects for each file (contains track units with segment data for motion points)
-            - all_file_headers: List of MtarTableList2 objects for each file (contains path hash)
-            - all_motion_point_track_headers: List of TrackHeader objects for each file (contains motion point track header metadata)
-            - all_skl_lists: List of bone name lists for SKL_LIST FoxData node (old-format only, None for new-format)
-            - all_mtp_lists: List of motion point name lists for MTP_LIST FoxData node (old-format only)
-            - all_mtp_parent_lists: List of motion point parent name lists for MTP_PARENT_LIST FoxData node (old-format only)
-            - all_shader_gani_tracks: List of ShaderTrackWrapper lists per GANI (old-format only; [] for new-format)
+        The result is simply a list of :class:`GaniImportData` objects, one per
+        animation (GANI) contained in the MTAR.  This mirrors the behaviour of
+        :meth:`read_selected_ganis` but avoids the intermediate tuple unpacking.
         """
         # Read all GANIs using selective reading
         with open(self.filepath, 'rb') as f:
@@ -145,38 +185,11 @@ class MtarReader:
         
         results_dict = self.read_selected_ganis(all_indices)
         
-        # Convert dictionary results to lists in index order
-        all_gani_tracks: List[List[TrackUnitWrapper]] = []
-        all_motion_point_gani_tracks: List[List[TrackUnitWrapper]] = []
-        all_motion_events: List[Optional[EvpHeader]] = []
-        all_track_mini_headers: List[TrackMiniHeader] = []
-        all_motion_point_layouts: List[Optional[Tracks]] = []
-        all_file_headers: List[MtarTableList2] = []
-        all_motion_point_track_headers: List[Optional[TrackHeader]] = []
-        all_skl_lists: List[Optional[List[str]]] = []
-        all_mtp_lists: List[Optional[List[str]]] = []
-        all_mtp_parent_lists: List[Optional[List[str]]] = []
-        all_shader_gani_tracks: List[List[ShaderTrackWrapper]] = []
-        all_node_params: List[Dict] = []
-        
-        for idx in sorted(results_dict.keys()):
-            gani_tracks, motion_point_tracks, motion_events, track_mini_header, motion_point_layout, file_header, motion_point_track_header, skeleton_list, motion_point_list, motion_point_parent_list, shader_tracks, node_params = results_dict[idx]
-            all_gani_tracks.append(gani_tracks)
-            all_motion_point_gani_tracks.append(motion_point_tracks)
-            all_motion_events.append(motion_events)
-            all_track_mini_headers.append(track_mini_header)
-            all_motion_point_layouts.append(motion_point_layout)
-            all_file_headers.append(file_header)
-            all_motion_point_track_headers.append(motion_point_track_header)
-            all_skl_lists.append(skeleton_list)
-            all_mtp_lists.append(motion_point_list)
-            all_mtp_parent_lists.append(motion_point_parent_list)
-            all_shader_gani_tracks.append(shader_tracks if shader_tracks else [])
-            all_node_params.append(node_params if node_params else {})
-        
-        return all_gani_tracks, all_motion_point_gani_tracks, all_motion_events, all_track_mini_headers, all_motion_point_layouts, all_file_headers, all_motion_point_track_headers, all_skl_lists, all_mtp_lists, all_mtp_parent_lists, all_shader_gani_tracks, all_node_params
+        # Simply return the list of GaniImportData objects sorted by index
+        return [results_dict[idx] for idx in sorted(results_dict.keys())
+               ]
 
-    def read_selected_ganis(self, gani_indices: List[int]) -> dict:
+    def read_selected_ganis(self, gani_indices: List[int]) -> dict[int, GaniImportData]:
         """Read specific GANI files by index from MTAR file.
         
         This method reads entire GANI chunks into memory for requested indices,
@@ -187,14 +200,10 @@ class MtarReader:
             gani_indices: List of zero-based GANI indices to read
             
         Returns:
-            Dictionary mapping gani_index to an 11-tuple:
-            ``(gani_tracks, motion_point_tracks, motion_events,
-              track_mini_header, motion_point_layout, file_header,
-              motion_point_track_header, skeleton_list, motion_point_list,
-              motion_point_parent_list, shader_tracks)``
-            where ``shader_tracks`` is a ``List[ShaderTrackWrapper]``
-            (old-format only; ``[]`` for new-format GANIs).
-            
+            Dictionary mapping gani_index to a ``GaniImportData`` object containing
+            all the parsed animation data along with an optional ``file_header``
+            pointing back to the enclosing MTAR table entry.
+
         Raises:
             IndexError: If any index is out of range
             ValueError: If gani_indices is empty
@@ -236,13 +245,12 @@ class MtarReader:
         
         # Get file header size based on format version
         file_header_size = (MtarTableList2.SIZE if self.is_new_format else MtarTableList.SIZE)
-        MTAR_HEADER_SIZE = MtarHeader.SIZE
         
         # Read selected GANIs
         results = {}
         for gani_index in gani_indices:
             # Read file header for this GANI
-            file_header_offset = MTAR_HEADER_SIZE + gani_index * file_header_size
+            file_header_offset = MtarHeader.SIZE + gani_index * file_header_size
             br.seek(file_header_offset)
             file_header = MtarTableList2.read(br) if self.is_new_format else MtarTableList.read(br)
             
@@ -263,7 +271,8 @@ class MtarReader:
                     layout_track=self.common_info.layout_track,  # Reference to shared layout
                     track_mini_header=track_mini_header,
                     motion_point_layout=motion_point_layout,
-                    motion_point_track_header=motion_point_track_header
+                    motion_point_track_header=motion_point_track_header,
+                    file_header=file_header,
                 )
             else:
                 # Old format: use GaniReader with embedded FoxData layout
@@ -271,6 +280,8 @@ class MtarReader:
                     file_data=file_data,
                     gani_start=file_header.tracks_offset
                 )
+                # attach header after-the-fact
+                import_data.file_header = file_header
 
                 # Cache the layout track with the most segments across all old-format GANIs.
                 # Different GANIs may have different segment counts for the same track
@@ -290,20 +301,7 @@ class MtarReader:
                             f"segment_count={candidate.header.segment_count}"
                         )
             
-            # Extract tuple from GaniImportData for backward compatibility with existing pipeline
-            results[gani_index] = (
-                import_data.bone_tracks,
-                import_data.mtp_tracks,
-                import_data.events,
-                import_data.track_mini_header,
-                import_data.motion_point_layout,
-                file_header,
-                import_data.motion_point_track_header,
-                getattr(import_data, 'skeleton_list', None),
-                getattr(import_data, 'motion_point_list', None),
-                getattr(import_data, 'motion_point_parent_list', None),
-                getattr(import_data, 'shader_tracks', []),   # [10] old-format only; [] for new
-                getattr(import_data, 'node_params', {}),     # [11] old-format only; {} for new
-            )
+            # store the GaniImportData object directly
+            results[gani_index] = import_data
 
         return results

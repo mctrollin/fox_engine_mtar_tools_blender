@@ -5,6 +5,9 @@ from dataclasses import dataclass, field
 import io
 from typing import Optional, List, Tuple, Union, Dict
 
+# forward references for type hinting
+from ..py_fox.fox_mtar_types import MtarTableList, MtarTableList2
+
 from .foxwrap_misc import Tracks, TrackUnitWrapper
 from .foxwrap_motionpoint import MotionPointWrapper
 
@@ -69,6 +72,8 @@ class GaniImportData:
     motion_point_list: Optional[List[str]] = None
     motion_point_parent_list: Optional[List[str]] = None
     node_params: Dict[str, List[Tuple[int, Union[float, str, int]]]] = field(default_factory=dict)
+    # optional header from containing MTAR file (used for path/hash, offset sorting)
+    file_header: Optional[Union['MtarTableList', 'MtarTableList2']] = None
     
     def __post_init__(self):
         """Initialize shader_tracks to empty list if None."""
