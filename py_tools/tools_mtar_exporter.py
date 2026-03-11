@@ -785,9 +785,7 @@ def export_rotation_segment(armature: bpy.types.Object,
     space_r_value = getattr(bone_params, 'space_r', None) if hasattr(bone_params, 'space_r') else bone_params.get('space_r') if isinstance(bone_params, dict) else None
     
     # Get rotation transform function (varies by as_ik_up and space type)
-    # This eliminates ~40 lines of code duplication between two paths
-    get_rotation = _get_rotation_transform_fn(bone_params, armature, blender_bone_name,
-                                              space_bone, rig_unit_type, transform_cache)
+    get_rotation = _get_rotation_transform_fn(bone_params, armature, blender_bone_name, space_bone, rig_unit_type, transform_cache)
     
     # Unified frame loop for both as_ik_up and normal rotation
     prev_frame = frame_start  # Track previous frame for relative delta computation

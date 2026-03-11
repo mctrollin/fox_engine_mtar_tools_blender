@@ -134,7 +134,13 @@ class MTAR_PG_ImportProperties(PropertyGroup):
     
     frig_filepath: StringProperty(**_file_path_kwargs(
         name="FRIG File",
-        description="Path to the .frig rig file",
+        description="""Optional rig definition (.frig) file.
+
+Its only functional role is providing the RigUnitType for each track (ROOT, ORIENTATION, TWO_BONE, ARM, etc.). This determines whether the exporter reads a bone's transform in world space or local space. Without it, world-space tracks (e.g. IK/orientation solver bones) will export with wrong rotations.
+
+Once imported with a FRIG, the type is stored permanently in the layout action's custom properties — re-exports no longer need the FRIG file.
+
+Also used by "Generate Mapping Template" to annotate each track with its type as a comment.""",
         default="",
         maxlen=1024
     ))

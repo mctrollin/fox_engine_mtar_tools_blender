@@ -802,10 +802,9 @@ def get_segments_for_track_type(track_type: str, count: Optional[int] = None) ->
 def parse_track_metadata_generic(metadata_str: str) -> Optional[dict]:
     """Unified parser for track metadata in key=value format.
 
-    Handles three format variants:
-    1. Mapping file (after stripping '@meta' prefix): name=<name> ; type=<type> ; [count=<n>] ; [flags=<flags>] ; [bits=<bits>]
-    2. Action (GANI file): name=<name> ; type=<type> ; [flags=<flags>] ; [bits=<bits>]
-    3. Layout action: name=<name> ; segments=<codes> ; [flags=<flags>] ; [hash=<hash>] ; [type=<type>] ; [bits=<bits>] ; [count=<n>]
+    Accepts semicolon-separated key=value entries produced by actions or
+    internal layout tracks. The 'name' key is required, and optional
+    attributes include segments, type, flags, bits, hash, and count.
 
     Auto-detects which parameters are present:
     - Explicit segments= takes priority
@@ -943,57 +942,6 @@ def parse_track_metadata_generic(metadata_str: str) -> Optional[dict]:
     return result
 
 
-def parse_track_metadata(line: str) -> Optional[dict]:
-    """Parse track metadata from @meta directive (mapping file format).
-
-    Format: @meta name=<name> ; type=<rig_type> ; [count=<n>] ; [flags=<flags>] ; [bits=<bit_sizes>]
-
-    Note: 'bits' is legacy and represents a default compression level. In actual MTAR files,
-    each segment has its own component_bit_size stored separately.
-
-    Uses the unified parse_track_metadata_generic() parser internally.
-
-    Returns:
-        Dictionary with track metadata or None if not a @meta directive
-    """
-    line = line.strip()
-    if not line.startswith('@meta'):
-        return None
-
-    # Strip '@meta' prefix and delegate to unified parser
-    content = line[len('@meta'):].strip()
-    parsed = parse_track_metadata_generic(content)
-    if not parsed:
-        return None
-    
-    # Mapping files MUST define track structure (require segments)
-    if not parsed['segment_types']:
-        return None
-    
-    # Convert to expected return format
-    metadata = {
-        'name': parsed['track_name'],
-        'segments': [],
-        'flags': parsed['flags_list'] if parsed['flags_list'] else [],
-        'type': parsed['rig_unit_type'],
-        'bits': parsed['component_bit_sizes'][0] if parsed['component_bit_sizes'] else 16,
-        'count': parsed['count']
-    }
-    
-    # Convert SegmentType enums to segment definition dicts
-    for seg_type in parsed['segment_types']:
-        if seg_type == SegmentType.QUAT:
-            metadata['segments'].append({'type': 'rotation', 'data_type': 'quat'})
-        elif seg_type == SegmentType.QUAT_DIFF:
-            metadata['segments'].append({'type': 'rotation', 'data_type': 'quatdiff'})
-        elif seg_type == SegmentType.VECTOR3:
-            metadata['segments'].append({'type': 'position', 'data_type': 'vec3'})
-        elif seg_type == SegmentType.VECTOR_DIFF:
-            metadata['segments'].append({'type': 'position', 'data_type': 'vec3diff'})
-        elif seg_type == SegmentType.FLOAT:
-            metadata['segments'].append({'type': 'float', 'data_type': 'float'})
-    
-    return metadata
 
 
 def parse_track_type_from_metadata(metadata_str: str) -> Optional[RigUnitType]:

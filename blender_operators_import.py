@@ -124,8 +124,6 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                     track_mapping = mapping_data.fox_to_blender
                     if track_mapping:
                         Debug.log(f"Loaded {len(track_mapping)} track mapping(s)")
-                    if mapping_data.track_metadata:
-                        Debug.log(f"Loaded {len(mapping_data.track_metadata)} track metadata definition(s)")
                 except Exception as e:  # noqa: E722
                     Debug.report_and_log(self, 'WARNING', f"Failed to load track mapping file: {str(e)}")
         

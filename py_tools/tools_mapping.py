@@ -194,12 +194,7 @@ def generate_mapping_template(frig_filepath: Optional[str], mtar_filepath: Optio
         else:
             lines.append(f"# Track {track_idx} ({segment_str})")
         if track_type:
-            if track_type == 'MULTI_LOCAL_ORIENTATION' and len(segments_shorthand) > 3:
-                lines.append(f"@meta name={track_name} ; type=MULTI_LOCAL_ORIENTATION ; count={len(segments_shorthand)}")
-            else:
-                lines.append(f"@meta name={track_name} ; type={track_type}")
-        else:
-            lines.append(f"@meta name={track_name} ; type=UNKNOWN")
+            lines.append(f"# type={track_type}")
 
         if len(segments_shorthand) > 1:
             for seg_idx in range(len(segments_shorthand)):

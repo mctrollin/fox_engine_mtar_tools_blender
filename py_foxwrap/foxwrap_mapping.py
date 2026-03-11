@@ -11,7 +11,6 @@ from typing import Dict, Tuple, Optional, List, Union
 from ..py_utilities.utilities_logging import Debug
 
 from .foxwrap_metadata import (
-    parse_track_metadata,
     parse_offset_r_parameter,
     parse_map_r_parameter,
     parse_space_parameter,
@@ -125,14 +124,12 @@ class TrackMappingData:
     
     Attributes:
         fox_to_blender: Maps fox_bone_name -> BoneParameters
-        track_metadata: Maps track_name -> metadata dict
         fox_to_blender_names: Maps fox_bone_name -> blender_bone_name string (utility)
     """
     
     def __init__(self) -> None:
         """Initialize empty mapping data."""
         self.fox_to_blender: Dict[str, BoneParameters] = {}  # fox_name -> BoneParameters
-        self.track_metadata: Dict[str, dict] = {}  # track_name -> metadata
         self.fox_to_blender_names: Dict[str, str] = {}  # fox_name -> blender_name
         self.blender_to_fox_names: Dict[str, str] = {}  # blender_name -> fox_name (reverse mapping)
         self.blender_property_to_fox_base: Dict[Tuple[str, str], str] = {}  # (blender_name, property_type) -> fox_base_name (NO COLLISIONS)
@@ -227,14 +224,6 @@ class TrackMappingData:
         if blender_name not in self.fox_base_to_blender_names[base_fox_name]:
             self.fox_base_to_blender_names[base_fox_name].append(blender_name)
     
-    def add_track_metadata(self, track_name: str, metadata: dict) -> None:
-        """Add track metadata entry.
-        
-        Args:
-            track_name: Name of the track
-            metadata: Metadata dictionary with segments, flags, type, etc.
-        """
-        self.track_metadata[track_name] = metadata
     
     def get_fox_base_name_for_blender_bone(
         self,
@@ -338,7 +327,10 @@ def parse_mapping_line(line: str, line_num: int) -> Optional[Tuple[str, dict]]:
     Returns:
         Tuple of (source_name, mapping_data) or None if line should be skipped
     """
-    # Skip empty lines and comments
+    # Remove BOM if present then skip empty lines and comments
+    # (some editors may insert a UTF-8 BOM on the first line)
+    if line.startswith('\ufeff'):
+        line = line.lstrip('\ufeff')
     line = line.strip()
     if not line or line.startswith('#'):
         return None
@@ -507,81 +499,47 @@ def validate_track_mappings(track_mapping: Dict[str, BoneParameters]) -> None:
 def parse_track_mapping_file(filepath: str) -> TrackMappingData:
     """Parse a track mapping file into a TrackMappingData object.
     
-    The mapping file defines transformations to apply to imported tracks,
-    including renaming, rotation transformations, and adding data from other tracks.
-    
-    File format:
-    @meta name=<name> ; type=<rig_type> ; [count=<n>] ; [flags=<flags>] ; [bits=<compression>]
-    from_name : to_name
-    or with transformation parameters:
-    from_name : to_name ; param1=value1 ; param2=value2
-    
-    Track metadata (@meta directives):
-    - type (required): Rig unit type - determines segment structure automatically
-                       Valid types: ROOT, ORIENTATION, LOCAL_ORIENTATION, TWO_BONE,
-                                   TRANSFORM, LOCAL_TRANSFORM, ARM, LIST, MULTI_LOCAL_ORIENTATION
-    - count (required for MULTI_LOCAL_ORIENTATION): Number of rotation segments
-    - flags (optional): Comma-separated flags (e.g., IS_STATIC)
-    - bits (optional): Compression bits (12, 14, 16, 18, 20, 22, 24), default: 16
-    
-    Supported transformation parameters:
-    - offset_r: Rotation offset as euler_x,euler_y,euler_z,order (e.g., offset_r=90,0,0,xyz)
-                Can be specified multiple times; offsets are applied in order of appearance
-    - map_r: Rotation axis mapping (e.g., map_r=x,y,z or map_r=y,-x,z)
-    - space_r: Rotation constraint space (e.g., space_r=world or space_r=custom,<bone_name>)
-                Format: world or custom,custom_bone_name
-                Creates Copy Rotation constraint. Optional second parameter sets owner space to custom bone.
-    - space_l: Location constraint space (space_l=world for world space Copy Location constraint)
-    - as_ik_up: Convert rotation track to directional location IK (e.g., as_ik_up=base_bone,Z,1.0)
-                Format: bone_base,axis,distance
-                Creates constraints: Copy Location from base + Transformation (Add) from imported offset
-                If space_r is also specified with custom bone, applies to Transformation constraint too.
-    
-    Only one rotation track and one location track can map to the same target bone.
-    
-    Examples:
-    @meta name=RIG_ROOT ; type=ROOT
-    RIG_ROOT : torso_root ; offset_r=90,0,0,xyz ; map_r=y,x,z
-    
-    @meta name=RIG_SKL_010_LSHLD ; type=ARM ; bits=14
-    RIG_SKL_010_LSHLD   : shoulder.L ; space_r=custom,torso_root
-    RIG_SKL_010_LSHLD_1 : hand_ik.L ; space_l=world
-    RIG_SKL_010_LSHLD_2 : upper_arm_ik_target.L ; as_ik_up=upper_arm_ik.L,x,1
-    
+    The mapping file only contains bone-to-bone mapping entries and optional
+    transformation parameters.  No metadata directives are required or processed.
+    Blank lines or lines beginning with ``#`` are ignored.  Each non-comment
+    line has the form::
+        source_name : target_name ; param1=value1 ; ...
+    where parameters control offsets, axis mapping, world-space constraints,
+    and IK conversions.
+
     Args:
         filepath: Path to the .txt mapping file
-        
+
     Returns:
         TrackMappingData object containing all mapping information
     """
     mapping_data = TrackMappingData()
-    
+
     try:
         with open(filepath, 'r', encoding='utf-8') as f:
             for line_num, line in enumerate(f, 1):
-                # Try to parse as track metadata first
-                metadata = parse_track_metadata(line)
-                if metadata:
-                    track_name = metadata['name']
-                    mapping_data.add_track_metadata(track_name, metadata)
+                # skip empty lines and comments right away (parser also checks,
+                # but doing it here prevents unnecessary warnings from later code)
+                stripped = line.strip()
+                if not stripped or stripped.startswith('#'):
                     continue
-                
-                # Otherwise parse as bone mapping
+
+                # parse each line as a bone mapping entry
                 result = parse_mapping_line(line, line_num)
                 if result:
                     source_name, bone_mapping_dict = result  # source_name is the Fox bone name
                     blender_bone_name = bone_mapping_dict['name']
-                    
+
                     # Add to mapping data object
                     mapping_data.add_bone_mapping(source_name, blender_bone_name, bone_mapping_dict)
-        
-        Debug.log(f"Loaded {len(mapping_data)} bone mapping(s) and {len(mapping_data.track_metadata)} track metadata entries from {filepath}")
-        
+
+        Debug.log(f"Loaded {len(mapping_data)} bone mapping(s) from {filepath}")
+
         # Validate track mappings
         validate_track_mappings(mapping_data.fox_to_blender)
-        
+
         return mapping_data
-        
+
     except (OSError, ValueError) as e:
         Debug.log_error(f"Error parsing track mapping file: {e}")
         return TrackMappingData()  # Return empty mapping data on error
