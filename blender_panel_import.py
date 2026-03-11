@@ -94,8 +94,17 @@ class MTAR_PT_ImportPanel(Panel):
                     header_info = reader.get_header_info()
                     
                     row = info_box.row()
-                    gani_verstion_str = header_info.gani_version if hasattr(header_info, 'gani_version') and header_info.gani_version is not None else ""
-                    row.label(text=f"v{header_info.version} [gani{('2' if header_info.is_new_format else '1 v')}{gani_verstion_str}]")
+                    # construct descriptive text: MTAR version and GANI details
+                    # - new-format files simply report "gani2"
+                    # - old-format files report "gani1" plus the per-GANI version when available
+                    if header_info.is_new_format:
+                        gani_text = "gani2"
+                    else:
+                        if hasattr(header_info, 'gani_version') and header_info.gani_version is not None:
+                            gani_text = f"gani1 v{header_info.gani_version}"
+                        else:
+                            gani_text = "gani1"
+                    row.label(text=f"v{header_info.version} [{gani_text}]")
                     
                     # Validate MTAR header and show warning if invalid
                     is_valid, error_msg = reader.validate_header()
@@ -113,13 +122,10 @@ class MTAR_PT_ImportPanel(Panel):
         mapping_box = box_import.box()
         row = mapping_box.row(align=True)
         row.prop(import_props, "frig_filepath", text="", icon='OUTLINER_OB_ARMATURE')
-        if settings_props.show_advanced_settings:
-            adv_box = mapping_box.box()
-            adv_box.alert = True
-            col = adv_box.column()
-            col.enabled = bool(import_props.frig_filepath)
-            col.scale_y = 1
-            col.operator("mtar.generate_track_mapping_template_file", text="Generate Mapping Template", icon='TEXT')
+        adv_box = mapping_box.box()
+        col = adv_box.column()
+        col.scale_y = 1
+        col.operator("mtar.generate_track_mapping_template_file", text="Generate Mapping Template", icon='TEXT')
 
         # Track mapping file picker
         row = mapping_box.row(align=True)

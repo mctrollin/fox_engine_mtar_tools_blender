@@ -12,22 +12,17 @@ from bpy.types import Operator, Context
 
 from .py_utilities.utilities_logging import Debug
 from .py_utilities.utilities_blender_state import nla_tweak_guard
-from .py_utilities.utilities_hashing import unhash_rig_type
-from .py_tools.tools_hash_generator import build_gani_hash_dictionary
 from .py_utilities.utilities_parsing import parse_index_selection
 from .py_utilities.utilities_blender_animation import try_find_layout_track_action
 
-from .py_fox.fox_mtar_types import MtarHeader
-from .py_fox.fox_frig_types import FrigFile, RigUnitDef
+from .py_fox.fox_frig_types import FrigFile
 
-from .py_foxwrap.foxwrap_misc_import import CommonInfo
 from .py_foxwrap.foxwrap_mapping import parse_track_mapping_file, TrackMappingData, BoneParameters
-from .py_foxwrap.foxwrap_metadata import get_segments_for_track_type
 from .py_foxwrap.foxwrap_mtar_reader import MtarReader
 
+from .py_tools.tools_hash_generator import build_gani_hash_dictionary
+from .py_tools.tools_mapping import generate_mapping_template
 from .py_tools.tools_mtar_importer import import_mtar
-# NOTE: import top-level to avoid runtime import cycles; tools_blender_animation_bake
-# contains bake + cleanup helpers used by import/debug operators.
 from .py_tools.tools_animation_bake import bake_constraints_and_decimate_fcurves
 
 
@@ -40,213 +35,24 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
     bl_options = {'REGISTER'}
     
     def execute(self, context: Context) -> Set[str]:
-        # Start timer for mapping generation
         Debug.start_timer("Generate Mapping Template")
         props = context.scene.mtar_properties
         import_props = props.import_props
         
-        # Validate FRIG file path
-        if not import_props.frig_filepath:
-            Debug.report_and_log(self, 'ERROR', "No FRIG file selected")
-            Debug.stop_timer("Generate Mapping Template")
-            return {'CANCELLED'}
-        
-        frig_filepath_abs = bpy.path.abspath(import_props.frig_filepath)
-        if not os.path.exists(frig_filepath_abs):
-            Debug.report_and_log(self, 'ERROR', f"FRIG file not found: {frig_filepath_abs}")
-            return {'CANCELLED'}
-        
-        # Validate MTAR file path (optional but recommended)
-        mtar_data: Optional[Dict[str, Any]] = None
-        mtar_filepath_abs = bpy.path.abspath(import_props.mtar_filepath) if import_props.mtar_filepath else ""
-        if mtar_filepath_abs and os.path.exists(mtar_filepath_abs):
-            try:
-                Debug.log(f"Reading MTAR file: {mtar_filepath_abs}")
-                # Read MTAR to get CommonInfo with layout track
-                with open(mtar_filepath_abs, 'rb') as f:
-                    file_data: bytes = f.read()
-                    br: io.BytesIO = io.BytesIO(file_data)
-                    header: MtarHeader = MtarHeader.read(br)
-                    
-                    if header.common_info_offset != 0:
-                        mtar_data = {
-                            'header': header,
-                            'common_info': CommonInfo.read(br, header)
-                        }
-                        Debug.log(f"MTAR CommonInfo loaded: {header.track_count} tracks, {header.segment_count} segments")
-            except (OSError, ValueError) as e:
-                Debug.log_warning(f"  Warning: Could not read MTAR file: {e}")
-                # Continue without MTAR data
-        elif import_props.mtar_filepath:
-            Debug.log_warning(f"  Warning: MTAR file not found: {mtar_filepath_abs}")
+        frig_path = bpy.path.abspath(import_props.frig_filepath) if import_props.frig_filepath else None
+        mtar_path = bpy.path.abspath(import_props.mtar_filepath) if import_props.mtar_filepath else None
         
         try:
-            # Read FRIG file
-            Debug.log(f"Reading FRIG file: {frig_filepath_abs}")
-            with open(frig_filepath_abs, 'rb') as f:
-                frig: FrigFile = FrigFile.read(f)
-            
-            if not frig or not frig.rig_def:
-                Debug.report_and_log(self, 'ERROR', "Failed to read FRIG rig data")
-                return {'CANCELLED'}
-            
-            # Generate output filepath
-            frig_dir: str = os.path.dirname(frig_filepath_abs)
-            frig_name: str = os.path.splitext(os.path.basename(frig_filepath_abs))[0]
-            output_path: str = os.path.join(frig_dir, f"{frig_name}_track_mapping.txt")
-            
-            # Check if file already exists
-            if os.path.exists(output_path):
-                Debug.report_and_log(self, 'WARNING', f"Mapping file already exists: {output_path}")
-                Debug.stop_timer("Generate Mapping Template")
-                return {'CANCELLED'}
-            
-            # Generate mapping file content
-            lines: List[str] = []
-            lines.append("# Track Mapping File")
-            lines.append(f"# Generated from: {os.path.basename(import_props.frig_filepath)}")
-            if mtar_data:
-                lines.append(f"# MTAR reference: {os.path.basename(import_props.mtar_filepath)}")
-            lines.append("#")
-            lines.append("# Edit this file to customize bone mappings and transformations")
-            lines.append("# See example_track_mapping.txt for detailed documentation")
-            lines.append("")
-            
-            # Get track units from rig_def
-            if frig.rig_def and frig.rig_def.unit_defs:
-                unit_defs: List[RigUnitDef] = frig.rig_def.unit_defs
-                
-                # Get layout track units from MTAR if available
-                layout_track_units: Optional[List[Any]] = None
-                if mtar_data and mtar_data['common_info'] and mtar_data['common_info'].layout_track:
-                    layout_track_units = mtar_data['common_info'].layout_track.track_units
-                    Debug.log(f"Using MTAR layout track with {len(layout_track_units)} units")
-                
-                for track_idx, unit_def in enumerate(unit_defs):
-                    # Get track name from layout track (MTAR) if available
-                    track_name: str = f"Track{track_idx}"
-                    track_hash: Optional[int] = None
-                    
-                    # Read track info from MTAR layout track
-                    if layout_track_units and track_idx < len(layout_track_units):
-                        layout_unit = layout_track_units[track_idx]
-                        if layout_unit.name:  # layout_unit.name is the StrCode32 hash
-                            track_hash = layout_unit.name
-                            # Try to resolve the hash to a track name
-                            track_hash_int: int = track_hash.to_int() if hasattr(track_hash, 'to_int') else int(track_hash)
-                            resolved_name: str = unhash_rig_type(track_hash_int)
-                            if resolved_name:
-                                track_name = resolved_name
-                    
-                    # Get track type from unit_type
-                    track_type: Optional[str] = None
-                    if unit_def.unit_type is not None:
-                        try:
-                            track_type = unit_def.unit_type.name
-                        except (ValueError, AttributeError):
-                            track_type = f"UNKNOWN_{unit_def.unit_type}"
-                    
-                    # Get expected segments from track type
-                    segments_shorthand: List[str] = []
-                    
-                    # If we have layout track units from MTAR, use actual segment count
-                    actual_segment_count: Optional[int] = None
-                    if layout_track_units and track_idx < len(layout_track_units):
-                        layout_unit = layout_track_units[track_idx]
-                        actual_segment_count = len(layout_unit.track_data)
-                        Debug.log(f"Track {track_idx}: MTAR reports {actual_segment_count} segments")
-                    
-                    if track_type:
-                        # For MULTI_LOCAL_ORIENTATION type, check if we can get segment count from unit_def or MTAR
-                        if track_type == 'MULTI_LOCAL_ORIENTATION':
-                            # Prefer actual segment count from MTAR
-                            segment_count: int = actual_segment_count if actual_segment_count else 1
-                            # Fall back to unit_def counts if no MTAR data
-                            if not actual_segment_count:
-                                if unit_def.bone_count:
-                                    segment_count = unit_def.bone_count
-                                elif unit_def.track_count:
-                                    segment_count = unit_def.track_count
-                            # Generate segment shorthand for MULTI_LOCAL_ORIENTATION (typically all 'q')
-                            segments_shorthand = ['q'] * segment_count
-                        else:
-                            # Get segments from track type
-                            segments: List[Dict[str, Any]] = get_segments_for_track_type(track_type)
-                            # Convert to shorthand notation
-                            for seg in segments:
-                                data_type: str = seg.get('data_type', '')
-                                if data_type == 'quatdiff':
-                                    segments_shorthand.append('qd')
-                                elif data_type == 'quat':
-                                    segments_shorthand.append('q')
-                                elif data_type == 'vec3diff':
-                                    segments_shorthand.append('vd')
-                                elif data_type == 'vec3':
-                                    segments_shorthand.append('v')
-                                elif data_type == 'float':
-                                    segments_shorthand.append('f')
-                                else:
-                                    segments_shorthand.append('?')
-                            # Validate against MTAR if available
-                            if actual_segment_count and len(segments_shorthand) != actual_segment_count:
-                                Debug.log_warning(f"  Warning: Track {track_idx} type {track_type} expects {len(segments_shorthand)} segments, but MTAR has {actual_segment_count}")
-                                # Use MTAR count as authoritative
-                                if actual_segment_count > len(segments_shorthand):
-                                    segments_shorthand.extend(['?'] * (actual_segment_count - len(segments_shorthand)))
-                                else:
-                                    segments_shorthand = segments_shorthand[:actual_segment_count]
-                    
-                    segment_str: str = ', '.join(segments_shorthand) if segments_shorthand else '?'
-                    
-                    # For multi-orientation tracks, use "q * count" format
-                    if track_type == 'MULTI_LOCAL_ORIENTATION' and len(segments_shorthand) > 3 and all(s == 'q' for s in segments_shorthand):
-                        segment_str = f"q * {len(segments_shorthand)}"
-                    
-                    # Write track comment with segment info and hash (if available)
-                    if track_hash:
-                        lines.append(f"# Track {track_idx} ({segment_str}) - Hash: {track_hash} (0x{track_hash:X})")
-                    else:
-                        lines.append(f"# Track {track_idx} ({segment_str})")
-                    # Write @meta directive
-                    if track_type:
-                        # Detect MULTI_LOCAL_ORIENTATION: type with many quaternion segments
-                        if track_type == 'MULTI_LOCAL_ORIENTATION' and len(segments_shorthand) > 3:
-                            count: int = len(segments_shorthand)
-                            lines.append(f"@meta name={track_name} ; type=MULTI_LOCAL_ORIENTATION ; count={count}")
-                        else:
-                            lines.append(f"@meta name={track_name} ; type={track_type}")
-                    else:
-                        # If no track type, just add placeholder
-                        lines.append(f"@meta name={track_name} ; type=UNKNOWN")
-                    
-                    # Write bone mapping template
-                    # For multi-segment tracks, add suffix to each bone
-                    if len(segments_shorthand) > 1:
-                        for seg_idx in range(len(segments_shorthand)):
-                            lines.append(f"{track_name}_{seg_idx} : {track_name}_{seg_idx}")
-                    else:
-                        lines.append(f"{track_name} : {track_name}")
-                    
-                    lines.append("")
-            
-            # Write file
-            with open(output_path, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(lines))
-            
-            Debug.report_and_log(self, 'INFO', f"Mapping file created: {output_path}")
-            
-            # Auto-fill the mapping file path
-            import_props.mapping_filepath = output_path
-            
+            output = generate_mapping_template(frig_path, mtar_path)
+            Debug.report_and_log(self,'INFO', f"Mapping file created: {output}")
+            import_props.mapping_filepath = output
             Debug.stop_timer("Generate Mapping Template")
             return {'FINISHED'}
-            
-        except Exception as e:  # noqa: E722
-            Debug.report_and_log(self, 'ERROR', f"Failed to generate mapping file: {str(e)}")
+        except Exception as e:
+            Debug.report_and_log(self,'ERROR', f"Failed to generate mapping file: {e}")
             traceback.print_exc()
             Debug.stop_timer("Generate Mapping Template")
             return {'CANCELLED'}
-
 
 class MTAR_OT_ImportAnimationFromMTAR(Operator):
     """Import MTAR animation with FRIG rig data."""
@@ -254,7 +60,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
     bl_label = "Import MTAR Animation"
     bl_description = "Import animation from MTAR file using FRIG rig structure"
     bl_options = {'REGISTER', 'UNDO'}
-    
+
     def execute(self, context: Context) -> Set[str]:
 
         Debug.log("========= STARTING IMPORT MTAR OPERATION =========")
@@ -437,7 +243,6 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                 wm.progress_end()
                 execution_props.operation_type = 'NONE'
                 Debug.update_progress(0, "")
-
 
 
 
