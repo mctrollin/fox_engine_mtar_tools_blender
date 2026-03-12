@@ -411,9 +411,6 @@ def bake_armature_constraints_to_keyframes(rig_armature: bpy.types.Object,
     if not rig_armature.animation_data:
         rig_armature.animation_data_create()
     
-    # Update status text without changing progress percentage
-    Debug.update_progress_status(f"Baking: {action.name}")
-        
     Debug.log(f"Baking action '{action.name}' for armature '{rig_armature.name}'")
     
     target_action = action
@@ -532,6 +529,7 @@ def _continue_bake_armature_constraints_implementation(
         frame_end = max(keyframe_frames)
         Debug.log(f"  Using keyframe-detected frame range: {frame_start} - {frame_end}")
 
+
     # If the whole action is in negative time (layout track etc.), skip baking it
     if frame_end <= 0:
         Debug.log(f"  Action '{action.name}' is in negative time range {frame_start} to {frame_end} (skipping)")
@@ -591,8 +589,6 @@ def _continue_bake_armature_constraints_implementation(
             channel_types={'LOCATION', 'ROTATION'}
         )
         Debug.stop_timer("bpy.ops.nla.bake()")
-        
-        Debug.log("  Bake operation completed")
         
         # Clean up: Remove keyframes on non-keyframe frames
         # After baking, NLA creates keyframes on every frame in the range
@@ -777,8 +773,10 @@ def bake_armature_nla_strips_to_keyframes(rig_armature: bpy.types.Object,
     
     for idx, (track, strip, action) in enumerate(strips_to_bake, 1):
         Debug.log(f"  Baking strip {idx}/{len(strips_to_bake)}: '{strip.name}' (action: '{action.name}')")
-        
-        # Calculate secondary progress within this strip batch (0.0 at start of first strip, approaching 1.0 at end of last)
+
+        # Calculate secondary progress within this strip batch (0.0 at start of first strip,
+        # approaching 1.0 at end of last).  The main progress is driven externally, so we
+        # only update status here.
         secondary = (idx - 1) / len(strips_to_bake) if len(strips_to_bake) > 1 else 0.0
         Debug.update_progress_status(f"Baking {idx}/{len(strips_to_bake)}: {strip.name}", secondary_progress=secondary)
             
@@ -793,7 +791,7 @@ def bake_armature_nla_strips_to_keyframes(rig_armature: bpy.types.Object,
                 source_armature=source_armature,
                 remove_constraints=False  # We'll handle this once at the end
             )
-            
+            # record success/failure inside try so we can still run finally
             if bake_result['success']:
                 actions_created.append(bake_result['action'])
                 all_baked_bones.update(bake_result['bones_baked'])
@@ -804,7 +802,15 @@ def bake_armature_nla_strips_to_keyframes(rig_armature: bpy.types.Object,
         except Exception as e:
             failed_strips.append(f"{track.name}/{strip.name}: {str(e)}")
             Debug.log_error(f"    Exception while baking strip '{strip.name}': {str(e)}")
+        finally:
+            # no main progress updates here; the import/export operator sets the
+            # overall progress based on strip count
+            pass
     
+    # done baking strips – move main progress to the end of the bake band so the
+    # post‑processing phase can begin
+    Debug.update_progress(76.0, "Bake complete, performing post-processing...")
+
     # Replace actions in NLA strips with baked versions
     Debug.log(f"  Replacing {len(strip_action_map)} strip actions with baked versions")
     for strip, baked_action in strip_action_map:
@@ -920,20 +926,25 @@ def _handle_bake_result(bake_result: dict,
         if failed_strips:
             Debug.report_and_log(reporter, 'WARNING', f"{len(failed_strips)} strip(s) failed to bake: {', '.join(failed_strips)}")
 
-        # Clear transforms from custom rig after successful bake
+        # clear rig transforms
+        Debug.update_progress_status("Clearing rig transforms", secondary_progress=0.5)
         if clear_armature_transforms(custom_rig):
             Debug.report_and_log(reporter, 'INFO', "Cleared transforms from custom rig")
         else:
             Debug.report_and_log(reporter, 'WARNING', "Could not clear transforms from custom rig")
 
-        # Delete imported armature if requested
+        # delete imported armature if requested
+        Debug.update_progress_status("Deleting imported armature", secondary_progress=0.7)
         if delete_import_armature:
             if delete_imported_armature(imported_armature, custom_rig):
                 Debug.report_and_log(reporter, 'INFO', "Deleted imported armature after bake")
             else:
                 Debug.report_and_log(reporter, 'WARNING', "Could not delete imported armature")
+
+        Debug.update_progress(100.0, "Post-processing complete")
     else:
         Debug.report_and_log(reporter, 'WARNING', f"Bake failed: {bake_result.get('message')}")
+        Debug.update_progress(100.0, "Bake failed")
 
 
 def bake_constraints_and_decimate_fcurves(
@@ -1009,6 +1020,8 @@ def bake_constraints_and_decimate_fcurves(
                 'message': bake_res.get('message', ''),
                 'actions_created': [bake_res.get('action')] if bake_res.get('action') else []
             })
+            # single-action bake counts as the bake step; bump main progress to wake UI
+            Debug.update_progress(76.0, "Bake complete, performing post-processing...")
         else:
             result['success'] = False
             result['message'] = 'No NLA tracks or active action to bake'
@@ -1017,6 +1030,7 @@ def bake_constraints_and_decimate_fcurves(
         # Run decimation if requested (operate on armature so decimate_import_fcurves_to_bezier
         # will find NLA-created actions and/or active action)
         if bake_decimate_fcurve_error > 0.0:
+            Debug.update_progress_status("Decimating fcurves", secondary_progress=0.1)
             try:
                 dec_res = decimate_import_fcurves_to_bezier(
                     armature=rig_armature,
@@ -1027,6 +1041,8 @@ def bake_constraints_and_decimate_fcurves(
                 result['fcurves_decimated'] = dec_res.get('fcurves_decimated', 0)
             except Exception as e:
                 Debug.log_warning(f"Decimation after bake failed: {e}")
+            finally:
+                Debug.update_progress_status("Decimation complete", secondary_progress=0.3)
 
         # Call internal handler to perform post-bake cleanup/reporting
         _handle_bake_result(result, rig_armature, source_armature, delete_import_armature, None)

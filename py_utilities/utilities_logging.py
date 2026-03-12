@@ -13,6 +13,7 @@ You can control the minimum shown level with set_log_level(). By default
 only WARNING and ERROR are shown.
 """
 import time
+import math
 from typing import Dict, Optional, List
 from enum import IntEnum
 from contextlib import contextmanager
@@ -242,6 +243,25 @@ def _throttled_redraw() -> None:
         pass
 
 
+def _get_display_progress(value: float) -> float:
+    """Return a floored progress value for display and logging.
+
+    The raw *value* may be a floating point percentage between 0 and 100.
+    For user-facing output (console logs and UI widgets) we floor the value
+    so that the displayed percentage never rounds upward. For example, a
+    value of 75.999 will be shown as 75.9 (one decimal) or 75 when using
+    integer output; this prevents the bar from jumping to "76%" before the
+    underlying work is actually complete.
+
+    This function does **not** mutate the stored progress state used for
+    internal calculations; it is purely a presentation helper.
+    """
+    # clamp to valid range first
+    clamped = max(0.0, min(100.0, value))
+    # floor to one decimal place so that 77.99 -> 77.9 not 78.0
+    return math.floor(clamped * 10.0) / 10.0
+
+
 def _update_progress(value: float, text: str = "") -> None:
     """Update the Blender progress bar and the UI progress property.
 
@@ -258,6 +278,9 @@ def _update_progress(value: float, text: str = "") -> None:
     
     # Store main progress and reset secondary (by storing only the main value)
     _current_main_progress = value
+
+    # compute floored value for display purposes (console/UI)
+    display = _get_display_progress(value)
     
     try:
         wm = bpy.context.window_manager
@@ -279,20 +302,20 @@ def _update_progress(value: float, text: str = "") -> None:
             # Ignore issues probing window manager
             pass
 
-        # Update the window manager progress value
+        # Update the window manager progress value (use floored display)
         try:
             if hasattr(wm, 'progress_update'):
-                wm.progress_update(value)
+                wm.progress_update(display)
         except Exception:
             pass
 
-        # Update UI panel progress property if available
+        # Update UI panel progress property if available (display value)
         try:
             settings = _get_settings_props()
             if settings is not None:
                 exec_props = bpy.context.scene.mtar_properties.execution_props
                 if hasattr(exec_props, 'progress'):
-                    exec_props.progress = value / 100.0
+                    exec_props.progress = display / 100.0
                 if hasattr(exec_props, 'status'):
                     exec_props.status = text
         except Exception:
@@ -301,9 +324,9 @@ def _update_progress(value: float, text: str = "") -> None:
         # Always log progress to the console (not affected by log level). Throttle to avoid flooding.
         try:
             if text:
-                _throttled_console_print(f"[PROGRESS] {value:.1f}% - {text}", force=(value >= 100.0))
+                _throttled_console_print(f"[PROGRESS] {display:.1f}% - {text}", force=(display >= 100.0))
             else:
-                _throttled_console_print(f"[PROGRESS] {value:.1f}%", force=(value >= 100.0))
+                _throttled_console_print(f"[PROGRESS] {display:.1f}%", force=(display >= 100.0))
         except Exception:
             pass
 
@@ -312,7 +335,7 @@ def _update_progress(value: float, text: str = "") -> None:
 
         # End progress if value indicates completion
         try:
-            if _progress_active and value >= 100.0:
+            if _progress_active and display >= 100.0:
                 if hasattr(wm, 'progress_end'):
                     try:
                         wm.progress_end()
@@ -343,6 +366,9 @@ def _update_progress_status(text: str, secondary_progress: Optional[float] = Non
         # Clamp secondary progress to 0.0-1.0 range
         secondary_clamped = max(0.0, min(1.0, secondary_progress))
         combined_progress = _current_main_progress + secondary_clamped
+
+    # Use a floored display value for output/UI
+    display = _get_display_progress(combined_progress)
     
     try:
         settings = _get_settings_props()
@@ -350,24 +376,24 @@ def _update_progress_status(text: str, secondary_progress: Optional[float] = Non
             exec_props = bpy.context.scene.mtar_properties.execution_props
             if hasattr(exec_props, 'status'):
                 exec_props.status = text
-            # Update progress property with combined value if secondary is provided
+            # Update progress property with display value if secondary is provided
             if secondary_progress is not None and hasattr(exec_props, 'progress'):
-                exec_props.progress = combined_progress / 100.0
+                exec_props.progress = display / 100.0
     except Exception:
         pass
 
-    # Update window manager progress with combined value if secondary is provided
+    # Update window manager progress with display value if secondary is provided
     if secondary_progress is not None:
         try:
             wm = bpy.context.window_manager
             if hasattr(wm, 'progress_update'):
-                wm.progress_update(combined_progress)
+                wm.progress_update(display)
         except Exception:
             pass
 
     # Always log progress status to the console (not affected by log level). Throttle to avoid flooding.
     if secondary_progress is not None:
-        _throttled_console_print(f"[PROGRESS] {combined_progress:.1f}% - {text}")
+        _throttled_console_print(f"[PROGRESS] {display:.1f}% - {text}")
     else:
         _throttled_console_print(f"[PROGRESS] {text}")
 
