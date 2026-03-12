@@ -154,7 +154,6 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
         # Initialize progress bar
         wm: bpy.types.WindowManager = context.window_manager
         wm.progress_begin(0, 100)
-        execution_props.operation_type = 'IMPORT'
         # Initialize UI progress state
         Debug.update_progress(0, "Starting import...")
 
@@ -239,7 +238,6 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                 return {'CANCELLED'}
             finally:
                 wm.progress_end()
-                execution_props.operation_type = 'NONE'
                 Debug.update_progress(0, "")
 
 

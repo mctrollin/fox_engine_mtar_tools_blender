@@ -174,7 +174,6 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
         # Initialize progress bar
         wm = context.window_manager
         wm.progress_begin(0, 100)
-        execution_props.operation_type = 'EXPORT'
         # Initialize UI progress state
         Debug.update_progress(0, "Starting export...")
 
@@ -215,6 +214,5 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
                 return {'CANCELLED'}
             finally:
                 wm.progress_end()
-                execution_props.operation_type = 'NONE'
                 Debug.update_progress(0, "")
 

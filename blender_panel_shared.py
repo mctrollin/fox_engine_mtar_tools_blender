@@ -43,12 +43,16 @@ def draw_bool_prop_checkbox_icon(layout: UILayout, props, property_name: str,
 
 
 
-def draw_progress_bar(layout: UILayout, props, operation_type: str) -> None:
-    """Draw a progress bar if supported by the Blender version (4.0+)."""
+def draw_progress_bar(layout: UILayout, props) -> None:
+    """Draw a shared progress bar if supported by Blender (4.0+).
+
+    The tabbed UI ensures only one page is visible, so we no longer need an
+    ``operation_type`` filter.  The bar simply reflects whatever state is
+    stored in ``props.execution_props``.
+    """
     exec_props = props.execution_props
-    is_active = operation_type == exec_props.operation_type
-    progress: float = exec_props.progress if is_active else 0
-    status_text: str = exec_props.status if is_active else ""
+    progress: float = exec_props.progress
+    status_text: str = exec_props.status
 
     if hasattr(layout, "progress"):
         col = layout.column()

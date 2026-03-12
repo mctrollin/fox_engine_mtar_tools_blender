@@ -42,13 +42,12 @@ def draw_import_page(layout: UILayout, context: Context) -> None:
                 # - new-format files simply report "gani2"
                 # - old-format files report "gani1" plus the per-GANI version when available
                 if header_info.is_new_format:
-                    gani_text = "gani2"
+                    gani_text = "GANI2"
                 else:
+                    gani_text = "GANI1"
                     if hasattr(header_info, 'gani_version') and header_info.gani_version is not None:
-                        gani_text = f"gani1 v{header_info.gani_version}"
-                    else:
-                        gani_text = "gani1"
-                row.label(text=f"v{header_info.version} [{gani_text}]")
+                        gani_text = f"{gani_text} v{header_info.gani_version}"
+                row.label(text=f"v{header_info.version} | {gani_text}", icon='CHECKMARK')
                 
                 # Validate MTAR header and show warning if invalid
                 is_valid, error_msg = reader.validate_header()
@@ -68,15 +67,13 @@ def draw_import_page(layout: UILayout, context: Context) -> None:
     mapping_box = box_import.box()
     row = mapping_box.row(align=True)
     row.prop(import_props, "frig_filepath", text="", icon='OUTLINER_OB_ARMATURE')
-    adv_box = mapping_box.box()
-    col = adv_box.column()
-    col.scale_y = 1
-    col.operator("mtar.generate_track_mapping_template_file", text="Generate Mapping Template", icon='TEXT')
+    mapping_box.operator("mtar.generate_track_mapping_template_file", text="Generate Mapping Template", icon='TEXT')
 
+    box_gani = box_import.box()
     # Track mapping file picker (shared)
     row = mapping_box.row(align=True)
     row.prop(props, "mapping_filepath", text="", icon='TEXT')
-    box = box_import
+    box = box_gani
     box.prop(import_props, "gani_indices_str", text="", icon='FILTER')
 
     # Compute filtered selection once and show the selection count below the GANI filter (if header info is available)
@@ -104,7 +101,7 @@ def draw_import_page(layout: UILayout, context: Context) -> None:
             row.label(text=label_text, icon='ANIM')
     
     if settings_props.show_advanced_settings:
-        adv_box = box_import.box()
+        adv_box = box_gani.box()
         adv_box.alert = True
 
         # Verbose naming (advanced setting)
@@ -119,10 +116,7 @@ def draw_import_page(layout: UILayout, context: Context) -> None:
                 row.alert = True
                 row.label(text="dic/path64/mtar_dictionary.txt not found", icon='ERROR')
 
-    # Strip padding (advanced setting)
-    if settings_props.show_advanced_settings:
-        adv_box = box_import.box()
-        adv_box.alert = True
+        # Strip padding (advanced setting)
         adv_box.prop(import_props, "strip_padding", text="Strip Padding", icon='TIME')
 
     # custom rig selector
@@ -152,7 +146,7 @@ def draw_import_page(layout: UILayout, context: Context) -> None:
     col.enabled = bool(import_props.mtar_filepath)
     col.operator("mtar.import_animation", text="Import Animation", icon='IMPORT')
 
-    draw_progress_bar(box_button, props, 'IMPORT')
+    draw_progress_bar(box_button, props)
 
     # Show a slim warning if the number of animations that will be processed (after applying the GANI filter)
     # exceeds the threshold; keep parse error shown only below the filter (do not duplicate it here).

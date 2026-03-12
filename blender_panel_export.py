@@ -54,6 +54,10 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
 
     # Show info about NLA status and compute export_count
     animinfo_box = box_rig.box()
+    info_icon = 'CHECKMARK'
+    info_nla = ''
+    # gani_text will be set later when format is determined
+    gani_text = ''
     if export_props.armature and export_props.armature.animation_data:
         anim_data = export_props.armature.animation_data
         if anim_data.nla_tracks and export_props.use_nla:
@@ -63,36 +67,33 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
                                 if is_relevant_strip(strip))
             export_count = unmuted_strips
             if unmuted_strips > 0:
-                animinfo_box.label(text=f"Found {unmuted_strips} NLA strip(s)", icon='CHECKMARK')
+                info_nla = f"{unmuted_strips} NLA strip(s)"
+                info_icon = 'CHECKMARK'
             else:
-                animinfo_box.label(text="No unmuted NLA strips", icon='INFO')
+                info_nla = "No unmuted NLA strips"
+                info_icon = 'INFO'
         elif anim_data.action:
             export_count = 1
-            animinfo_box.label(text="Using active action", icon='ACTION')
+            info_nla = "Using active action"
+            info_icon = 'ACTION'
         else:
             export_count = 0
-            animinfo_box.label(text="No animation data", icon='ERROR')
+            info_nla = "No animation data"
+            info_icon = 'ERROR'
 
     # Show format info (detected from layout action or per-GANI fallback)
     # Only show if armature is selected (user is actively configuring an export)
     if export_props.armature:
-        format_info_box = box_rig.box()
         is_new_format = bool(_fmt_flags & 0x1000)  # UseMini flag
         
         if _layout_action:
             # Layout action exists (GANI2 / new-format)
-            # Check if properties are explicitly set (not defaults)
             has_stored_props = (mtar_const.MTAR_VERSION in _layout_action.keys() and 
                                mtar_const.MTAR_FLAGS in _layout_action.keys())
-            
-            if is_new_format:
-                format_info_box.label(text="Format: GANI2 (TPP)", icon='CHECKMARK')
-            else:
-                format_info_box.label(text="Format: GANI (GZ/old)", icon='INFO')
+            gani_text = "GANI2" if is_new_format else "GANI1"
             
             if not has_stored_props:
-                # Warn if using defaults (layout action found but no stored props)
-                warn_box = format_info_box.box()
+                warn_box = animinfo_box.box()
                 warn_box.alert = True
                 warn_box.label(text="No MTAR version on layout action", icon='ERROR')
                 warn_box.label(text="Defaulting to GANI2 (new format)")
@@ -100,15 +101,19 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
         else:
             # No layout action found — old-format or no NLA data
             if _fallback_nla_actions or (export_props.armature and export_props.armature.animation_data):
-                # Old-format with NLA data: show detected format
-                if is_new_format:
-                    format_info_box.label(text="Format: GANI2 (TPP)", icon='CHECKMARK')
-                else:
-                    format_info_box.label(text="Format: GANI (GZ/old)", icon='INFO')
+                # Old-format with NLA data: decide text
+                gani_text = "GANI2" if is_new_format else "GANI1"
             else:
-                # No animation data to detect format
-                format_info_box.label(text="No animation or layout data found", icon='INFO')
+                gani_text = "(no format data)"
+        # assign gani_text into overall info
+        # it was initialized earlier
 
+
+        # after evaluating NLA and format, display combined info
+        combined = info_nla
+        if gani_text:
+            combined = f"{combined} | {gani_text}" if combined else gani_text
+        animinfo_box.label(text=combined, icon=info_icon)
 
         # Mapping file (optional - shared with import)
         box = box_export
@@ -127,14 +132,17 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
             row2 = adv_box.row()
             draw_bool_prop_checkbox_icon(row2, export_props, "force_highest_bit_encoding")
 
+        if settings_props.show_advanced_settings:
+            adv_box = box_export.box()
+            adv_box.alert = True
+
             # Custom path hash export option
-            row_path_hash = adv_box.box()
-            draw_bool_prop_checkbox_icon(row_path_hash, export_props, "treat_hashes_as_names")
+            draw_bool_prop_checkbox_icon(adv_box, export_props, "treat_hashes_as_names")
             # Always show base path — it applies to invalid paths and NLA fallbacks regardless of the flag above
-            row_path_hash.prop(export_props, "custom_path_base", text="")
+            adv_box.prop(export_props, "custom_path_base", text="")
 
             # Export info file option
-            draw_bool_prop_checkbox_icon(row_path_hash, export_props, "info_file")
+            draw_bool_prop_checkbox_icon(adv_box, export_props, "info_file")
 
         # Export file picker
         box = layout.box()
@@ -150,7 +158,7 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
         col.enabled = can_export
         col.operator("mtar.export_animation", text="Export Animation", icon='EXPORT')
 
-        draw_progress_bar(box_button, props, 'EXPORT')
+        draw_progress_bar(box_button, props)
 
         # Slim warning if exporting many animations/strips (no filtering available for export)
         if export_count is not None and export_count > 100:

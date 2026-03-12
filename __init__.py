@@ -22,7 +22,7 @@ _debug_registered = False
 bl_info = {
     "name": "Fox Engine MTAR Importer and Exporter",
     "description": "Import and Export MTAR animations from Metal Gear Solid V",
-    "author": "Till - rollin - Maginot",
+    "author": "rollin",
     "version": (1, 0),
     "blender": (3, 0, 0),
     "location" : "View3D Panel",

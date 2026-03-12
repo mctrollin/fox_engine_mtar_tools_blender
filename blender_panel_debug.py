@@ -8,7 +8,7 @@ for bones at specific frames, useful for verifying export/import transform corre
 # pyright: reportInvalidTypeForm=false
 
 import bpy
-from bpy.types import Panel, PropertyGroup, Context
+from bpy.types import Panel, PropertyGroup, Context, UILayout
 from bpy.props import PointerProperty, StringProperty
 
 from .blender_properties import _file_path_kwargs
@@ -88,151 +88,22 @@ class MTAR_PG_DebugTransformProperties(PropertyGroup):
         maxlen=1024
     )
 
+    # which debug page is currently active in the unified panel
+    debug_active_tab: bpy.props.EnumProperty(
+        name="Page",
+        items=[
+            ('TRANSFORM', "Transform", "Transform inspector"),
+            ('BAKE', "Bake", "Animation bake tools"),
+            ('HASH', "Hash", "External hash generator"),
+            ('MAP_R', "Map R", "Map_R parameter debug"),
+        ],
+        default='TRANSFORM'
+    )
 
 
-class MTAR_PT_DebugTransformPanel(Panel):
-    """N-Panel for transform debugging and inspection."""
-    bl_label = "Debug - Transform"
-    bl_idname = "MTAR_PT_debug_transform_panel"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = 'MTAR'
-    
-    def draw(self, context: Context) -> None:
-        """Draw the debug panel."""
-        layout = self.layout
-        props = context.scene.mtar_debug_transform_properties
-        
-        # Header
-        box = layout.box()
-        box.label(text="Transform Inspector", icon='OUTLINER_OB_ARMATURE')
-        
-        # Armature and Bone selection
-        config_box = layout.box()
-        config_box.label(text="Configuration", icon='SETTINGS')
-        
-        col = config_box.column(align=True)
-        col.prop(props, "debug_armature", text="Armature")
-        
-        # Only show bone selector if armature is selected
-        if props.debug_armature and props.debug_armature.type == 'ARMATURE':
-            # Create a search menu for bone selection
-            row = col.row(align=True)
-            row.prop(props, "debug_bone_name", text="Bone")
-            
-            # Add a dropdown to select bones
-            if props.debug_armature.pose.bones:
-                row.operator("wm.search_menu", text="", icon='DOWNARROW_HLT')
-        
-        # Current frame info
-        info_box = layout.box()
-        col = info_box.column()
-        col.label(text=f"Current Frame: {context.scene.frame_current}", icon='PREVIEW_RANGE')
-        
-        # Action buttons
-        button_box = layout.box()
-        button_box.label(text="Inspect", icon='EYEDROPPER')
-        
-        col = button_box.column(align=True)
-        col.scale_y = 1.3
-        
-        # Enable buttons only if armature and bone are selected
-        buttons_enabled = bool(props.debug_armature and props.debug_bone_name)
-        
-        row = col.row(align=True)
-        row.enabled = buttons_enabled
-        row.operator("mtar.inspect_world_space_transform", text="World Space", icon='WORLD')
-        
-        row = col.row(align=True)
-        row.enabled = buttons_enabled
-        row.operator("mtar.inspect_local_space_transform", text="Local Space", icon='BONE_DATA')
-        
-        # Create dummies button
-        row = col.row(align=True)
-        row.enabled = buttons_enabled
-        row.operator("mtar.create_transform_dummies", text="Create Dummies", icon='MESH_CIRCLE')
-
-        # Results display
-        results_box = layout.box()
-        results_box.label(text="Results", icon='CHECKMARK')
-        
-        # World space result
-        if props.debug_world_space_result:
-            world_box = results_box.box()
-            row = world_box.row(align=True)
-            row.label(text="World Space:", icon='WORLD')
-            row.operator("mtar.copy_single_result", text="", icon='COPYDOWN').result_type = 'WORLD'
-            col = world_box.column()
-            col.label(text=props.debug_world_space_result, icon='NONE')
-        else:
-            results_box.label(text="World Space: (no result yet)", icon='WORLD')
-        
-        # Local space result
-        if props.debug_local_space_result:
-            local_box = results_box.box()
-            row = local_box.row(align=True)
-            row.label(text="Local Space:", icon='BONE_DATA')
-            row.operator("mtar.copy_single_result", text="", icon='COPYDOWN').result_type = 'LOCAL'
-            col = local_box.column()
-            col.label(text=props.debug_local_space_result, icon='NONE')
-        else:
-            results_box.label(text="Local Space: (no result yet)", icon='BONE_DATA')
-        
-        # Copy all results button
-        if props.debug_world_space_result or props.debug_local_space_result:
-            results_box.operator("mtar.copy_transform_debug_results", text="Copy All Results", icon='COPYDOWN')
 
 
-class MTAR_PT_DebugBakePanel(Panel):
-    """N-Panel for baking debug controls."""
-    bl_label = "Debug - Bake"
-    bl_idname = "MTAR_PT_debug_bake_panel"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = 'MTAR'
-    
-    def draw(self, context: Context) -> None:
-        """Draw the bake debug panel."""
-        layout = self.layout
-        props = context.scene.mtar_debug_transform_properties
-        
-        # Header
-        box = layout.box()
-        box.label(text="Animation Bake", icon='RENDER_ANIMATION')
-        
-        # Configuration section
-        config_box = layout.box()
-        config_box.label(text="Configuration", icon='SETTINGS')
-        col = config_box.column(align=True)
-        
-        # Duplicate armature field
-        col.prop(props, "debug_armature", text="Target Armature")
-        col.prop(props, "debug_source_armature", text="Source Armature")
-        
-        # GANI index and prepare only options
-        row = col.row(align=True)
-        row.prop(props, "debug_bake_gani_index")
-        row.prop(props, "debug_prepare_only")
-        
-        # Bake button
-        button_box = layout.box()
-        button_box.label(text="Actions", icon='PLAY')
-        
-        row = button_box.row(align=True)
-        row.scale_y = 1.3
-        row.enabled = bool(props.debug_armature)
-        row.operator("mtar.debug_run_bake", text="Run Bake", icon='FILE_REFRESH')
-        
-        # Debug context setup button
-        debug_box = layout.box()
-        debug_box.label(text="Debug Tools", icon='CONSOLE')
-        row = debug_box.row(align=True)
-        row.enabled = bool(props.debug_armature)
-        row.operator("mtar.debug_setup_graph_context", text="Setup Graph Context", icon='GRAPH')
-        debug_box.label(text="Sets up graph editor for manual testing", icon='INFO')
 
-
-# External Hash Generator Panel ################################################################
 
 class MTAR_PG_DebugHashProperties(PropertyGroup):
     """Property group for external hash generator settings."""
@@ -405,178 +276,6 @@ class MTAR_PG_DebugHashProperties(PropertyGroup):
     )
 
 
-class MTAR_PT_DebugHashPanel(Panel):
-    """N-Panel for external hash generator tool."""
-    bl_label = "Debug - Hash"
-    bl_idname = "MTAR_PT_debug_hash_panel"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = 'MTAR'
-    
-    def draw(self, context: Context) -> None:
-        """Draw the hash generator panel."""
-        layout = self.layout
-        props = context.scene.mtar_debug_hash_properties
-
-        # Resolve exe availability (exe is optional — Python always runs)
-        exe_configured = bool(props.hash_generator_exe_path)
-
-        # Show executable input when needed
-        exe_box = layout.box()
-        exe_box.label(text="External Hash Generator", icon='FILE_SCRIPT')
-        exe_box.label(text="Needed for custom hashes.")
-        row = exe_box.row(align=True)
-        row.prop(props, "hash_generator_exe_path", text="")
-        row.operator("mtar.validate_hash_generator_exe", text="", icon='FORCE_HARMONIC')
-        exe_box.label(text="https://mgsvmoddingwiki.github.io/GzsTool/")
-
-        if not exe_configured:
-            info_box = layout.box()
-            info_box.label(text="Exe not configured — Python only", icon='INFO')
-            info_box.label(text="Configure path above for exe column")
-
-        pathcode_box = layout.box()
-        # Input
-        input_box = pathcode_box.box()
-        input_box.label(text="Filename", icon='IMPORT')
-        col = input_box.column(align=True)
-        col.prop(props, "hash_generator_input", text="")
-
-        # Action buttons
-        button_box = pathcode_box.box()
-        col = button_box.column(align=True)
-        col.scale_y = 1.3
-
-        row = col.row(align=True)
-        row.operator("mtar.generate_hash", text="Hash", icon='PLAY')
-        row.operator("mtar.clear_hash_generator_results", text="Clear", icon='X')
-
-        # Results
-        results_box = pathcode_box.box()
-        results_box.label(text="Hash Results", icon='INFO')
-
-        has_py_results = bool(
-            props.hash_generator_py_hash_filename
-            or props.hash_generator_py_hash_with_extension
-            or props.hash_generator_py_hash_legacy
-        )
-        has_exe_results = bool(
-            props.hash_generator_hash_filename
-            or props.hash_generator_hash_with_extension
-            or props.hash_generator_hash_legacy
-        )
-
-        if has_py_results or has_exe_results:
-            # Column header row
-            header = results_box.row(align=False)
-            header.label(text="")         # mode label placeholder
-            header.label(text="Python")
-            header.label(text="Exe")
-            header.label(text="")         # match icon placeholder
-
-            self._draw_comparison_row(
-                results_box,
-                "Hash Filename  (-d -h)",
-                exe_hex=props.hash_generator_hash_filename,
-                exe_dec=props.hash_generator_hash_filename_dec,
-                exe_key='filename',
-                py_hex=props.hash_generator_py_hash_filename,
-                py_dec=props.hash_generator_py_hash_filename_dec,
-                py_key='py_filename',
-                exe_configured=exe_configured,
-            )
-            self._draw_comparison_row(
-                results_box,
-                "Hash Extension  (-d -he)",
-                exe_hex=props.hash_generator_hash_extension,
-                exe_dec=props.hash_generator_hash_extension_dec,
-                exe_key='extension',
-                py_hex=props.hash_generator_py_hash_extension,
-                py_dec=props.hash_generator_py_hash_extension_dec,
-                py_key='py_extension',
-                exe_configured=exe_configured,
-            )
-            self._draw_comparison_row(
-                results_box,
-                "Hash With Ext  (-d -hwe)",
-                exe_hex=props.hash_generator_hash_with_extension,
-                exe_dec=props.hash_generator_hash_with_extension_dec,
-                exe_key='with_extension',
-                py_hex=props.hash_generator_py_hash_with_extension,
-                py_dec=props.hash_generator_py_hash_with_extension_dec,
-                py_key='py_with_extension',
-                exe_configured=exe_configured,
-            )
-            self._draw_comparison_row(
-                results_box,
-                "Hash Legacy  (-d -hl)",
-                exe_hex=props.hash_generator_hash_legacy,
-                exe_dec=props.hash_generator_hash_legacy_dec,
-                exe_key='legacy',
-                py_hex=props.hash_generator_py_hash_legacy,
-                py_dec=props.hash_generator_py_hash_legacy_dec,
-                py_key='py_legacy',
-                exe_configured=exe_configured,
-            )
-        else:
-            results_box.label(text="No results yet — enter a filename and click Hash")
-
-        # Errors
-        for err_label, err_val in (
-            ("Exe error", props.hash_generator_error),
-            ("Python error", props.hash_generator_py_error),
-        ):
-            if err_val:
-                error_box = results_box.box()
-                error_box.alert = True
-                error_box.label(text=f"{err_label}:", icon='ERROR')
-                for line in err_val.split(';'):
-                    error_box.label(text=line.strip(), icon='NONE')
-
-        # StrCode32 animation name hashing
-        strcode_box = layout.box()
-        strcode_box.label(text="StrCode32 Animation Names", icon='FILE_CACHE')
-
-        # Input
-        strcode_input_box = strcode_box.box()
-        strcode_input_box.label(text="Bone/Track Name", icon='IMPORT')
-        col = strcode_input_box.column(align=True)
-        col.prop(props, "strcode32_input", text="")
-        
-        # Remove extension toggle
-        col.prop(props, "strcode32_remove_extension")
-
-        # Action button
-        button_box = strcode_box.box()
-        col = button_box.column(align=True)
-        col.scale_y = 1.3
-        row = col.row(align=True)
-        row.operator("mtar.compute_strcode32", text="Compute StrCode32", icon='PLAY')
-        row.operator("mtar.clear_strcode32_results", text="Clear", icon='X')
-
-        # Results
-        if props.strcode32_result or props.strcode32_error:
-            results_box = strcode_box.box()
-            results_box.label(text="Results", icon='INFO')
-            
-            if props.strcode32_result:
-                result_row = results_box.row(align=True)
-                result_row.label(text=f"Hex: {props.strcode32_result}")
-                op = result_row.operator("mtar.copy_strcode32_result", text="", icon='COPYDOWN')
-                op.is_decimal = False
-                if props.strcode32_result_dec:
-                    op_dec = result_row.operator("mtar.copy_strcode32_result", text="", icon='SORTBYEXT')
-                    op_dec.is_decimal = True
-                if props.strcode32_result_dec:
-                    results_box.label(text=f"Dec: {props.strcode32_result_dec}", icon='NONE')
-            
-            if props.strcode32_error:
-                error_box = results_box.box()
-                error_box.alert = True
-                error_box.label(text="Error:", icon='ERROR')
-                for line in props.strcode32_error.split(';'):
-                    error_box.label(text=line.strip(), icon='NONE')
-
     def _draw_comparison_row(
         self,
         parent,
@@ -640,6 +339,241 @@ class MTAR_PT_DebugHashPanel(Panel):
             icon_col.label(text="", icon='NONE')
 
 
+
+
+# convenience drawing helpers used by the unified debug panel ----------------
+
+def draw_transform_page(layout: UILayout, context: Context) -> None:
+    """Draw the contents originally provided by the old Transform panel."""
+    props = context.scene.mtar_debug_transform_properties
+    # Header
+    box = layout.box()
+    box.label(text="Transform Inspector", icon='OUTLINER_OB_ARMATURE')
+    
+    # Armature and Bone selection
+    config_box = layout.box()
+    config_box.label(text="Configuration", icon='SETTINGS')
+    
+    col = config_box.column(align=True)
+    col.prop(props, "debug_armature", text="Armature")
+    
+    # Only show bone selector if armature is selected
+    if props.debug_armature and props.debug_armature.type == 'ARMATURE':
+        row = col.row(align=True)
+        row.prop(props, "debug_bone_name", text="Bone")
+        if props.debug_armature.pose.bones:
+            row.operator("wm.search_menu", text="", icon='DOWNARROW_HLT')
+    
+    # Current frame info
+    info_box = layout.box()
+    col = info_box.column()
+    col.label(text=f"Current Frame: {context.scene.frame_current}", icon='PREVIEW_RANGE')
+    
+    # Action buttons
+    button_box = layout.box()
+    button_box.label(text="Inspect", icon='EYEDROPPER')
+    
+    col = button_box.column(align=True)
+    col.scale_y = 1.3
+    
+    buttons_enabled = bool(props.debug_armature and props.debug_bone_name)
+    row = col.row(align=True)
+    row.enabled = buttons_enabled
+    row.operator("mtar.inspect_world_space_transform", text="World Space", icon='WORLD')
+    
+    row = col.row(align=True)
+    row.enabled = buttons_enabled
+    row.operator("mtar.inspect_local_space_transform", text="Local Space", icon='BONE_DATA')
+    
+    row = col.row(align=True)
+    row.enabled = buttons_enabled
+    row.operator("mtar.create_transform_dummies", text="Create Dummies", icon='MESH_CIRCLE')
+    
+    # Results display
+    results_box = layout.box()
+    results_box.label(text="Results", icon='CHECKMARK')
+    
+    # World space result
+    if props.debug_world_space_result:
+        world_box = results_box.box()
+        row = world_box.row(align=True)
+        row.label(text="World Space:", icon='WORLD')
+        row.operator("mtar.copy_single_result", text="", icon='COPYDOWN').result_type = 'WORLD'
+        col = world_box.column()
+        col.label(text=props.debug_world_space_result, icon='NONE')
+    else:
+        results_box.label(text="World Space: (no result yet)", icon='WORLD')
+    
+    # Local space result
+    if props.debug_local_space_result:
+        local_box = results_box.box()
+        row = local_box.row(align=True)
+        row.label(text="Local Space:", icon='BONE_DATA')
+        row.operator("mtar.copy_single_result", text="", icon='COPYDOWN').result_type = 'LOCAL'
+        col = local_box.column()
+        col.label(text=props.debug_local_space_result, icon='NONE')
+    else:
+        results_box.label(text="Local Space: (no result yet)", icon='BONE_DATA')
+    
+    if props.debug_world_space_result or props.debug_local_space_result:
+        results_box.operator("mtar.copy_transform_debug_results", text="Copy All Results", icon='COPYDOWN')
+
+
+def draw_bake_page(layout: UILayout, context: Context) -> None:
+    """Draw the contents originally provided by the old Bake panel."""
+    props = context.scene.mtar_debug_transform_properties
+    
+    box = layout.box()
+    box.label(text="Animation Bake", icon='RENDER_ANIMATION')
+    
+    config_box = layout.box()
+    config_box.label(text="Configuration", icon='SETTINGS')
+    col = config_box.column(align=True)
+    
+    col.prop(props, "debug_armature", text="Target Armature")
+    col.prop(props, "debug_source_armature", text="Source Armature")
+    
+    row = col.row(align=True)
+    row.prop(props, "debug_bake_gani_index")
+    row.prop(props, "debug_prepare_only")
+    
+    button_box = layout.box()
+    button_box.label(text="Actions", icon='PLAY')
+    row = button_box.row(align=True)
+    row.scale_y = 1.3
+    row.enabled = bool(props.debug_armature)
+    row.operator("mtar.debug_run_bake", text="Run Bake", icon='FILE_REFRESH')
+    
+    debug_box = layout.box()
+    debug_box.label(text="Debug Tools", icon='CONSOLE')
+    row = debug_box.row(align=True)
+    row.enabled = bool(props.debug_armature)
+    row.operator("mtar.debug_setup_graph_context", text="Setup Graph Context", icon='GRAPH')
+    debug_box.label(text="Sets up graph editor for manual testing", icon='INFO')
+
+
+def draw_hash_page(layout: UILayout, context: Context) -> None:
+    """Draw the contents originally provided by the old Hash panel."""
+    props = context.scene.mtar_debug_hash_properties
+
+    exe_configured = bool(props.hash_generator_exe_path)
+
+    exe_box = layout.box()
+    exe_box.label(text="External Hash Generator", icon='FILE_SCRIPT')
+    exe_box.label(text="Needed for custom hashes.")
+    row = exe_box.row(align=True)
+    row.prop(props, "hash_generator_exe_path", text="")
+    row.operator("mtar.validate_hash_generator_exe", text="", icon='FORCE_HARMONIC')
+    exe_box.label(text="https://mgsvmoddingwiki.github.io/GzsTool/")
+
+    if not exe_configured:
+        info_box = layout.box()
+        info_box.label(text="Exe not configured — Python only", icon='INFO')
+        info_box.label(text="Configure path above for exe column")
+
+    pathcode_box = layout.box()
+    input_box = pathcode_box.box()
+    input_box.label(text="Filename", icon='IMPORT')
+    col = input_box.column(align=True)
+    col.prop(props, "hash_generator_input", text="")
+
+    button_box = pathcode_box.box()
+    col = button_box.column(align=True)
+    col.scale_y = 1.3
+
+    row = col.row(align=True)
+    row.operator("mtar.generate_hash", text="Hash", icon='PLAY')
+    row.operator("mtar.clear_hash_generator_results", text="Clear", icon='X')
+
+    results_box = pathcode_box.box()
+    results_box.label(text="Hash Results", icon='INFO')
+
+    has_py_results = bool(
+        props.hash_generator_py_hash_filename
+        or props.hash_generator_py_hash_with_extension
+        or props.hash_generator_py_hash_legacy
+    )
+    has_exe_results = bool(
+        props.hash_generator_hash_filename
+        or props.hash_generator_hash_with_extension
+        or props.hash_generator_hash_legacy
+    )
+
+    if has_py_results or has_exe_results:
+        header = results_box.row(align=False)
+        header.label(text="")
+        header.label(text="Python")
+        header.label(text="Exe")
+        header.label(text="")
+        
+        self_draw = results_box
+        # reuse the helper method originally used below
+        # we can't call self._draw_comparison_row so just replicate here
+        def _row(label, py_val, exe_val):
+            row = self_draw.row(align=True)
+            row.label(text=label)
+            row.label(text=str(py_val))
+            row.label(text=str(exe_val))
+            if py_val == exe_val and py_val:
+                row.label(text="=", icon='CHECKMARK')
+            else:
+                row.label(text="", icon='NONE')
+
+        _row("Hash Filename  (-d -h)", props.hash_generator_py_hash_filename,
+             props.hash_generator_hash_filename)
+        _row("Hash Ext       (-d -he)", props.hash_generator_py_hash_extension,
+             props.hash_generator_hash_extension)
+        _row("Hash With Ext   (-d -hwe)", props.hash_generator_py_hash_with_extension,
+             props.hash_generator_hash_with_extension)
+        _row("Legacy Hash     (-d -hl)", props.hash_generator_py_hash_legacy,
+             props.hash_generator_hash_legacy)
+
+        # decimal rows
+        _row("Filename (dec)", props.hash_generator_py_hash_filename_dec,
+             props.hash_generator_hash_filename_dec)
+        _row("Ext (dec)", props.hash_generator_py_hash_extension_dec,
+             props.hash_generator_hash_extension_dec)
+        _row("With Ext (dec)", props.hash_generator_py_hash_with_extension_dec,
+             props.hash_generator_hash_with_extension_dec)
+        _row("Legacy (dec)", props.hash_generator_py_hash_legacy_dec,
+             props.hash_generator_hash_legacy_dec)
+
+        if props.hash_generator_error:
+            err_box = results_box.box()
+            err_box.alert = True
+            err_box.label(text=f"Error: {props.hash_generator_error}")
+        if props.hash_generator_py_error:
+            err_box = results_box.box()
+            err_box.alert = True
+            err_box.label(text=f"Python Error: {props.hash_generator_py_error}")
+
+
+class MTAR_PT_DebugMainPanel(Panel):
+    """Unified debug panel with tabs."""
+    bl_label = "Debug Tools"
+    bl_idname = "MTAR_PT_debug_main_panel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'MTAR'
+
+    def draw(self, context: Context) -> None:
+        layout = self.layout
+        props = context.scene.mtar_debug_transform_properties
+
+        row = layout.row(align=True)
+        row.prop(props, "debug_active_tab", expand=True)
+
+        layout.separator()
+        tab = props.debug_active_tab
+        if tab == 'TRANSFORM':
+            draw_transform_page(layout, context)
+        elif tab == 'BAKE':
+            draw_bake_page(layout, context)
+        elif tab == 'HASH':
+            draw_hash_page(layout, context)
+        elif tab == 'MAP_R':
+            blender_panel_debug_map_r.draw_map_r_page(layout, context)
+
 # Registration
 classes = (
     MTAR_PG_DebugTransformProperties,
@@ -650,8 +584,6 @@ classes = (
     MTAR_OT_CopyTransformDebugResults,
     MTAR_OT_DebugRunBake,
     MTAR_OT_DebugSetupGraphContext,
-    MTAR_PT_DebugTransformPanel,
-    MTAR_PT_DebugBakePanel,
     MTAR_PG_DebugHashProperties,
     MTAR_OT_ValidateHashGeneratorExe,
     MTAR_OT_GenerateHash,
@@ -660,7 +592,7 @@ classes = (
     MTAR_OT_ComputeStrCode32,
     MTAR_OT_ClearStrCode32Results,
     MTAR_OT_CopyStrCode32Result,
-    MTAR_PT_DebugHashPanel,
+    MTAR_PT_DebugMainPanel,
 )
 
 def register() -> None:

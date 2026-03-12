@@ -326,15 +326,6 @@ class MTAR_PG_ExecutionProperties(PropertyGroup):
         default="",
     )
     
-    operation_type: EnumProperty(
-        name="Execution Operation Type",
-        items=[
-            ('NONE', "None", ""),
-            ('IMPORT', "Import", ""),
-            ('EXPORT', "Export", ""),
-        ],
-        default='NONE'
-    )
 
 class MTAR_PG_SettingsProperties(PropertyGroup):
     """Property group for general plugin settings."""

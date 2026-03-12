@@ -374,8 +374,6 @@ def decimate_import_fcurves_to_bezier(armature: bpy.types.Object,
         # Apply decimation to allowed bones
         decimated = decimate_fcurves(action, bake_decimate_fcurve_error, bones_to_decimate, obj=armature)
         fcurves_decimated += decimated
-        # mark completion of this action's decimation
-        Debug.update_progress_status(f"Decimated action {idx}/{total_actions}", secondary_progress=idx/total_actions)
         
         # Count skipped fcurves
         for bone_name in bones_to_skip:
