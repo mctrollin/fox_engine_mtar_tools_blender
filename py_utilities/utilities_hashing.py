@@ -187,6 +187,31 @@ def hash_rig_type(name: str) -> int:
     return strcode32(name)
 
 
+def hash_or_parse_name(name: str) -> int:
+    """Return an integer hash for *name*.
+
+    If *name* is a plain decimal or ``0x``-prefixed hex string (as detected by
+    :func:`is_hash_string`) the string is parsed as an integer and returned.
+    Otherwise ``StrCode32(name)`` is computed.  This covers the common pattern
+    of accepting either an unhashed bone name or a literal hash string when
+    reading metadata.
+
+    Args:
+        name: Input string to convert.
+
+    Returns:
+        32-bit integer hash value.
+    """
+    s = name.strip()
+    if is_hash_string(s):
+        try:
+            return parse_hash_string(s)
+        except ValueError:
+            # fall back to computing the hash normally
+            return strcode32(s)
+    return strcode32(s)
+
+
 def load_gani_hash_dictionary(dict_path: str) -> Dict[int, str]:
     """Load the GANI path hash dictionary from a text file.
 

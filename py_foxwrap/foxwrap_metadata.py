@@ -21,8 +21,12 @@ from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper
 
 from ..py_utilities.utilities_logging import Debug
 from ..py_utilities.utilities_blender_animation import action_has_fcurves, iter_action_fcurves, build_data_path_for_bone
-from ..py_utilities.utilities_hashing import unhash_rig_type, unhash_param_name, is_hash_string, parse_hash_string
-from ..py_utilities.utilities_hashing_cityhash import strcode32
+from ..py_utilities.utilities_hashing import (
+    unhash_rig_type,
+    unhash_param_name,
+    is_hash_string,
+    hash_or_parse_name,
+)
 from ..py_utilities.utilities_parsing import format_float_for_metadata
 
 # Action property key constants -------------------------------------------------------------
@@ -229,10 +233,7 @@ def parse_node_params_from_action(
         else:
             value = val_str
         name_str = name_str.strip()
-        if is_hash_string(name_str):
-            name_hash = parse_hash_string(name_str)
-        else:
-            name_hash = strcode32(name_str)
+        name_hash = hash_or_parse_name(name_str)
         result.append((name_hash, value))
     return result
 
@@ -424,7 +425,6 @@ def store_track_metadata_on_action(
     action: bpy.types.Action,
     track_metadata_list: List['TrackMetaData'],
     include_segments: bool = True,
-    include_hash: bool = True,
 ) -> None:
     """Store track metadata from :class:`TrackMetaData` objects as action custom properties.
 
@@ -432,7 +432,7 @@ def store_track_metadata_on_action(
 
     Layout track format::
 
-        name=<name> ; segments=<segs> ; bits=<bit_sizes> ; flags=<flags> ; hash=<hash>
+        name=<name> ; segments=<segs> ; bits=<bit_sizes> ; flags=<flags>
 
     GANI track format::
 
@@ -443,8 +443,6 @@ def store_track_metadata_on_action(
         track_metadata_list: List of :class:`TrackMetaData` objects to serialise.
         include_segments:   Include segment-type abbreviations (``True`` for
                             layout tracks, ``False`` for GANI tracks).
-        include_hash:       Include the name hash field (``True`` for layout
-                            tracks, ``False`` for GANI tracks).
     """
     track_type = "layout" if include_segments else "GANI"
     Debug.log(
@@ -489,8 +487,6 @@ def store_track_metadata_on_action(
         if flags_str:
             metadata_parts.append(f"flags={flags_str}")
 
-        if include_hash and track_meta.name_hash is not None and track_meta.name_hash != 0:
-            metadata_parts.append(f"hash={track_meta.name_hash}")
 
         if track_meta.rig_unit_type is not None:
             metadata_parts.append(f"type={track_meta.rig_unit_type.name}")
@@ -804,7 +800,7 @@ def parse_track_metadata_generic(metadata_str: str) -> Optional[dict]:
 
     Accepts semicolon-separated key=value entries produced by actions or
     internal layout tracks. The 'name' key is required, and optional
-    attributes include segments, type, flags, bits, hash, and count.
+    attributes include segments, type, flags, bits, and count.
 
     Auto-detects which parameters are present:
     - Explicit segments= takes priority
@@ -822,7 +818,6 @@ def parse_track_metadata_generic(metadata_str: str) -> Optional[dict]:
         - component_bit_sizes: List[int] (optional)
         - flags_list: List[str] (optional)
         - unit_flags: int (optional)
-        - name_hash: int (optional)
         - rig_unit_type: str (optional)
         - count: int (optional)
     """
@@ -839,7 +834,6 @@ def parse_track_metadata_generic(metadata_str: str) -> Optional[dict]:
     type_str = None
     bits_str = None
     flags_str = None
-    hash_str = None
     count_str = None
 
     for param in metadata_str.split(';'):
@@ -861,8 +855,6 @@ def parse_track_metadata_generic(metadata_str: str) -> Optional[dict]:
             bits_str = value
         elif key == 'flags':
             flags_str = value
-        elif key == 'hash':
-            hash_str = value
         elif key == 'count':
             count_str = value
 
@@ -876,7 +868,6 @@ def parse_track_metadata_generic(metadata_str: str) -> Optional[dict]:
         'component_bit_sizes': None,
         'flags_list': None,
         'unit_flags': None,
-        'name_hash': None,
         'rig_unit_type': None,
         'count': None
     }
@@ -921,12 +912,6 @@ def parse_track_metadata_generic(metadata_str: str) -> Optional[dict]:
         result['flags_list'] = flags_list if flags_list else None
         result['unit_flags'] = unit_flags
     
-    # Parse hash
-    if hash_str:
-        try:
-            result['name_hash'] = int(hash_str)
-        except ValueError:
-            Debug.log_warning(f"Invalid hash value '{hash_str}'")
     
     # Store type string
     if type_str:
@@ -1266,7 +1251,7 @@ class TrackMetaData:
         across all animations in the MTAR file.
         
         Property key format: track_<padded_idx>_<fox_track_name>
-        Property value format: name=<name> ; segments=<segments> ; flags=<flags> ; hash=<hash> ; type=<type> ; bits=<bits> ; count=<n>
+        Property value format: name=<name> ; segments=<segments> ; flags=<flags> ; type=<type> ; bits=<bits> ; count=<n>
 
         This function now uses the unified parse_track_metadata_generic() parser.
         
@@ -1312,13 +1297,13 @@ class TrackMetaData:
                 Debug.log_warning(f"      Warning: Unknown rig unit type '{parsed['rig_unit_type']}' in track '{fox_track_name}'")
         
         # Create TrackMetaData from parsed values
-        name_hash = parsed['name_hash']
-        if name_hash is None:
-            # Generate hash from track name if not provided
-            name_hash = StrCode32.from_string(parsed['track_name']).to_int()
+        # Determine name_hash from the provided track name using utility helper.
+        # This handles both readable names and numeric hash literals.
+        track_name_val = parsed['track_name']
+        name_hash = hash_or_parse_name(track_name_val)
         
         return TrackMetaData(
-            track_name=parsed['track_name'],
+            track_name=track_name_val,
             name_hash=name_hash,
             segment_types=parsed['segment_types'],
             component_bit_sizes=parsed['component_bit_sizes'],
@@ -1540,16 +1525,13 @@ def merge_track_metadata(layout_meta: TrackMetaData, action_meta: Optional[Track
         if action_meta.name_hash is not None:
             result.name_hash = action_meta.name_hash
         else:
+            # Derive hash from the track name string, handling numeric literals
+            # automatically via helper.
             try:
-                result.name_hash = StrCode32.from_string(action_meta.track_name).to_int()
-            except (ValueError, AttributeError):
-                # If conversion fails, leave as-is
+                result.name_hash = hash_or_parse_name(action_meta.track_name)
+            except Exception:
+                # if helper somehow fails (shouldn't), leave existing hash
                 pass
-
-    # Override component bit sizes if provided in action
-    if action_meta.component_bit_sizes is not None:
-        result.component_bit_sizes = action_meta.component_bit_sizes
-
     # Override flags: prefer explicit integer if available, otherwise flags list
     # Edit: unit flags are a special case. The action always (!) overrides the layout
     result.unit_flags = action_meta.unit_flags

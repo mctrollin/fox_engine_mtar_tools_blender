@@ -273,7 +273,6 @@ def create_shader_animation_actions(
             store_track_metadata_on_action(
                 action, all_track_metadata,
                 include_segments=False,
-                include_hash=False,
             )
 
         configure_action(action, frame_start=0, frame_end=gani_frame_count)

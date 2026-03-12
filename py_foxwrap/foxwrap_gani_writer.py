@@ -40,7 +40,7 @@ from typing import Optional, List, Tuple, Union, Dict
 
 from ..py_utilities.utilities_logging import Debug
 from ..py_utilities.utilities_binary_write import align_buffer
-from ..py_utilities.utilities_hashing import is_hash_string, parse_hash_string
+from ..py_utilities.utilities_hashing import is_hash_string, hash_or_parse_name
 from ..py_utilities.utilities_hashing_cityhash import strcode32
 
 from ..py_fox.fox_foxdata_types import FoxDataHeader, FoxDataNode, FoxDataNodeType, FoxDataParamType
@@ -82,7 +82,6 @@ _CONTAINER_NAME_STRING_SIZE = 16  # null-terminated name + zero padding to 16-by
 # append null-terminated UTF-8 bytes followed by padding to a 16-byte boundary.
 _FLOAT_PARAM_ENTRY_SIZE  = 16
 _STRING_PARAM_ENTRY_SIZE = 20  # base size; inline entries are larger
-_MOTION_PARAM_COUNT      = 2   # SLOPE_ANGLE then SLOPE_DIR (default MOTION params)
 
 
 class GaniWriter:
@@ -541,10 +540,8 @@ class GaniWriter:
                         f"  write_shader_node: Could not parse hash from '{prop_name_str}', "
                         f"using strcode32 as fallback (hash={prop_hash})"
                     )
-            elif is_hash_string(prop_name_str):
-                prop_hash = parse_hash_string(prop_name_str)
             else:
-                prop_hash = strcode32(prop_name_str)
+                prop_hash = hash_or_parse_name(prop_name_str)
 
             pos, _, payload_end = self._write_tracks_node(buffer, prop_hash, tracks)
             
@@ -817,10 +814,10 @@ class GaniWriter:
             else:
                 s = str(name)
                 if is_hash_string(s):
-                    # Decimal or 0x-hex literal — no inline string available
-                    entries.append((parse_hash_string(s), None))
+                    # numeric hash literal
+                    entries.append((hash_or_parse_name(s), None))
                 else:
-                    entries.append((strcode32(s), s))
+                    entries.append((hash_or_parse_name(s), s))
 
         # Write EntryCount
         buffer.write(struct.pack('<I', len(entries)))

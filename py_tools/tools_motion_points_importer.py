@@ -263,7 +263,6 @@ def create_motion_points_animation_actions(
             store_track_metadata_on_action(
                 action, track_metadata_list,
                 include_segments=False,
-                include_hash=False,
             )
 
         motion_point_track_header: TrackHeader = all_motion_point_track_headers[gani_index]

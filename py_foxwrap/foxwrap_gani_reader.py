@@ -11,7 +11,13 @@ import struct
 from typing import Optional, List, BinaryIO, Tuple, Union, Dict
 
 from ..py_utilities.utilities_logging import Debug
-from ..py_utilities.utilities_hashing import unhash_gani_node, unhash_shader_prop, unhash_param_name, is_hash_string, parse_hash_string
+from ..py_utilities.utilities_hashing import (
+    unhash_gani_node,
+    unhash_shader_prop,
+    unhash_param_name,
+    is_hash_string,
+    hash_or_parse_name,
+)
 from ..py_utilities.utilities_hashing_cityhash import strcode32
 
 from ..py_fox.fox_foxdata_types import FoxDataHeader, FoxDataNode, FoxDataParamType
@@ -61,11 +67,9 @@ def _apply_stringlist_names(
         name = track.name
         is_hash_fallback = is_hash_string(name)
 
-        # Compute the hash of this track's current name.
-        if is_hash_fallback:
-            track_hash = parse_hash_string(name)
-        else:
-            track_hash = strcode32(name)
+        # Compute the hash of this track's current name (handles numeric
+        # literals and normal names transparently).
+        track_hash = hash_or_parse_name(name)
 
         if track_hash in skl_lookup:
             skl_name = skl_lookup[track_hash]

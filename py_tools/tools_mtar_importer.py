@@ -356,15 +356,14 @@ def create_animation_actions(
                 gani_tracks=data.bone_tracks)  # Pass gani_tracks to resolve rig_unit_type from FRIG
             store_track_metadata_on_action(
                 action, track_metadata_list,
-                include_segments=True,  # Full segment types stored for old-format
-                include_hash=True)      # Name hash stored
+                include_segments=True)  # Full segment types stored for old-format
             store_track_header_properties_on_action(action, per_gani_layout.header)
             store_mtar_properties_on_action(action, mtar_version, mtar_flags)
             Debug.log(f"Stored full metadata on old-format GANI action (idx={gani_index}) from per-GANI layout")
         else:
             # GANI2 path or missing layout: metadata already on layout action; per-GANI only stores bits+flags
             track_metadata_list = TrackMetaData.from_gani_tracks(data.bone_tracks, track_mini_header.segment_headers)
-            store_track_metadata_on_action(action, track_metadata_list, include_segments=False, include_hash=False)
+            store_track_metadata_on_action(action, track_metadata_list, include_segments=False)
         # Store all non-SHADER node params from this GANI (MOTION, ROOT, etc.) for lossless round-trip
         gani_node_params = data.node_params or {}
         for node_key, params in gani_node_params.items():
