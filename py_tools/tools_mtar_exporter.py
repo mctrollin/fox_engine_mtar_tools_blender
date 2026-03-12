@@ -27,6 +27,11 @@ from ..py_utilities.utilities_blender_animation import (
     FCurveCache, iter_action_fcurves, is_relevant_strip, try_find_layout_track_action,
     build_data_path_for_bone, assign_action_to_datablock, MTAR_ARMATURE_SLOT_NAME    
 )
+
+from ..py_utilities.utilities_blender_armature import (
+    auto_detect_motion_points_armature,
+    auto_detect_shader_nodes_armature,
+)
 from ..py_utilities.utilities_fcurve_processing import bake_and_clean_export_fcurves
 
 from ..py_foxwrap.foxwrap_motionevent import read_motion_events_from_action
@@ -1580,25 +1585,36 @@ def export_mtar(context: bpy.types.Context,
     Debug.start_timer("3. Motion Points")
     Debug.update_progress(20, "Motion Points...")
 
-    # Find motion points armature and collect motion point data
-    Debug.log("\n=== Motion Points Detection ===")
-    motion_points_armature = export_props.motion_points_armature
-    shader_nodes_armature = getattr(export_props, 'shader_nodes_armature', None)
-    
+    # Find motion points and shader nodes armature based purely on scene state
+    Debug.log("\n=== Motion Points & Shader Nodes Detection ===")
+
+    motion_points_armature = auto_detect_motion_points_armature(armature)
+    shader_nodes_armature = auto_detect_shader_nodes_armature(armature)
+
+    if motion_points_armature:
+        Debug.log(f"Detected motion points armature: {motion_points_armature.name}")
+    else:
+        Debug.log("No motion points armature detected")
+
+    if shader_nodes_armature:
+        Debug.log(f"Detected shader nodes armature: {shader_nodes_armature.name}")
+    else:
+        Debug.log("No shader nodes armature detected")
+
     motion_point_actions_data: List[ExportActionData] = []
     motion_points_list: Optional[object] = None
     motion_point_actions_by_gani_index: Dict[int, ExportActionData] = {}
-    
+
     if motion_points_armature:
-        Debug.log(f"Found motion points armature: {motion_points_armature.name}")
-        
         # Build MotionPointsList from armature bones (but do not write header count yet - it is computed at write time)
         motion_points_wrapper = build_motion_points_list_from_armature(motion_points_armature)
         motion_points_list = motion_points_wrapper.to_motion_point_list2()
-        
+
         # Collect motion point actions
-        motion_point_actions_data = collect_motion_point_actions(motion_points_armature, use_nla, export_props.export_fcurve_clean_threshold)
-        
+        motion_point_actions_data = collect_motion_point_actions(
+            motion_points_armature, use_nla, export_props.export_fcurve_clean_threshold
+        )
+
         if motion_point_actions_data:
             Debug.log(f"Found {len(motion_point_actions_data)} motion point action(s)")
             # Build lookup map for motion-point actions by GANI index
@@ -1606,10 +1622,6 @@ def export_mtar(context: bpy.types.Context,
         else:
             Debug.log("No motion point actions found (motion points list will be exported without animations)")
     else:
-        if export_props.motion_points_armature:
-            Debug.log(f"The selected object is not a motion points armature or the armature is invalid: {export_props.motion_points_armature}")
-        else:
-            Debug.log("No motion points armature selected")
         Debug.log("Motion points will not be exported")
     
     Debug.stop_timer("3. Motion Points")

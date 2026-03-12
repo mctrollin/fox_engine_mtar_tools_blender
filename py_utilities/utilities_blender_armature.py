@@ -1,6 +1,6 @@
 """Blender armature utility functions."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Tuple, Optional, Dict
 
 from ..py_foxwrap.foxwrap_misc_import import GaniImportData
@@ -154,9 +154,7 @@ def find_known_parent_bone(bone: 'bpy.types.Bone', known_bone_names: set) -> Tup
     return None, skipped_bones
 
 
-def extract_rest_pose_rotation(bone: 'bpy.types.Bone', 
-                               is_world_space: bool,
-                               known_bone_names: set) -> Tuple[Euler, str]:
+def extract_rest_pose_rotation(bone: 'bpy.types.Bone', is_world_space: bool, known_bone_names: set) -> Tuple[Euler, str]:
     """Extract rest pose rotation from a bone in either world space or local space.
     
     For world space bones (ORIENTATION, TWO_BONE, ARM), returns the bone's rotation
@@ -199,3 +197,70 @@ def extract_rest_pose_rotation(bone: 'bpy.types.Bone',
                 space_label = "world (no parent)"
     
     return euler, space_label
+
+
+# Auxiliary Armature Detection Helpers #############################################################
+
+def auto_detect_motion_points_armature(main_armature: 'bpy.types.Object') -> Optional['bpy.types.Object']:
+    """Return a motion-points armature associated with *main_armature*.
+
+    Detection order:
+    1. A direct child parented to *main_armature* whose name ends with
+       ``"_MotionPoints"``.
+    2. Any other armature in the file whose name contains
+       ``"_MotionPoints"``.
+
+    This relies on the import code parenting the auxiliary armature to the
+    main rig (see :mod:`tools_mtar_importer`).
+    """
+    if not main_armature:
+        return None
+
+    # children first (parenting is the most reliable marker)
+    for child in main_armature.children:
+        if child.type == 'ARMATURE' and child.name.endswith("_MotionPoints"):
+            return child
+
+    # fallback: global name search
+    for obj in bpy.data.objects:
+        if obj is main_armature or obj.type != 'ARMATURE':
+            continue
+        if "_MotionPoints" in obj.name:
+            return obj
+
+    return None
+
+
+def auto_detect_shader_nodes_armature(main_armature: 'bpy.types.Object') -> Optional['bpy.types.Object']:
+    """Return a shader-nodes armature associated with *main_armature*.
+
+    The same rules as :func:`auto_detect_motion_points_armature` apply but with
+    ``"_ShaderNodes"`` in the name.  Shader armatures are only relevant for
+    old-format (GZ) MTAR exports, but we implement the detector unconditionally
+    so callers can use it without needing extra format knowledge.
+    """
+    if not main_armature:
+        return None
+
+    for child in main_armature.children:
+        if child.type == 'ARMATURE' and child.name.endswith("_ShaderNodes"):
+            return child
+
+    for obj in bpy.data.objects:
+        if obj is main_armature or obj.type != 'ARMATURE':
+            continue
+        if "_ShaderNodes" in obj.name:
+            return obj
+
+    return None
+
+
+def auto_detect_aux_armatures(main_armature: 'bpy.types.Object') -> tuple[Optional['bpy.types.Object'], Optional['bpy.types.Object']]:
+    """Shortcut that returns ``(motion_points, shader_nodes)`` armatures.
+
+    This is mostly for callers that need to look up both objects at once.
+    """
+    return (
+        auto_detect_motion_points_armature(main_armature),
+        auto_detect_shader_nodes_armature(main_armature),
+    )

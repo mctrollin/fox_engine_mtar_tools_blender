@@ -11,6 +11,11 @@ from bpy.types import Operator, Context
 
 from .py_utilities.utilities_logging import Debug
 from .py_utilities.utilities_blender_state import nla_tweak_guard
+from .py_utilities.utilities_blender_armature import (
+    auto_detect_motion_points_armature,
+    auto_detect_shader_nodes_armature,
+    auto_detect_aux_armatures,
+)
 
 from .py_foxwrap.foxwrap_misc_export import TrackSegmentBoneMapping
 from .py_foxwrap.foxwrap_mapping import parse_segment_suffix
@@ -178,7 +183,9 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
         Debug.update_progress(0, "Starting export...")
 
         # NLA tweak mode guard — AnimData.action is read-only while use_tweak_mode is True.
-        with nla_tweak_guard(export_props.armature, export_props.motion_points_armature):
+        # detect auxiliaries so they can be included in the guard
+        mp_arm, sh_arm = auto_detect_aux_armatures(export_props.armature)
+        with nla_tweak_guard(export_props.armature, mp_arm, sh_arm):
             try:
                 with Debug.busy_cursor():
                     # Export MTAR with layout track extracted from metadata

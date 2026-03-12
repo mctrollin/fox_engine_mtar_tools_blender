@@ -1125,6 +1125,21 @@ def import_mtar_data(
         gani_actions  # Reference actions for frame synchronization
     )
 
+    # parent the motion points armature to whichever rig will be exported
+    # (custom rig if provided, otherwise the imported armature). This ensures
+    # auto-detection works when the user chooses a custom rig later.
+    parent_target = custom_rig if custom_rig else armature
+    if _motion_points_armature and parent_target:
+        try:
+            _motion_points_armature.parent = parent_target
+            Debug.log(
+                f"Parented motion points armature '{_motion_points_armature.name}' to '{parent_target.name}'"
+            )
+        except Exception:
+            Debug.log_warning(
+                f"Failed to parent motion points armature '{_motion_points_armature.name}' to '{parent_target.name}'"
+            )
+
     # Create shader nodes animation actions (old-format only; empty lists for new-format)
     Debug.update_progress(67, "Creating Shader Nodes...")
     shader_actions = create_shader_animation_actions(
@@ -1152,6 +1167,17 @@ def import_mtar_data(
         strip_padding,
         gani_actions  # Reference actions for frame synchronization
     )
+
+    if _shader_nodes_armature and parent_target:
+        try:
+            _shader_nodes_armature.parent = parent_target
+            Debug.log(
+                f"Parented shader nodes armature '{_shader_nodes_armature.name}' to '{parent_target.name}'"
+            )
+        except Exception:
+            Debug.log_warning(
+                f"Failed to parent shader nodes armature '{_shader_nodes_armature.name}' to '{parent_target.name}'"
+            )
 
     Debug.log("\n=== MTAR Import Completed Successfully ===")
     Debug.update_progress(70, "Import MTAR Data Finished")

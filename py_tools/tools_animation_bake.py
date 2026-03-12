@@ -414,38 +414,7 @@ def bake_armature_constraints_to_keyframes(rig_armature: bpy.types.Object,
     Debug.log(f"Baking action '{action.name}' for armature '{rig_armature.name}'")
     
     target_action = action
-    
-    # Call the actual implementation
-    return _continue_bake_armature_constraints_implementation(
-        rig_armature=rig_armature,
-        action=action,
-        target_action=target_action,
-        remove_constraints=remove_constraints,
-        create_new_action=create_new_action,
-        new_action_suffix=new_action_suffix,
-        nla_track=nla_track,
-        source_armature=source_armature
-    )
 
-
-# ---- Continuation of bake_armature_constraints_to_keyframes implementation ----
-# (This section continues the actual function body)
-
-def _continue_bake_armature_constraints_implementation(
-    rig_armature: bpy.types.Object,
-    action: bpy.types.Action,
-    target_action: bpy.types.Action,
-    remove_constraints: bool,
-    create_new_action: bool,
-    new_action_suffix: str,
-    nla_track: Optional[bpy.types.NlaTrack],
-    source_armature: Optional[bpy.types.Object]
-) -> Dict[str, Any]:
-    """Internal continuation of bake_armature_constraints_to_keyframes logic.
-    
-    This contains the actual baking implementation that was split during refactoring.
-    Should be called from bake_armature_constraints_to_keyframes after initial setup.
-    """
     # Create new action if requested
     if create_new_action:
         new_action_name = f"{action.name}{new_action_suffix}"

@@ -37,9 +37,7 @@ class MTAR_PT_ExportPanel(Panel):
         box_rig = box_export.box()
         box_rig.prop(export_props, "armature", text="", icon='ARMATURE_DATA')
         if export_props.armature:
-            box_rig.prop(export_props, "motion_points_armature", text="", icon='ARMATURE_DATA')
-            # Resolve the layout action once; reused for both the shader picker
-            # visibility check and the format info box below.
+            # Resolve the layout action once; reused for format/info logic below.
             _layout_action = try_find_layout_track_action()
             _fmt_flags = 0x1000  # default: new format
             # For old-format MTARs (no layout action), collect fallback NLA actions
@@ -58,9 +56,7 @@ class MTAR_PT_ExportPanel(Panel):
                 if _fallback_nla_actions:
                     _fmt_mtar_props = read_mtar_properties_from_any_action(_layout_action, _fallback_nla_actions)
                     _fmt_flags = _fmt_mtar_props.get(mtar_const.MTAR_FLAGS, 0x1000)
-            # Show shader nodes armature picker only for old-format (FoxData / GZ) MTARs
-            if not bool(_fmt_flags & 0x1000):  # old format (no UseMini flag)
-                box_rig.prop(export_props, "shader_nodes_armature", text="", icon='SHADING_RENDERED')
+            # old-format info still needs to know _fmt_flags
 
         if settings_props.show_advanced_settings:
             adv_box = box_rig.box()
