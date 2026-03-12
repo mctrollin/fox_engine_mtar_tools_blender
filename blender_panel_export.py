@@ -2,132 +2,119 @@
 Blender N-Panel for MTAR export functionality.
 """
 import bpy
-from bpy.types import Panel, Context
+from bpy.types import Context, UILayout
 
-from .blender_operators_export import (
-    MTAR_OT_ExportAnimationToMTAR,
-)
+from .blender_operators_export import MTAR_OT_ExportAnimationToMTAR
 from .py_utilities.utilities_blender_animation import is_relevant_strip, try_find_layout_track_action
 from .py_foxwrap.foxwrap_metadata import read_mtar_properties_from_action, read_mtar_properties_from_any_action
 from .py_fox import fox_mtar_constants as mtar_const
 
-# Import shared utilities and properties from the import panel module
-# (This avoids duplication of the PropertyGroup and helper functions)
-from .blender_panel_import import draw_bool_prop_checkbox_icon, draw_progress_bar
+from .blender_panel_shared import draw_bool_prop_checkbox_icon, draw_progress_bar
 
-class MTAR_PT_ExportPanel(Panel):
-    """N-Panel for MTAR animation export."""
-    bl_label = "MTAR Animation Export"
-    bl_idname = "MTAR_PT_export_panel"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = 'MTAR'
-    
-    def draw(self, context: Context) -> None:
-        layout = self.layout
-        props = context.scene.mtar_properties
-        export_props = props.export_props
-        settings_props = props.settings_props
-        
-        box_export = layout.box()
-        # Compute count of animations/strips that will be exported (None = unknown/no armature)
-        export_count = None
 
-        # Armatures selector
-        box_rig = box_export.box()
-        box_rig.prop(export_props, "armature", text="", icon='ARMATURE_DATA')
-        if export_props.armature:
-            # Resolve the layout action once; reused for format/info logic below.
-            _layout_action = try_find_layout_track_action()
-            _fmt_flags = 0x1000  # default: new format
-            # For old-format MTARs (no layout action), collect fallback NLA actions
-            _fallback_nla_actions = []
-            if _layout_action:
-                _fmt_mtar_props = read_mtar_properties_from_action(_layout_action)
-                _fmt_flags = _fmt_mtar_props.get(mtar_const.MTAR_FLAGS, 0x1000)
-            elif export_props.armature and export_props.armature.animation_data:
-                # Old-format: collect NLA actions for fallback MTAR property reading
-                anim_data = export_props.armature.animation_data
-                for track in anim_data.nla_tracks:
-                    if not track.mute:
-                        for strip in track.strips:
-                            if is_relevant_strip(strip) and strip.action:
-                                _fallback_nla_actions.append(strip.action)
-                if _fallback_nla_actions:
-                    _fmt_mtar_props = read_mtar_properties_from_any_action(_layout_action, _fallback_nla_actions)
-                    _fmt_flags = _fmt_mtar_props.get(mtar_const.MTAR_FLAGS, 0x1000)
-            # old-format info still needs to know _fmt_flags
+def draw_export_page(layout: UILayout, context: Context) -> None:
+    """Draw the export page inside the unified MTAR panel."""
+    props = context.scene.mtar_properties
+    export_props = props.export_props
+    settings_props = props.settings_props
 
-        if settings_props.show_advanced_settings:
-            adv_box = box_rig.box()
-            adv_box.alert = True
-            draw_bool_prop_checkbox_icon(adv_box, export_props, "use_nla")
+    box_export = layout.box()
+    # Compute count of animations/strips that will be exported (None = unknown/no armature)
+    export_count = None
 
-        # Show info about NLA status and compute export_count
-        animinfo_box = box_rig.box()
-        if export_props.armature and export_props.armature.animation_data:
+    # Armatures selector
+    box_rig = box_export.box()
+    box_rig.prop(export_props, "armature", text="", icon='ARMATURE_DATA')
+    if export_props.armature:
+        # Resolve the layout action once; reused for format/info logic below.
+        _layout_action = try_find_layout_track_action()
+        _fmt_flags = 0x1000  # default: new format
+        # For old-format MTARs (no layout action), collect fallback NLA actions
+        _fallback_nla_actions = []
+        if _layout_action:
+            _fmt_mtar_props = read_mtar_properties_from_action(_layout_action)
+            _fmt_flags = _fmt_mtar_props.get(mtar_const.MTAR_FLAGS, 0x1000)
+        elif export_props.armature and export_props.armature.animation_data:
+            # Old-format: collect NLA actions for fallback MTAR property reading
             anim_data = export_props.armature.animation_data
-            if anim_data.nla_tracks and export_props.use_nla:
-                unmuted_strips = sum(1 for track in anim_data.nla_tracks
-                                    if not track.mute
-                                    for strip in track.strips
-                                    if is_relevant_strip(strip))
-                export_count = unmuted_strips
-                if unmuted_strips > 0:
-                    animinfo_box.label(text=f"Found {unmuted_strips} NLA strip(s)", icon='CHECKMARK')
-                else:
-                    animinfo_box.label(text="No unmuted NLA strips", icon='INFO')
-            elif anim_data.action:
-                export_count = 1
-                animinfo_box.label(text="Using active action", icon='ACTION')
-            else:
-                export_count = 0
-                animinfo_box.label(text="No animation data", icon='ERROR')
+            for track in anim_data.nla_tracks:
+                if not track.mute:
+                    for strip in track.strips:
+                        if is_relevant_strip(strip) and strip.action:
+                            _fallback_nla_actions.append(strip.action)
+            if _fallback_nla_actions:
+                _fmt_mtar_props = read_mtar_properties_from_any_action(_layout_action, _fallback_nla_actions)
+                _fmt_flags = _fmt_mtar_props.get(mtar_const.MTAR_FLAGS, 0x1000)
+        # old-format info still needs to know _fmt_flags
 
-        # Show format info (detected from layout action or per-GANI fallback)
-        # Only show if armature is selected (user is actively configuring an export)
-        if export_props.armature:
-            format_info_box = box_rig.box()
-            is_new_format = bool(_fmt_flags & 0x1000)  # UseMini flag
+    if settings_props.show_advanced_settings:
+        adv_box = box_rig.box()
+        adv_box.alert = True
+        draw_bool_prop_checkbox_icon(adv_box, export_props, "use_nla")
+
+    # Show info about NLA status and compute export_count
+    animinfo_box = box_rig.box()
+    if export_props.armature and export_props.armature.animation_data:
+        anim_data = export_props.armature.animation_data
+        if anim_data.nla_tracks and export_props.use_nla:
+            unmuted_strips = sum(1 for track in anim_data.nla_tracks
+                                if not track.mute
+                                for strip in track.strips
+                                if is_relevant_strip(strip))
+            export_count = unmuted_strips
+            if unmuted_strips > 0:
+                animinfo_box.label(text=f"Found {unmuted_strips} NLA strip(s)", icon='CHECKMARK')
+            else:
+                animinfo_box.label(text="No unmuted NLA strips", icon='INFO')
+        elif anim_data.action:
+            export_count = 1
+            animinfo_box.label(text="Using active action", icon='ACTION')
+        else:
+            export_count = 0
+            animinfo_box.label(text="No animation data", icon='ERROR')
+
+    # Show format info (detected from layout action or per-GANI fallback)
+    # Only show if armature is selected (user is actively configuring an export)
+    if export_props.armature:
+        format_info_box = box_rig.box()
+        is_new_format = bool(_fmt_flags & 0x1000)  # UseMini flag
+        
+        if _layout_action:
+            # Layout action exists (GANI2 / new-format)
+            # Check if properties are explicitly set (not defaults)
+            has_stored_props = (mtar_const.MTAR_VERSION in _layout_action.keys() and 
+                               mtar_const.MTAR_FLAGS in _layout_action.keys())
             
-            if _layout_action:
-                # Layout action exists (GANI2 / new-format)
-                # Check if properties are explicitly set (not defaults)
-                has_stored_props = (mtar_const.MTAR_VERSION in _layout_action.keys() and 
-                                   mtar_const.MTAR_FLAGS in _layout_action.keys())
-                
+            if is_new_format:
+                format_info_box.label(text="Format: GANI2 (TPP)", icon='CHECKMARK')
+            else:
+                format_info_box.label(text="Format: GANI (GZ/old)", icon='INFO')
+            
+            if not has_stored_props:
+                # Warn if using defaults (layout action found but no stored props)
+                warn_box = format_info_box.box()
+                warn_box.alert = True
+                warn_box.label(text="No MTAR version on layout action", icon='ERROR')
+                warn_box.label(text="Defaulting to GANI2 (new format)")
+                warn_box.label(text="Re-import an MTAR to preserve format")
+        else:
+            # No layout action found — old-format or no NLA data
+            if _fallback_nla_actions or (export_props.armature and export_props.armature.animation_data):
+                # Old-format with NLA data: show detected format
                 if is_new_format:
                     format_info_box.label(text="Format: GANI2 (TPP)", icon='CHECKMARK')
                 else:
                     format_info_box.label(text="Format: GANI (GZ/old)", icon='INFO')
-                
-                if not has_stored_props:
-                    # Warn if using defaults (layout action found but no stored props)
-                    warn_box = format_info_box.box()
-                    warn_box.alert = True
-                    warn_box.label(text="No MTAR version on layout action", icon='ERROR')
-                    warn_box.label(text="Defaulting to GANI2 (new format)")
-                    warn_box.label(text="Re-import an MTAR to preserve format")
             else:
-                # No layout action found — old-format or no NLA data
-                if _fallback_nla_actions or (export_props.armature and export_props.armature.animation_data):
-                    # Old-format with NLA data: show detected format
-                    if is_new_format:
-                        format_info_box.label(text="Format: GANI2 (TPP)", icon='CHECKMARK')
-                    else:
-                        format_info_box.label(text="Format: GANI (GZ/old)", icon='INFO')
-                else:
-                    # No animation data to detect format
-                    format_info_box.label(text="No animation or layout data found", icon='INFO')
+                # No animation data to detect format
+                format_info_box.label(text="No animation or layout data found", icon='INFO')
 
 
-        # Mapping file (optional)
+        # Mapping file (optional - shared with import)
         box = box_export
-        box.prop(export_props, "mapping_filepath", text="", icon='TEXT')
+        box.prop(props, "mapping_filepath", text="", icon='TEXT')
 
-        # Export file picker
-        box = box_export
-        box.prop(export_props, "filepath", text="", icon='CURRENT_FILE')
+       
 
         if settings_props.show_advanced_settings:
             adv_box = box_export.box()
@@ -148,6 +135,10 @@ class MTAR_PT_ExportPanel(Panel):
 
             # Export info file option
             draw_bool_prop_checkbox_icon(row_path_hash, export_props, "info_file")
+
+        # Export file picker
+        box = layout.box()
+        box.prop(export_props, "filepath", text="", icon='CURRENT_FILE')
 
         # Export button
         box_button = layout.box()
@@ -178,7 +169,6 @@ class MTAR_PT_ExportPanel(Panel):
 
 classes = (
     MTAR_OT_ExportAnimationToMTAR,
-    MTAR_PT_ExportPanel,
 )
 
 def register() -> None:

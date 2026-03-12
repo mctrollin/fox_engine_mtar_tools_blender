@@ -12,7 +12,7 @@ from .py_utilities.utilities_logging import Debug
 # from .py_tools.tools_mtar_importer import import_mtar
 from . import blender_panel_import
 from . import blender_panel_export
-from . import blender_panel_settings
+from . import blender_panel
 from . import blender_properties
 
 blender_debug_module = None
@@ -80,7 +80,8 @@ def register() -> None:
     # Register panels (includes their own classes)
     blender_panel_import.register()
     blender_panel_export.register()
-    blender_panel_settings.register()
+    blender_panel.register()
+    # settings panel no longer registers any classes; UI merged into import_panel
 
     # Register addon preferences so users can toggle debug tools
     try:
@@ -135,8 +136,7 @@ def unregister() -> None:
     except Exception:
         pass
 
-    # Unregister panels
-    blender_panel_settings.unregister()
+    # Unregister panels    blender_panel.unregister()
     blender_panel_export.unregister()
     blender_panel_import.unregister()
 

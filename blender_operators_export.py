@@ -11,11 +11,7 @@ from bpy.types import Operator, Context
 
 from .py_utilities.utilities_logging import Debug
 from .py_utilities.utilities_blender_state import nla_tweak_guard
-from .py_utilities.utilities_blender_armature import (
-    auto_detect_motion_points_armature,
-    auto_detect_shader_nodes_armature,
-    auto_detect_aux_armatures,
-)
+from .py_utilities.utilities_blender_armature import auto_detect_aux_armatures
 
 from .py_foxwrap.foxwrap_misc_export import TrackSegmentBoneMapping
 from .py_foxwrap.foxwrap_mapping import parse_segment_suffix
@@ -130,11 +126,11 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
             Debug.stop_timer("Export Operator")
             return {'CANCELLED'}
         
-        # Load mapping file if provided
+        # Load mapping file if provided (shared property)
         track_segment_bone_mapping = None
         
-        if export_props.mapping_filepath:
-            mapping_filepath_abs = bpy.path.abspath(export_props.mapping_filepath)
+        if props.mapping_filepath:
+            mapping_filepath_abs = bpy.path.abspath(props.mapping_filepath)
             if not os.path.exists(mapping_filepath_abs):
                 Debug.report_and_log(self, 'ERROR', f"Mapping file not found: {mapping_filepath_abs}")
                 Debug.stop_timer("Export Operator")

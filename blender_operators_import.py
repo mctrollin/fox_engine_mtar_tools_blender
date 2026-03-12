@@ -45,7 +45,7 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
         try:
             output = generate_mapping_template(frig_path, mtar_path)
             Debug.report_and_log(self,'INFO', f"Mapping file created: {output}")
-            import_props.mapping_filepath = output
+            props.mapping_filepath = output
             Debug.stop_timer("Generate Mapping Template")
             return {'FINISHED'}
         except Exception as e:
@@ -114,8 +114,8 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
         
         # Load track mapping file if provided
         track_mapping: Optional[Dict[str, BoneParameters]] = None
-        if import_props.mapping_filepath:
-            mapping_filepath_abs = bpy.path.abspath(import_props.mapping_filepath)
+        if props.mapping_filepath:
+            mapping_filepath_abs = bpy.path.abspath(props.mapping_filepath)
             if not os.path.exists(mapping_filepath_abs):
                 Debug.report_and_log(self, 'WARNING', f"Track mapping file not found: {mapping_filepath_abs}")
             else:

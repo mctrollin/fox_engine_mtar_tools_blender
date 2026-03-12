@@ -145,12 +145,6 @@ Also used by "Generate Mapping Template" to annotate each track with its type as
         maxlen=1024
     ))
     
-    mapping_filepath: StringProperty(**_file_path_kwargs(
-        name="Track Mapping File",
-        description="Path to the .txt file defining track transformations (renaming, rotation offsets, axis mapping, etc.)",
-        default="",
-        maxlen=1024
-    ))
     
     gani_indices_str: StringProperty(
         name="GANI Selection",
@@ -264,12 +258,6 @@ class MTAR_PG_ExportProperties(PropertyGroup):
         maxlen=1024
     ))
     
-    mapping_filepath: StringProperty(**_file_path_kwargs(
-        name="Export Mapping File",
-        description="Path to the bone mapping file for export transformations",
-        default="",
-        maxlen=1024
-    ))
     
     use_nla: BoolProperty(
         name="Export NLA Strips",
@@ -355,6 +343,17 @@ class MTAR_PG_SettingsProperties(PropertyGroup):
         description="Display advanced import/export settings",
         default=False
     )
+
+    active_tab: EnumProperty(
+        name="Tab",
+        items=[
+            ('IMPORT', "Import", "MTAR import settings"),
+            ('EXPORT', "Export", "MTAR export settings"),
+            ('SETTINGS', "Settings", "Plugin-wide settings"),
+        ],
+        default='IMPORT',
+        description="Select which page of the MTAR panel to display",
+    )
     
     log_verbosity: EnumProperty(
         name="Log Verbosity",
@@ -417,6 +416,16 @@ class MTAR_PG_Properties(PropertyGroup):
     export_props: PointerProperty(type=MTAR_PG_ExportProperties)
     execution_props: PointerProperty(type=MTAR_PG_ExecutionProperties)
     settings_props: PointerProperty(type=MTAR_PG_SettingsProperties)
+
+    mapping_filepath: StringProperty(**_file_path_kwargs(
+        name="Track Mapping File",
+        description=(
+            "Shared mapping file used for both import and export operations. "
+            "Path is auto-detected when generating a template."
+        ),
+        default="",
+        maxlen=1024
+    ))
 
 def register():
     bpy.utils.register_class(MTAR_PG_ImportProperties)
