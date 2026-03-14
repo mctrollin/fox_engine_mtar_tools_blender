@@ -256,18 +256,6 @@ Also used by "Generate Mapping Template" to annotate each track with its type as
         precision=3
     )
 
-    import_apply_root_motion: BoolProperty(
-        name="Apply Root Motion to Object",
-        description=(
-            "After baking, move root-motion bone transforms (location + rotation) "
-            "to the armature object level.\n"
-            "This lets pose libraries work mid-animation without manual repositioning. "
-            "Bones with space_l=world in the mapping are compensated automatically.\n"
-            "Only available when a custom rig and baking are enabled."
-        ),
-        default=True,
-    )
-
     use_verbose_naming: BoolProperty(
         name="Verbose Naming",
         description=(

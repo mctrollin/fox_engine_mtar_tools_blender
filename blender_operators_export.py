@@ -14,8 +14,7 @@ from .py_utilities.utilities_blender_state import nla_tweak_guard
 from .py_utilities.utilities_blender_armature import auto_detect_aux_armatures
 
 from .py_foxwrap.foxwrap_misc_export import TrackSegmentBoneMapping
-from .py_foxwrap.foxwrap_mapping import parse_segment_suffix
-from .py_foxwrap.foxwrap_mapping import parse_track_mapping_file
+from .py_foxwrap.foxwrap_mapping import parse_segment_suffix, parse_track_mapping_file, ARMATURE_TARGET_NAME
 from .py_foxwrap.foxwrap_metadata import iter_track_properties
 
 from .py_tools.tools_mtar_exporter import export_mtar, try_find_layout_track_action
@@ -68,8 +67,10 @@ def build_track_segment_bone_mapping_from_file(mapping_filepath: str,
     for fox_name, bone_params in mapping_data.fox_to_blender.items():
         blender_bone_name = mapping_data.fox_to_blender_names[fox_name]
         
-        # Check if this bone exists in the armature
-        if blender_bone_name not in armature.data.bones:
+        # Check if this bone exists in the armature.
+        # ARMATURE_TARGET_NAME ('[armature]') is a virtual target that routes keyframes
+        # to the armature object itself — it is never a real pose bone.
+        if blender_bone_name != ARMATURE_TARGET_NAME and blender_bone_name not in armature.data.bones:
             missing_bones.append(blender_bone_name)
             continue
         

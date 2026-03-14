@@ -52,7 +52,7 @@ from ..py_foxwrap.foxwrap_misc_export import (
     build_motion_point_action_maps, find_motion_point_action_for_gani,
     build_shader_action_maps, find_shader_action_for_gani
 )
-from ..py_foxwrap.foxwrap_mapping import BoneParameters
+from ..py_foxwrap.foxwrap_mapping import BoneParameters, ARMATURE_TARGET_NAME
 
 from ..py_fox.fox_gani_types import AnimKeyframe, SegmentType, TrackUnitFlags, TrackHeader, TrackUnit, TrackData, TrackDataBlob
 from ..py_fox.fox_frig_types import RigUnitType
@@ -107,29 +107,6 @@ def get_default_bit_size_for_segment(segment_type: SegmentType) -> int:
     return 16
 
 
-# DIFF segment types that characterise a root-motion track (QUAT_DIFF + VECTOR_DIFF)
-_ROOT_MOTION_SEG_TYPES: frozenset = frozenset((SegmentType.QUAT_DIFF, SegmentType.VECTOR_DIFF))
-
-
-def _has_object_level_root_motion(action: bpy.types.Action, segment_types: list) -> bool:
-    """Return True if *action* has object-level FCurves for a root-motion track.
-
-    Checks that:
-    1. All *segment_types* are DIFF variants (root-motion track).
-    2. The action contains at least one object-level ``"location"`` or
-       ``"rotation_quaternion"`` FCurve (data path without a ``pose.bones[...]``
-       prefix), which is the sign that root motion has been moved to the
-       armature object via :func:`tools_root_motion.apply_root_motion_to_object_framebyframe`.
-    """
-    if not segment_types or not all(st in _ROOT_MOTION_SEG_TYPES for st in segment_types):
-        return False
-    if action is None:
-        return False
-    # Check for object-level location or rotation FCurve
-    return (
-        find_action_fcurve(action, "location", 0) is not None
-        or find_action_fcurve(action, "rotation_quaternion", 0) is not None
-    )
 
 
 def _get_object_keyframe_numbers(
@@ -140,8 +117,8 @@ def _get_object_keyframe_numbers(
 ) -> List[int]:
     """Return sorted integer keyframe times from the object-level FCurves.
 
-    Used as the export frame list when root motion has been moved to the
-    armature object (``_has_object_level_root_motion`` returns True).
+    Used as the export frame list when a track maps to the armature object
+    itself via the ``[armature]`` mapping target.
 
     Mirrors the NLA-offset logic of ``get_bone_keyframe_numbers_from_action``:
     object-level FCurve keypoints are always stored at **action-relative** frame
@@ -863,13 +840,9 @@ def export_rotation_segment(armature: bpy.types.Object,
     rotation_axis_map = bone_params.rotation_axis_map
     
     if use_object_level:
-        # Root motion is on the armature object.  The object transform encodes
-        # M_obj = arm_world_orig @ bone_armspace (tools_root_motion.py).
-        # The baked bone rotation FCurves will be applied on top of rest pose.
-        # No special recovery needed: when root bone goes to rest, its position
-        # is determined by M_obj @ rest = arm_world_orig @ bone_armspace @ rest,
-        # but we don't need to recover anything since the bone pose FCurves are gone.
-        # Read the object rotation and return it.
+        # Track maps to the armature object via [armature] mapping target.
+        # Rotation FCurves are stored as bare 'rotation_quaternion' on the object.
+        # Read the object rotation directly — no bone-space or rest-pose corrections.
         space_bone = None
         space_r_value = None
         map_r_dict = None
@@ -977,12 +950,9 @@ def export_location_segment(armature: bpy.types.Object,
     Debug.start_timer("export_location_segment")
 
     if use_object_level:
-        # Root motion is on the armature object.  The object transform encodes
-        # M_obj = arm_world_orig @ bone_armspace @ bone_rest⁻¹ (tools_root_motion.py).
-        # To recover the original bone *pose* location:
-        #   pose_basis = bone_rest⁻¹ @ arm_world_orig⁻¹ @ M_obj @ bone_rest
-        #   pose_loc   = pose_basis.to_translation()
-        # space_bone / invert_xy corrections are skipped.
+        # Track maps to the armature object via [armature] mapping target.
+        # Location FCurves are stored as bare 'location' on the object.
+        # Read the object location directly — no bone-space or axis corrections.
         space_bone = None
         use_world_space = False  # not used when use_object_level=True
         invert_xy = False
@@ -1223,12 +1193,12 @@ def export_gani_track_from_action(armature: bpy.types.Object,
 
     Debug.log(f"      Exporting track {track_idx}: '{base_fox_track_name}' -> {len(segment_types)} segments, flags={unit_flags_int}")
 
-    # Detect whether root motion for this track has been moved to the armature object.
-    # When True, segment exports read location/rotation from the object's world transform
-    # instead of the bone FCurves (which would be absent for the root bone).
-    use_object_level_for_track = _has_object_level_root_motion(action, segment_types)
+    # When the mapping file routes this track to '[armature]', keyframes are stored
+    # on the armature object itself (bare 'location' / 'rotation_quaternion' FCurves)
+    # rather than on a pose bone.
+    use_object_level_for_track = (base_blender_bone_name == ARMATURE_TARGET_NAME)
     if use_object_level_for_track:
-        Debug.log(f"      Track '{base_fox_track_name}': root motion detected on armature object — using object-level FCurves")
+        Debug.log(f"      Track '{base_fox_track_name}': [armature] mapping target — using object-level FCurves")
     
     # Extract keyframes for each segment
     keyframes_tracks = []
@@ -1273,8 +1243,11 @@ def export_gani_track_from_action(armature: bpy.types.Object,
                 )
                 continue
 
-        # Check if this bone exists in the armature
-        if segment_bone_name and segment_bone_name in armature.pose.bones:
+        # Check if this bone exists in the armature.
+        # When use_object_level_for_track is True (i.e. [armature] mapping target),
+        # segment_bone_name == ARMATURE_TARGET_NAME which is not a real pose bone —
+        # allow it through so the object-level FCurve reader is reached.
+        if segment_bone_name and (segment_bone_name in armature.pose.bones or use_object_level_for_track):
             Debug.start_timer(f"export_keyframes_track(segment_bone_name={segment_bone_name})")
             # Export keyframes for this segment
             keyframes = export_keyframes_track(

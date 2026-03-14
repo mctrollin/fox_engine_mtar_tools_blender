@@ -134,8 +134,6 @@ def draw_import_page(layout: UILayout, context: Context) -> None:
         draw_bool_prop_checkbox_icon(adv_box, import_props, "import_bake_constraints")
 
         if import_props.import_bake_constraints:
-            draw_bool_prop_checkbox_icon(adv_box, import_props, "import_apply_root_motion")
-            
             row = adv_box.row(align=True)
             draw_bool_prop_checkbox_icon(row, import_props, 'import_bake_do_decimate')
             sub = row.row(align=True)

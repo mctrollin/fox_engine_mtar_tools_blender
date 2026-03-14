@@ -25,7 +25,6 @@ from .py_tools.tools_mapping import generate_mapping_template
 from .py_tools.tools_mtar_importer import import_mtar
 from .py_tools.tools_animation_bake import bake_constraints_and_decimate_fcurves
 from .blender_properties import get_effective_import_bake_decimate_error
-from .py_tools.tools_root_motion import apply_root_motion_to_object_framebyframe
 from .py_utilities.utilities_fcurve_processing import decimate_import_fcurves_to_bezier
 
 
@@ -219,8 +218,8 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                                     new_action_suffix="_baked",
                                     remove_constraints=True,
                                     delete_import_armature=import_props.delete_import_armature,
-                                    bake_decimate_fcurve_error=0.0,
-                                    decimate_skip_types='',
+                                    bake_decimate_fcurve_error=get_effective_import_bake_decimate_error(import_props),
+                                    decimate_skip_types=getattr(import_props, 'import_bake_decimate_skip_types', ''),
                                     layout_action=layout_action,
                                     blender_to_fox_map=blender_to_fox_map,
                                 )
@@ -235,46 +234,11 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                                 else:
                                     Debug.report_and_log(self, 'WARNING', f"Bake failed: {bake_result.get('message')}")
 
-                        # Apply root motion to armature object (post-bake, optional)
-                        if bake_result and bake_result.get('success') and import_props.import_apply_root_motion:
-                            try:
-                                Debug.log("\n========= APPLYING ROOT MOTION TO OBJECT =========\n")
-                                Debug.start_timer("Root Motion")
-                                baked_actions = bake_result.get('actions_created') or []
-                                if not layout_action:
-                                    Debug.report_and_log(self, 'WARNING', "Apply Root Motion: no layout action found — skipping")
-                                elif len(baked_actions) <= 0:
-                                    Debug.report_and_log(self, 'WARNING', "Apply Root Motion: bake produced no actions — skipping")
-                                else:
-                                    apply_root_motion_to_object_framebyframe(
-                                        custom_rig=custom_rig,
-                                        baked_actions=baked_actions,
-                                        layout_action=layout_action,
-                                        track_mapping=track_mapping,
-                                    )
-
-                                    # Optional post-root-motion decimation (keeps keyframes sparse)
-                                    post_decimate_err = get_effective_import_bake_decimate_error(import_props)
-                                    if post_decimate_err > 0.0:
-                                        try:
-                                            Debug.log("\n========= DECIMATING POST-ROOT-MOTION =========\n")
-                                            Debug.start_timer("Post-Root Motion Decimate")
-                                            dec_res = decimate_import_fcurves_to_bezier(
-                                                armature=custom_rig,
-                                                bake_decimate_fcurve_error=post_decimate_err,
-                                                decimate_skip_types=import_props.import_bake_decimate_skip_types,
-                                                layout_action=layout_action,
-                                            )
-                                            Debug.log(f"  Post-root-motion decimated: {dec_res.get('fcurves_decimated', 0)}")
-                                        except Exception as e:
-                                            Debug.log_warning(f"Post-root-motion decimation failed: {e}")
-                                        finally:
-                                            Debug.stop_timer("Post-Root Motion Decimate")
-                            except Exception as e:
-                                Debug.report_and_log(self, 'WARNING', f"Root motion transfer failed: {e}")
-                                traceback.print_exc()
-                            finally:
-                                Debug.stop_timer("Root Motion")
+                    # Ensure Blender refreshes pose/constraint evaluation after import.
+                    try:
+                        context.scene.frame_set(context.scene.frame_current)
+                    except Exception:
+                        pass
 
                     Debug.stop_timer("Import Operator")
                     return {'FINISHED'}

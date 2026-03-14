@@ -42,7 +42,6 @@ from .py_tools.tools_root_motion import (
     compute_rest_inverse_delta,
     _get_ik_bone_names,
     _move_ik_bones_by_delta,
-    apply_root_motion_to_object_framebyframe,
 )
 from .py_foxwrap.foxwrap_mapping import parse_track_mapping_file, TrackMappingData
 from .py_tools.tools_hash_generator import hash_filename_all_modes_by_external_generator, validate_executable_path_by_external_generator
@@ -473,76 +472,6 @@ class MTAR_OT_DebugRootMotionRestInverseWithIKAndArmature(Operator):
         return {'FINISHED'}
 
 
-class MTAR_OT_DebugApplyRootMotionFrameByFrame(Operator):
-    """Apply root motion to armature object using frame-by-frame live pose manipulation."""
-    bl_idname = "mtar.debug_apply_root_motion_framebyframe"
-    bl_label = "Apply Root Motion (Frame-by-Frame)"
-    bl_description = (
-        "Apply root motion to the active armature using frame-by-frame live pose manipulation. "
-        "Iterates every keyframe time, applies the same transform as the single-frame debug "
-        "operator, records results, then writes them as FCurves. "
-        "Requires: active armature with NLA strips or active action, a layout action, and a "
-        "mapping file configured in mtar_properties."
-    )
-
-    def execute(self, context: Context) -> set:
-        arm = context.active_object
-        if not arm or arm.type != 'ARMATURE':
-            Debug.report_and_log(self, 'ERROR', "Active object must be an armature")
-            return {'CANCELLED'}
-
-        # Find layout action
-        layout_action = try_find_layout_track_action()
-        if not layout_action:
-            Debug.report_and_log(self, 'ERROR', "No layout track action found")
-            return {'CANCELLED'}
-
-        # Collect baked actions from NLA strips (and/or active action)
-        baked_actions = []
-        seen_ids: set = set()
-        if arm.animation_data and arm.animation_data.nla_tracks:
-            for track in arm.animation_data.nla_tracks:
-                for strip in track.strips:
-                    if strip.action and id(strip.action) not in seen_ids:
-                        baked_actions.append(strip.action)
-                        seen_ids.add(id(strip.action))
-        if arm.animation_data and arm.animation_data.action:
-            if id(arm.animation_data.action) not in seen_ids:
-                baked_actions.append(arm.animation_data.action)
-        if not baked_actions:
-            Debug.report_and_log(self, 'ERROR', "No actions found on the armature (NLA strips or active action)")
-            return {'CANCELLED'}
-
-        # Load mapping file for IK bone compensation
-        props = context.scene.mtar_properties
-        mapping_path = bpy.path.abspath(props.mapping_filepath) if props.mapping_filepath else ""
-        track_mapping = None
-        if mapping_path and os.path.exists(mapping_path):
-            try:
-                mapping_data: TrackMappingData = parse_track_mapping_file(mapping_path)
-                track_mapping = mapping_data.fox_to_blender
-            except Exception as e:
-                Debug.report_and_log(self, 'WARNING', f"Could not parse mapping file: {e}. Proceeding without IK compensation.")
-        else:
-            Debug.report_and_log(self, 'WARNING', "No mapping file configured — IK bones will not be compensated")
-
-        try:
-            result = apply_root_motion_to_object_framebyframe(
-                custom_rig=arm,
-                baked_actions=baked_actions,
-                layout_action=layout_action,
-                track_mapping=track_mapping,
-            )
-            if result:
-                Debug.report_and_log(self, 'INFO', f"Root motion (frame-by-frame) applied to {len(baked_actions)} action(s)")
-            else:
-                Debug.report_and_log(self, 'WARNING', "Root motion (frame-by-frame): no FCurves were moved — check console")
-        except Exception as e:
-            Debug.report_and_log(self, 'ERROR', f"Root motion (frame-by-frame) failed: {e}")
-            traceback.print_exc()
-            return {'CANCELLED'}
-
-        return {'FINISHED'}
 
 
 # Bake Debug Panel Operators ##################################################################
