@@ -282,7 +282,8 @@ def clean_fcurves(action: bpy.types.Action, threshold: float,
 def decimate_import_fcurves_to_bezier(armature: bpy.types.Object,
                            bake_decimate_fcurve_error: float,
                            decimate_skip_types: str = '',
-                           layout_action: Optional[bpy.types.Action] = None) -> Dict[str, int]:
+                           layout_action: Optional[bpy.types.Action] = None,
+                           blender_to_fox_map: Optional[Dict[str, str]] = None) -> Dict[str, int]:
     """Decimate imported fcurves by converting linear keyframes to Bezier curves.
     
     Import workflow:
@@ -295,7 +296,10 @@ def decimate_import_fcurves_to_bezier(armature: bpy.types.Object,
         bake_decimate_fcurve_error: Error threshold for decimation (0.0 = skip)
         decimate_skip_types: Comma-separated rig unit types to keep LINEAR (skip decimation)
         layout_action: Layout action to extract bone-to-rig-unit-type mapping for filtering
-        
+        blender_to_fox_map: Optional mapping from Blender bone names to Fox bone names.
+            This is required when Blender bone names differ from Fox names (e.g. due to mapping files)
+            so the correct rig unit types can be looked up.
+    
     Returns:
         Dictionary with results:
         - 'actions_processed': Number of actions processed
@@ -314,9 +318,9 @@ def decimate_import_fcurves_to_bezier(armature: bpy.types.Object,
                 decimate_skip_set.add(type_str)
     
     # Build bone-to-rig-unit-type mapping from layout action if provided
-    bone_to_type: Dict[str, Any] = {}
+    fox_bone_to_type: Dict[str, Any] = {}
     if layout_action and decimate_skip_set:
-        bone_to_type = extract_fox_bone_to_rig_unit_type_mapping(layout_action, {})
+        fox_bone_to_type = extract_fox_bone_to_rig_unit_type_mapping(layout_action, {})
     
     # Process all actions on armature (NLA strips + active action)
     actions_to_process: List[bpy.types.Action] = []
@@ -347,40 +351,45 @@ def decimate_import_fcurves_to_bezier(armature: bpy.types.Object,
         action_fcurves: List[bpy.types.FCurve] = list(iter_action_fcurves(action))
         
         # Get all bone names with fcurves in this action
-        all_bone_names: Set[str] = set()
+        all_blender_bone_names: Set[str] = set()
         for fcurve in action_fcurves:
             # Extract bone name from data path like 'pose.bones["BoneName"].location'
             if is_pose_bone_data_path(fcurve.data_path):
-                bone_name = extract_bone_name_from_data_path(fcurve.data_path)
-                if bone_name:
-                    all_bone_names.add(bone_name)
+                blender_bone_name = extract_bone_name_from_data_path(fcurve.data_path)
+                if blender_bone_name:
+                    all_blender_bone_names.add(blender_bone_name)
         
-        Debug.log(f"Found {len(all_bone_names)} bones in action '{action.name}'")
+        Debug.log(f"Found {len(all_blender_bone_names)} bones in action '{action.name}'")
         
         # Filter bones based on rig unit types
-        bones_to_decimate = set(all_bone_names)
-        bones_to_skip: Set[str] = set()
+        blender_bones_to_decimate = set(all_blender_bone_names)
+        blender_bones_to_skip: Set[str] = set()
         
-        if decimate_skip_set and bone_to_type:
-            for bone_name in list(bones_to_decimate):
-                rig_type = bone_to_type.get(bone_name)
+        if decimate_skip_set and fox_bone_to_type:
+            for blender_bone_name in list(blender_bones_to_decimate):
+                fox_bone_name = (
+                    blender_to_fox_map.get(blender_bone_name, blender_bone_name)
+                    if blender_to_fox_map
+                    else blender_bone_name
+                )
+                rig_type = fox_bone_to_type.get(fox_bone_name)
                 if rig_type and rig_type.name in decimate_skip_set:
-                    bones_to_skip.add(bone_name)
-                    bones_to_decimate.discard(bone_name)
+                    blender_bones_to_skip.add(blender_bone_name)
+                    blender_bones_to_decimate.discard(blender_bone_name)
         
-        if bones_to_skip:
-            Debug.log(f"Skipping {len(bones_to_skip)} bone(s) due to decimation skip filter")
+        if blender_bones_to_skip:
+            Debug.log(f"Skipping {len(blender_bones_to_skip)} bone(s) due to decimation skip filter")
         
         # Apply decimation to allowed bones
-        decimated = decimate_fcurves(action, bake_decimate_fcurve_error, bones_to_decimate, obj=armature)
+        decimated = decimate_fcurves(action, bake_decimate_fcurve_error, blender_bones_to_decimate, obj=armature)
         fcurves_decimated += decimated
         
         # Count skipped fcurves
-        for bone_name in bones_to_skip:
+        for blender_bone_name in blender_bones_to_skip:
             for fcurve in action_fcurves:
                 if is_pose_bone_data_path(fcurve.data_path):
                     extracted_bone = extract_bone_name_from_data_path(fcurve.data_path)
-                    if extracted_bone == bone_name:
+                    if extracted_bone == blender_bone_name:
                         fcurves_skipped += 1
     
     return {

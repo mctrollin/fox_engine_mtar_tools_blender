@@ -539,6 +539,10 @@ class TransformsCache:
 
     Use this for export phases to avoid repeated scene.frame_set() calls and
     expensive depsgraph evaluations. Build once per action and read from it.
+
+    Also caches the armature object's own world-space location and rotation
+    per frame (``get_object_location`` / ``get_object_rotation``), which is
+    used when root motion has been moved to the armature object level.
     """
     def __init__(self, armature: bpy.types.Object, frame_start: int, frame_end: int):
         self.armature = armature
@@ -546,9 +550,11 @@ class TransformsCache:
         self.frame_end = frame_end
         # Map: bone_name -> frame -> (local_rot, local_loc, world_rot, world_loc, bone_mat)
         self._data: Dict[str, Dict[int, tuple]] = {}
+        # Map: frame -> (object_loc: Vector, object_rot: Quaternion)
+        self._object_data: Dict[int, tuple] = {}
 
     def build(self):
-        """Precompute all bone transforms for the specified frame range."""
+        """Precompute all bone transforms and armature-object transforms for the frame range."""
         if not self.armature or not self.armature.pose:
             return
 
@@ -564,11 +570,20 @@ class TransformsCache:
             # Track previous frame quaternions to ensure sign consistency
             prev_local_rots: Dict[str, Quaternion] = {}
             prev_world_rots: Dict[str, Quaternion] = {}
+            prev_obj_rot: Optional[Quaternion] = None
 
             for frame in range(self.frame_start, self.frame_end + 1):
                 bpy.context.scene.frame_set(frame)
 
                 arm_matrix_world = self.armature.matrix_world.copy()
+
+                # Cache armature-object-level transforms
+                obj_loc = arm_matrix_world.to_translation()
+                obj_rot = arm_matrix_world.to_quaternion()
+                if prev_obj_rot is not None:
+                    obj_rot.make_compatible(prev_obj_rot)
+                prev_obj_rot = obj_rot.copy()
+                self._object_data[frame] = (obj_loc, obj_rot)
 
                 for bone in self.armature.pose.bones:
                     local_mat = bone.matrix_basis
@@ -629,3 +644,13 @@ class TransformsCache:
 
         local_matrix = space_rel_mat.inverted() @ bone_rel_mat
         return local_matrix.to_translation(), local_matrix.to_quaternion()
+
+    def get_object_location(self, frame: int) -> Optional[Vector]:
+        """Return the armature object's world-space location at *frame*, or ``None``."""
+        data = self._object_data.get(frame)
+        return data[0] if data else None
+
+    def get_object_rotation(self, frame: int) -> Optional[Quaternion]:
+        """Return the armature object's world-space rotation at *frame*, or ``None``."""
+        data = self._object_data.get(frame)
+        return data[1] if data else None

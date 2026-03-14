@@ -138,6 +138,14 @@ def draw_import_page(layout: UILayout, context: Context) -> None:
             row = adv_box.row()
             row.prop(import_props, 'import_bake_decimate_fcurve_error', text='Decimate Error', icon='IPO_BEZIER')
 
+            # Decimation track type filter (only shown if decimation error > 0)
+            if import_props.import_bake_decimate_fcurve_error > 0:
+                row.prop(import_props, 'import_bake_decimate_skip_types', text='', icon='FILTER')
+
+            # Root motion: move root bone transforms to armature-object level
+            draw_bool_prop_checkbox_icon(adv_box, import_props, "import_apply_root_motion")
+            draw_bool_prop_checkbox_icon(adv_box, import_props, "delete_import_armature")
+
     # Import button
     box_button = layout.box()
     col = box_button.column()

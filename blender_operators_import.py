@@ -24,6 +24,7 @@ from .py_tools.tools_hash_generator import build_gani_hash_dictionary
 from .py_tools.tools_mapping import generate_mapping_template
 from .py_tools.tools_mtar_importer import import_mtar
 from .py_tools.tools_animation_bake import bake_constraints_and_decimate_fcurves
+from .py_tools.tools_root_motion import apply_root_motion_to_object_framebyframe
 
 
 
@@ -114,6 +115,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
         
         # Load track mapping file if provided
         track_mapping: Optional[Dict[str, BoneParameters]] = None
+        blender_to_fox_map: Optional[Dict[str, str]] = None
         if props.mapping_filepath:
             mapping_filepath_abs = bpy.path.abspath(props.mapping_filepath)
             if not os.path.exists(mapping_filepath_abs):
@@ -122,6 +124,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                 try:
                     mapping_data: TrackMappingData = parse_track_mapping_file(mapping_filepath_abs)
                     track_mapping = mapping_data.fox_to_blender
+                    blender_to_fox_map = mapping_data.blender_to_fox_names
                     if track_mapping:
                         Debug.log(f"Loaded {len(track_mapping)} track mapping(s)")
                 except Exception as e:  # noqa: E722
@@ -195,6 +198,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
 
                             # Time the bake operation separately and run post-bake optimization via shared utility
                             Debug.start_timer("Bake Operation")
+                            bake_result = None  # ensure defined even when try raises
                             try:
                                 # Delegate constraint-baking + optional fcurve decimation to shared utility
                                 layout_action = try_find_layout_track_action()
@@ -208,12 +212,42 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                                     bake_decimate_fcurve_error=import_props.import_bake_decimate_fcurve_error,
                                     decimate_skip_types=import_props.import_bake_decimate_skip_types,
                                     layout_action=layout_action,
+                                    blender_to_fox_map=blender_to_fox_map,
                                 )
 
                                 # Report outcome (the utility already performs cleanup/logging)
                                 if bake_result.get('success'):
                                     Debug.log(f"Bake completed: {bake_result.get('message')}")
                                     Debug.log(f"  Decimated {bake_result.get('fcurves_decimated', 0)} FCurves")
+
+                                    # Apply root motion to armature object (post-bake, optional)
+                                    if import_props.import_apply_root_motion:
+                                        baked_actions = bake_result.get('actions_created') or []
+                                        if layout_action and baked_actions:
+                                            Debug.log("\n========= APPLYING ROOT MOTION TO OBJECT =========\n")
+                                            try:
+                                                apply_root_motion_to_object_framebyframe(
+                                                    custom_rig=custom_rig,
+                                                    baked_actions=baked_actions,
+                                                    layout_action=layout_action,
+                                                    track_mapping=track_mapping,
+                                                )
+                                            except Exception as e:
+                                                Debug.report_and_log(
+                                                    self, 'WARNING',
+                                                    f"Root motion transfer failed: {e}"
+                                                )
+                                                traceback.print_exc()
+                                        elif not layout_action:
+                                            Debug.report_and_log(
+                                                self, 'WARNING',
+                                                "Apply Root Motion: no layout action found — skipping"
+                                            )
+                                        else:
+                                            Debug.report_and_log(
+                                                self, 'WARNING',
+                                                "Apply Root Motion: bake produced no actions — skipping"
+                                            )
                                 else:
                                     Debug.report_and_log(self, 'WARNING', f"Bake failed: {bake_result.get('message')}")
 

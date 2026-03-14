@@ -926,6 +926,7 @@ def bake_constraints_and_decimate_fcurves(
     bake_decimate_fcurve_error: float = 0.0,
     decimate_skip_types: str = '',
     layout_action: Optional[bpy.types.Action] = None,
+    blender_to_fox_map: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """High-level helper: bake constraint-evaluated transforms, then optionally decimate fcurves.
 
@@ -1005,7 +1006,8 @@ def bake_constraints_and_decimate_fcurves(
                     armature=rig_armature,
                     bake_decimate_fcurve_error=bake_decimate_fcurve_error,
                     decimate_skip_types=decimate_skip_types,
-                    layout_action=layout_action
+                    layout_action=layout_action,
+                    blender_to_fox_map=blender_to_fox_map,
                 )
                 result['fcurves_decimated'] = dec_res.get('fcurves_decimated', 0)
             except Exception as e:
