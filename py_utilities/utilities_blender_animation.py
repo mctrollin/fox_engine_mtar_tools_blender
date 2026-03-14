@@ -3,7 +3,7 @@
 This module contains helper functions for manipulating Blender actions,
 FCurves, keyframes, and other animation-related structures.
 """
-from typing import Optional, Dict, List, Iterator, Set
+from typing import Optional, Dict, List, Iterator, Set, Tuple
 
 import bpy
 
@@ -1078,3 +1078,137 @@ def is_fcurve_linear(fcurve: bpy.types.FCurve) -> bool:
             return False
     
     return True
+
+
+# ---------------------------------------------------------------------------
+# FCurve keyframe-point utilities (used by root-motion and other tools)
+# ---------------------------------------------------------------------------
+
+def collect_keyframe_times(fcurves: List[Optional["bpy.types.FCurve"]]) -> Set[float]:
+    """Return the union of all keyframe ``co[0]`` times across *fcurves*."""
+    times: Set[float] = set()
+    for fc in fcurves:
+        if fc is None:
+            continue
+        for kp in fc.keyframe_points:
+            times.add(kp.co[0])
+    return times
+
+
+def set_keypoint_value(
+    fc: "bpy.types.FCurve",
+    frame: float,
+    value: float,
+    interpolation: Optional[str] = None,
+) -> None:
+    """Overwrite the value of the existing keyframe point nearest to *frame*.
+
+    Shifts Bezier handles by the same delta so the curve shape is preserved.
+    This is a no-op if no keyframe point is found within ±0.001 frames.
+
+    If *interpolation* is provided, the keyframe point's interpolation is also updated.
+    """
+    for kp in fc.keyframe_points:
+        if abs(kp.co[0] - frame) < 0.001:
+            delta = value - kp.co[1]
+            kp.co[1] = value
+            # Shift handles (stored as absolute y positions) by the same delta
+            kp.handle_left = (kp.handle_left[0], kp.handle_left[1] + delta)
+            kp.handle_right = (kp.handle_right[0], kp.handle_right[1] + delta)
+            if interpolation is not None:
+                kp.interpolation = interpolation
+            break
+
+
+def densify_bone_fcurves(
+    action: bpy.types.Action,
+    bone_name: str,
+    target_frame_times: List[float],
+) -> int:
+    """Insert keyframe points in bone FCurves at *target_frame_times* where missing.
+
+    Evaluates each FCurve at the target time using ``fc.evaluate(t)`` (which reads
+    the existing curve value without disturbing the shape) and inserts a new
+    keypoint at that time.  This ensures downstream code can overwrite a correct
+    value at every target frame rather than silently skipping frames.
+
+    Returns the total number of keyframe points inserted across all channels.
+    """
+    loc_path = build_data_path_for_bone(bone_name, 'location')
+    rot_path = build_data_path_for_bone(bone_name, 'rotation_quaternion')
+    fcs = (
+        [find_action_fcurve(action, loc_path, i) for i in range(3)]
+        + [find_action_fcurve(action, rot_path, i) for i in range(4)]
+    )
+
+    inserted = 0
+    for fc in fcs:
+        if fc is None:
+            continue
+        for t in target_frame_times:
+            already_keyed = any(abs(kp.co[0] - t) < 0.001 for kp in fc.keyframe_points)
+            if already_keyed:
+                continue
+            value = fc.evaluate(t)
+            kp = fc.keyframe_points.insert(t, value, options={"FAST"})
+            kp.interpolation = 'LINEAR'
+            inserted += 1
+
+    for fc in fcs:
+        if fc is not None:
+            fc.update()
+
+    return inserted
+
+
+def delete_bone_fcurves(action: bpy.types.Action, bone_name: str) -> int:
+    """Delete all location and rotation_quaternion FCurves for *bone_name*.
+
+    Returns the number of FCurves removed.
+    """
+    loc_path = build_data_path_for_bone(bone_name, 'location')
+    rot_path = build_data_path_for_bone(bone_name, 'rotation_quaternion')
+    removed = 0
+
+    for path, count in ((loc_path, 3), (rot_path, 4)):
+        for i in range(count):
+            fc = find_action_fcurve(action, path, i)
+            if fc is not None:
+                remove_action_fcurve(action, fc)
+                removed += 1
+
+    return removed
+
+
+def prune_action_fcurves_to_frames(
+    action: bpy.types.Action,
+    data_path: str,
+    indices: List[int],
+    keep_frames: Set[int],
+    slot_name: Optional[str] = None,
+) -> None:
+    """Remove keyframes from an action's FCurves that fall outside *keep_frames*.
+
+    The *slot_name* parameter ensures we operate on the same channelbag where
+    the FCurves were written (important for Blender 4.4+ channelbag/slot API).
+
+    Safe approach: snapshot kept values, clear, re-insert to avoid iterator
+    invalidation caused by Blender's C-level keyframe array shifting indices on
+    removal.
+    """
+    for i in indices:
+        fc = find_action_fcurve(action, data_path, i, slot_name=slot_name)
+        if fc is None:
+            continue
+
+        kept_keypoints = [
+            (kp.co[0], kp.co[1], kp.interpolation)
+            for kp in fc.keyframe_points
+            if int(round(kp.co[0])) in keep_frames
+        ]
+
+        fc.keyframe_points.clear()
+        for t, v, interp in kept_keypoints:
+            new_kp = fc.keyframe_points.insert(t, v, options={"FAST"})
+            new_kp.interpolation = interp
+        fc.update()

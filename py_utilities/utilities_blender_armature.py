@@ -6,7 +6,7 @@ from typing import List, Tuple, Optional, Dict
 from ..py_foxwrap.foxwrap_misc_import import GaniImportData
 
 import bpy
-from mathutils import Euler
+from mathutils import Euler, Matrix
 
 from .utilities_logging import Debug
 
@@ -264,3 +264,14 @@ def auto_detect_aux_armatures(main_armature: 'bpy.types.Object') -> tuple[Option
         auto_detect_motion_points_armature(main_armature),
         auto_detect_shader_nodes_armature(main_armature),
     )
+
+
+# Pose Bone Utilities #########################################################
+
+def clear_rest_pose_from_bone(pose_bone: 'bpy.types.PoseBone') -> None:
+    """Place the given pose bone at the armature origin by setting its matrix to identity.
+
+    This makes the bone's world transform match its parent armature's world transform.
+    Does NOT keyframe any values — intended for live pose manipulation.
+    """
+    pose_bone.matrix = Matrix.Identity(4)
