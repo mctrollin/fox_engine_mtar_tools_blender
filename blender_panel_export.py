@@ -184,8 +184,16 @@ classes = (
 
 def register() -> None:
     for cls in classes:
-        bpy.utils.register_class(cls)
+        try:
+            bpy.utils.register_class(cls)
+        except ValueError:
+            # Already registered (e.g. on reload)
+            pass
 
 def unregister() -> None:
     for cls in reversed(classes):
-        bpy.utils.unregister_class(cls)
+        try:
+            bpy.utils.unregister_class(cls)
+        except ValueError:
+            # Not registered or already unregistered
+            pass
