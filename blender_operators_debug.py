@@ -9,6 +9,7 @@ as well as interfacing with the external hash generator executable.
 
 from typing import Set
 import math
+import os
 import re
 
 import bpy
@@ -25,7 +26,6 @@ from .py_utilities.utilities_hashing_cityhash import (
     hash_file_name_legacy,
     hash_file_extension,
     hash_file_name_with_ext,
-    strcode32,
     strcode32_path,
 )
 # Import bake helpers from tools module (keep top-level to prevent import loops)
@@ -36,9 +36,16 @@ from .py_tools.tools_animation_bake import (
     bake_constraints_and_decimate_fcurves,
     clear_armature_transforms,
 )
+from .py_tools.tools_root_motion import (
+    compute_rest_inverse_delta,
+    _get_ik_bone_names,
+    _move_ik_bones_by_delta,
+)
+from .py_foxwrap.foxwrap_mapping import parse_track_mapping_file, TrackMappingData
 from .py_tools.tools_hash_generator import hash_filename_all_modes_by_external_generator, validate_executable_path_by_external_generator
 
-# Transform Debug Operators ##################################################################
+
+# Transform Debug Panel Operators ##################################################################
 
 class MTAR_OT_InspectWorldSpaceTransform(Operator):
     """Inspect world space transform for a bone at the current frame."""
@@ -105,50 +112,6 @@ class MTAR_OT_InspectLocalSpaceTransform(Operator):
     def execute(self, context: Context) -> set:
         """Execute the inspection."""
         props = context.scene.mtar_debug_transform_properties
-        
-        # Validate inputs
-        if not props.debug_armature:
-            Debug.report_and_log(self, 'ERROR', "No armature selected")
-            return {'FINISHED'}
-        
-        if not props.debug_bone_name:
-            Debug.report_and_log(self, 'ERROR', "No bone selected")
-            return {'FINISHED'}
-        
-        armature = props.debug_armature
-        bone_name = props.debug_bone_name
-        frame = context.scene.frame_current
-        
-        # Validate bone exists
-        if bone_name not in armature.pose.bones:
-            Debug.report_and_log(self, 'ERROR', f"Bone '{bone_name}' not found in armature")
-            return {'FINISHED'}
-        
-        try:
-            # Set frame explicitly (as it's no longer done inside transform getters)
-            context.scene.frame_set(frame)
-            
-            # Get local space transform
-            location, rotation = get_local_space_transform(
-                armature, bone_name, frame
-            )
-            
-            # Format result
-            result_str = (
-                f"Frame {frame} | "
-                f"Loc: ({location.x:.4f}, {location.y:.4f}, {location.z:.4f}) | "
-                f"Rot: ({rotation.x:.4f}, {rotation.y:.4f}, {rotation.z:.4f}, {rotation.w:.4f})"
-            )
-            
-            props.debug_local_space_result = result_str
-            
-            Debug.report_and_log(self, 'INFO', f"Local space transform retrieved: {result_str}")
-            
-        except Exception as e:
-            Debug.report_and_log(self, 'ERROR', f"Error getting local space transform: {str(e)}")
-            return {'FINISHED'}
-        
-        return {'FINISHED'}
 
 
 class MTAR_OT_CreateTransformDummies(Operator):
@@ -337,6 +300,177 @@ class MTAR_OT_CopyTransformDebugResults(Operator):
         
         return {'FINISHED'}
 
+
+# Root Motion Debug Panel Operators ##################################################################
+
+class MTAR_OT_DebugRootMotionRestInverse(Operator):
+    """Apply inverse rest pose to the selected pose bone (debug only)."""
+    bl_idname = "mtar.debug_root_motion_rest_inverse"
+    bl_label = "Apply Rest Pose Inversion"
+    bl_description = (
+        "Move the active pose bone so it sits at the armature origin (rest-inverse). "
+        "Does not keyframe anything."
+    )
+
+    def execute(self, context: Context) -> set:
+        arm = context.active_object
+        if not arm or arm.type != 'ARMATURE':
+            Debug.report_and_log(self, 'ERROR', "Active object must be an armature")
+            return {'CANCELLED'}
+
+        if context.mode != 'POSE':
+            Debug.report_and_log(self, 'ERROR', "Must be in Pose Mode")
+            return {'CANCELLED'}
+
+        pose_bone = context.active_pose_bone
+        if not pose_bone:
+            Debug.report_and_log(self, 'ERROR', "No active pose bone selected")
+            return {'CANCELLED'}
+
+        try:
+            before_world, _delta_world = compute_rest_inverse_delta(context, arm, pose_bone)
+            Debug.report_and_log(
+                self, 'INFO',
+                f"Pose bone '{pose_bone.name}' moved to armature origin (rest-inverse); "
+                f"original world = {before_world}"
+            )
+        except Exception as e:
+            Debug.report_and_log(self, 'ERROR', f"Failed to apply rest-inverse: {e}")
+            return {'CANCELLED'}
+
+        return {'FINISHED'}
+
+
+class MTAR_OT_DebugRootMotionRestInverseWithIK(Operator):
+    """Apply inverse rest pose to the root motion bone and shift IK bones."""
+    bl_idname = "mtar.debug_root_motion_rest_inverse_with_ik"
+    bl_label = "Apply Rest Pose Inversion + IK" 
+    bl_description = (
+        "Move the active pose bone so it sits at the armature origin (rest-inverse), "
+        "and shift IK bones by the same delta to keep them in place. Requires a mapping file."
+    )
+
+    def execute(self, context: Context) -> set:
+        arm = context.active_object
+        if not arm or arm.type != 'ARMATURE':
+            Debug.report_and_log(self, 'ERROR', "Active object must be an armature")
+            return {'CANCELLED'}
+
+        if context.mode != 'POSE':
+            Debug.report_and_log(self, 'ERROR', "Must be in Pose Mode")
+            return {'CANCELLED'}
+
+        pose_bone = context.active_pose_bone
+        if not pose_bone:
+            Debug.report_and_log(self, 'ERROR', "No active pose bone selected")
+            return {'CANCELLED'}
+
+        props = context.scene.mtar_properties
+        mapping_path = bpy.path.abspath(props.mapping_filepath) if props.mapping_filepath else ""
+        if not mapping_path or not os.path.exists(mapping_path):
+            Debug.report_and_log(self, 'ERROR', "No valid mapping file configured (mtar_properties.mapping_filepath)")
+            return {'CANCELLED'}
+
+        try:
+            mapping_data: TrackMappingData = parse_track_mapping_file(mapping_path)
+            track_mapping = mapping_data.fox_to_blender
+        except Exception as e:
+            Debug.report_and_log(self, 'ERROR', f"Failed to parse mapping file: {e}")
+            return {'CANCELLED'}
+
+        ik_bone_names = _get_ik_bone_names(track_mapping, pose_bone.name)
+
+        try:
+            before_world, delta_world = compute_rest_inverse_delta(context, arm, pose_bone)
+
+            Debug.log(
+                f"  get root motion delta for '{pose_bone.name}':\n"
+                f"    before_world:\n{before_world}\n"
+                f"    delta_world:\n{delta_world}\n"
+            )
+
+            if ik_bone_names:
+                _move_ik_bones_by_delta(arm, ik_bone_names, delta_world)
+
+            Debug.report_and_log(
+                self, 'INFO',
+                f"Applied rest-inverse to '{pose_bone.name}' and moved {len(ik_bone_names)} IK bone(s)"
+            )
+        except Exception as e:
+            Debug.report_and_log(self, 'ERROR', f"Failed to apply rest pose inversion: {e}")
+            return {'CANCELLED'}
+
+        return {'FINISHED'}
+
+
+class MTAR_OT_DebugRootMotionRestInverseWithIKAndArmature(Operator):
+    """Apply inverse rest pose + IK compensation and move armature to match root world."""
+    bl_idname = "mtar.debug_root_motion_rest_inverse_with_ik_and_armature"
+    bl_label = "Apply Rest Pose + IK + Move Armature"
+    bl_description = (
+        "Apply rest pose inversion (root bone to armature origin), "
+        "shift IK bones to preserve world-space positions, "
+        "and then move the armature so the root bone stays in its original world transform."
+    )
+
+    def execute(self, context: Context) -> set:
+        arm = context.active_object
+        if not arm or arm.type != 'ARMATURE':
+            Debug.report_and_log(self, 'ERROR', "Active object must be an armature")
+            return {'CANCELLED'}
+
+        if context.mode != 'POSE':
+            Debug.report_and_log(self, 'ERROR', "Must be in Pose Mode")
+            return {'CANCELLED'}
+
+        pose_bone = context.active_pose_bone
+        if not pose_bone:
+            Debug.report_and_log(self, 'ERROR', "No active pose bone selected")
+            return {'CANCELLED'}
+
+        props = context.scene.mtar_properties
+        mapping_path = bpy.path.abspath(props.mapping_filepath) if props.mapping_filepath else ""
+        if not mapping_path or not os.path.exists(mapping_path):
+            Debug.report_and_log(self, 'ERROR', "No valid mapping file configured (mtar_properties.mapping_filepath)")
+            return {'CANCELLED'}
+
+        try:
+            mapping_data: TrackMappingData = parse_track_mapping_file(mapping_path)
+            track_mapping = mapping_data.fox_to_blender
+        except Exception as e:
+            Debug.report_and_log(self, 'ERROR', f"Failed to parse mapping file: {e}")
+            return {'CANCELLED'}
+
+        ik_bone_names = _get_ik_bone_names(track_mapping, pose_bone.name)
+
+        try:
+            before_world, delta_world = compute_rest_inverse_delta(context, arm, pose_bone)
+
+            Debug.log(
+                f"  get root motion delta for '{pose_bone.name}':\n"
+                f"    before_world:\n{before_world}\n"
+                f"    delta_world:\n{delta_world}\n"
+            )
+
+            if ik_bone_names:
+                _move_ik_bones_by_delta(arm, ik_bone_names, delta_world)
+
+            # Move the armature so the root bone ends up at its original world transform
+            arm.matrix_world = before_world
+            context.view_layer.update()
+
+            Debug.report_and_log(
+                self, 'INFO',
+                f"Applied rest-inverse to '{pose_bone.name}', moved {len(ik_bone_names)} IK bone(s), and moved armature to original root world"
+            )
+        except Exception as e:
+            Debug.report_and_log(self, 'ERROR', f"Failed to apply rest pose inversion: {e}")
+            return {'CANCELLED'}
+
+        return {'FINISHED'}
+
+
+# Bake Debug Panel Operators ##################################################################
 
 class MTAR_OT_DebugRunBake(Operator):
     """Run synchronous bake using selected debug armature and optional imported armature."""
@@ -559,12 +693,40 @@ class MTAR_OT_DebugRunBake(Operator):
         Debug.update_progress(100, "Bake complete")
         return {'FINISHED'}
 
+class MTAR_OT_DebugSetupGraphContext(Operator):
+    """Setup graph editor context for manual decimation testing."""
+    bl_idname = "mtar.debug_setup_graph_context"
+    bl_label = "Setup Graph Context"
+    bl_description = "Setup graph editor with action and armature for manual operator testing"
+    
+    def execute(self, context: Context) -> set:
+        """Execute the setup."""
+        
+        props = context.scene.mtar_debug_transform_properties
+        
+        # Validate inputs
+        if not props.debug_armature:
+            Debug.report_and_log(self, 'ERROR', "No target armature selected")
+            return {'FINISHED'}
+        
+        # Get the action from the armature
+        armature = props.debug_armature
+        if not armature.animation_data or not armature.animation_data.action:
+            Debug.report_and_log(self, 'ERROR', f"Armature '{armature.name}' has no active action")
+            return {'FINISHED'}
+        
+        action = armature.animation_data.action
+        
+        # Call the debug setup function
+        debug_setup_graph_context_for_manual_test(armature.name, action.name)
+        
+        Debug.report_and_log(self, 'INFO', f"Graph context setup complete for '{armature.name}' / '{action.name}'")
+        Debug.report_and_log(self, 'INFO', "Check console for diagnostics. Try: bpy.ops.graph.decimate(mode='ERROR', error=0.01)")
+        
+        return {'FINISHED'}
 
 
-
-
-
-# External Hash Generator Operators ############################################################
+# External Hash Generator Panel Operators ############################################################
 
 class MTAR_OT_ValidateHashGeneratorExe(Operator):
     """Validate hash generator executable path (debug panel)."""
@@ -793,40 +955,9 @@ class MTAR_OT_ClearHashGeneratorResults(Operator):
         return {'FINISHED'}
 
 
-class MTAR_OT_DebugSetupGraphContext(Operator):
-    """Setup graph editor context for manual decimation testing."""
-    bl_idname = "mtar.debug_setup_graph_context"
-    bl_label = "Setup Graph Context"
-    bl_description = "Setup graph editor with action and armature for manual operator testing"
-    
-    def execute(self, context: Context) -> set:
-        """Execute the setup."""
-        
-        props = context.scene.mtar_debug_transform_properties
-        
-        # Validate inputs
-        if not props.debug_armature:
-            Debug.report_and_log(self, 'ERROR', "No target armature selected")
-            return {'FINISHED'}
-        
-        # Get the action from the armature
-        armature = props.debug_armature
-        if not armature.animation_data or not armature.animation_data.action:
-            Debug.report_and_log(self, 'ERROR', f"Armature '{armature.name}' has no active action")
-            return {'FINISHED'}
-        
-        action = armature.animation_data.action
-        
-        # Call the debug setup function
-        debug_setup_graph_context_for_manual_test(armature.name, action.name)
-        
-        Debug.report_and_log(self, 'INFO', f"Graph context setup complete for '{armature.name}' / '{action.name}'")
-        Debug.report_and_log(self, 'INFO', "Check console for diagnostics. Try: bpy.ops.graph.decimate(mode='ERROR', error=0.01)")
-        
-        return {'FINISHED'}
-
 
 # StrCode32 Animation Name Hashing Operators ##############################################
+# TODO: check if they are still used or useful
 
 class MTAR_OT_ComputeStrCode32(Operator):
     """Compute StrCode32 hash for an animation track/bone name."""

@@ -15,13 +15,20 @@ from .blender_properties import _file_path_kwargs
 from . import blender_panel_debug_map_r
 
 from .blender_operators_debug import (
+    # Transform
     MTAR_OT_InspectWorldSpaceTransform,
     MTAR_OT_InspectLocalSpaceTransform,
     MTAR_OT_CreateTransformDummies,
     MTAR_OT_CopySingleResult,
     MTAR_OT_CopyTransformDebugResults,
+    # Root Motion
+    MTAR_OT_DebugRootMotionRestInverse,
+    MTAR_OT_DebugRootMotionRestInverseWithIK,
+    MTAR_OT_DebugRootMotionRestInverseWithIKAndArmature,
+    # Bake
     MTAR_OT_DebugRunBake,
     MTAR_OT_DebugSetupGraphContext,
+    # Hash
     MTAR_OT_ValidateHashGeneratorExe,
     MTAR_OT_GenerateHash,
     MTAR_OT_CopyHashGeneratorOutput,
@@ -93,16 +100,13 @@ class MTAR_PG_DebugTransformProperties(PropertyGroup):
         name="Page",
         items=[
             ('TRANSFORM', "Transform", "Transform inspector"),
+            ('ROOT', "Root Motion", "Root motion debugging"),
             ('BAKE', "Bake", "Animation bake tools"),
             ('HASH', "Hash", "External hash generator"),
             ('MAP_R', "Map R", "Map_R parameter debug"),
         ],
         default='TRANSFORM'
     )
-
-
-
-
 
 
 class MTAR_PG_DebugHashProperties(PropertyGroup):
@@ -339,8 +343,6 @@ class MTAR_PG_DebugHashProperties(PropertyGroup):
             icon_col.label(text="", icon='NONE')
 
 
-
-
 # convenience drawing helpers used by the unified debug panel ----------------
 
 def draw_transform_page(layout: UILayout, context: Context) -> None:
@@ -417,6 +419,40 @@ def draw_transform_page(layout: UILayout, context: Context) -> None:
     
     if props.debug_world_space_result or props.debug_local_space_result:
         results_box.operator("mtar.copy_transform_debug_results", text="Copy All Results", icon='COPYDOWN')
+
+
+def draw_root_motion_page(layout: UILayout, context: Context) -> None:
+    """Draw the contents of the root motion debug tab."""
+
+    box = layout.box()
+    box.label(text="Root Motion", icon='ARMATURE_DATA')
+
+    box.label(text="Active Mode: " + context.mode)
+    if context.active_object and context.active_object.type == 'ARMATURE':
+        box.label(text=f"Armature: {context.active_object.name}")
+    else:
+        box.label(text="Armature: (select an armature in Object mode)")
+
+    row = box.row()
+    row.enabled = (context.active_object is not None and context.mode == 'POSE' and context.active_pose_bone is not None)
+    row.operator("mtar.debug_root_motion_rest_inverse", text="Test Rest Pose Inversion", icon='ORIENTATION_GIMBAL')
+
+    row = box.row()
+    row.enabled = (context.active_object is not None and context.mode == 'POSE' and context.active_pose_bone is not None)
+    row.operator("mtar.debug_root_motion_rest_inverse_with_ik", text="Test Rest Pose Inversion + IK", icon='TRACKING')
+
+    row = box.row()
+    row.enabled = (context.active_object is not None and context.mode == 'POSE' and context.active_pose_bone is not None)
+    row.operator(
+        "mtar.debug_root_motion_rest_inverse_with_ik_and_armature",
+        text="Test Rest Pose Inversion + IK + Move Armature",
+        icon='OUTLINER_OB_ARMATURE'
+    )
+
+    if context.active_pose_bone:
+        box.label(text=f"Selected bone: {context.active_pose_bone.name}")
+    else:
+        box.label(text="Selected bone: (none)")
 
 
 def draw_bake_page(layout: UILayout, context: Context) -> None:
@@ -571,19 +607,28 @@ class MTAR_PT_DebugMainPanel(Panel):
             draw_bake_page(layout, context)
         elif tab == 'HASH':
             draw_hash_page(layout, context)
+        elif tab == 'ROOT':
+            draw_root_motion_page(layout, context)
         elif tab == 'MAP_R':
             blender_panel_debug_map_r.draw_map_r_page(layout, context)
 
 # Registration
 classes = (
+    # Transform
     MTAR_PG_DebugTransformProperties,
     MTAR_OT_InspectWorldSpaceTransform,
     MTAR_OT_InspectLocalSpaceTransform,
     MTAR_OT_CreateTransformDummies,
     MTAR_OT_CopySingleResult,
     MTAR_OT_CopyTransformDebugResults,
+    # Root Motion
+    MTAR_OT_DebugRootMotionRestInverse,
+    MTAR_OT_DebugRootMotionRestInverseWithIK,
+    MTAR_OT_DebugRootMotionRestInverseWithIKAndArmature,
+    # Bake
     MTAR_OT_DebugRunBake,
     MTAR_OT_DebugSetupGraphContext,
+    # Hash
     MTAR_PG_DebugHashProperties,
     MTAR_OT_ValidateHashGeneratorExe,
     MTAR_OT_GenerateHash,
@@ -592,6 +637,7 @@ classes = (
     MTAR_OT_ComputeStrCode32,
     MTAR_OT_ClearStrCode32Results,
     MTAR_OT_CopyStrCode32Result,
+    #
     MTAR_PT_DebugMainPanel,
 )
 
