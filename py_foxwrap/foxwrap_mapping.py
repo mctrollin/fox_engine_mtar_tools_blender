@@ -193,9 +193,18 @@ class TrackMappingData:
         # Parse base fox name (strip segment suffix if present)
         base_fox_name, _ = parse_segment_suffix(fox_name)
         
-        # Build reverse mapping (Blender -> Fox) - full fox name with suffix
-        # Last wins, but no warning (multi-property to same bone is expected)
-        self.blender_to_fox_names[blender_name] = fox_name
+        # Build reverse mapping (Blender -> Fox). If multiple Fox tracks map to the
+        # same Blender bone (multi-segment), prefer the base Fox name (strip suffix)
+        # so lookups that use rig-unit types (which are base names) work correctly.
+        existing = self.blender_to_fox_names.get(blender_name)
+        if existing is None:
+            # First mapping for this Blender bone
+            self.blender_to_fox_names[blender_name] = fox_name
+        else:
+            # If a different segment maps to the same Blender bone, prefer the base name
+            existing_base, _ = parse_segment_suffix(existing)
+            if existing_base != base_fox_name:
+                self.blender_to_fox_names[blender_name] = base_fox_name
         
         # Infer property type from mapping parameters
         property_type = self._infer_property_type_from_params(mapping_dict)

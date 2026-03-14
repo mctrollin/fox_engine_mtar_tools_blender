@@ -233,11 +233,14 @@ def _evaluate_ik_bone_world_transforms(
     action: bpy.types.Action,
     ik_bone_names: List[str],
     frame_times_per_bone: Dict[str, List[float]],
+    arm_world_orig: Matrix,
 ) -> Dict[str, Dict[float, Tuple[Vector, Quaternion]]]:
     """Evaluate IK bones' world-space transforms BEFORE root motion is moved.
 
-    Must be called while the root bone FCurves still exist (armature at origin,
-    bone animation drives the root bone).
+    *arm_world_orig* must be the armature world matrix captured before any root
+    motion FCurves were written.  Passing it explicitly avoids using
+    ``eval_rig.matrix_world`` which may be polluted if a previous action already
+    moved the armature.
 
     Returns bone_name → { frame → (world_loc, world_rot) }.
     """
@@ -265,7 +268,6 @@ def _evaluate_ik_bone_world_transforms(
             depsgraph.update()
 
             eval_rig = custom_rig.evaluated_get(depsgraph)
-            arm_world = eval_rig.matrix_world
 
             for bone_name in ik_bone_names:
                 if t not in frame_times_per_bone.get(bone_name, []):
@@ -273,7 +275,7 @@ def _evaluate_ik_bone_world_transforms(
                 eval_bone = eval_rig.pose.bones.get(bone_name)
                 if eval_bone is None:
                     continue
-                world_mat = arm_world @ eval_bone.matrix
+                world_mat = arm_world_orig @ eval_bone.matrix
                 world_loc = world_mat.to_translation()
                 world_rot = world_mat.to_quaternion()
                 result[bone_name][t] = (world_loc, world_rot)
@@ -365,6 +367,39 @@ def _delete_bone_fcurves(action: bpy.types.Action, bone_name: str) -> int:
     return removed
 
 
+def _write_ik_bone_fcurves_from_basis(
+    action: bpy.types.Action,
+    bone_name: str,
+    frame_data: Dict[float, Tuple[Vector, Quaternion]],
+) -> None:
+    """Overwrite IK bone FCurve keypoints with pre-recorded matrix_basis values.
+
+    *frame_data* maps frame time → (location, quaternion) obtained by reading
+    ``pose_bone.matrix_basis`` after applying the world-space delta to the live pose.
+    Call ``_densify_bone_fcurves`` first so keypoints exist at every target time;
+    this function only calls ``_set_keypoint_value`` and does not insert new points.
+    """
+    loc_fcs = [find_action_fcurve(action, _bone_loc_path(bone_name), i) for i in range(3)]
+    rot_fcs = [find_action_fcurve(action, _bone_rot_path(bone_name), i) for i in range(4)]
+    has_loc = any(fc is not None for fc in loc_fcs)
+    has_rot = any(fc is not None for fc in rot_fcs)
+
+    for t in sorted(frame_data.keys()):
+        loc, rot = frame_data[t]
+        if has_loc:
+            for i, fc in enumerate(loc_fcs):
+                if fc is not None:
+                    _set_keypoint_value(fc, t, loc[i])
+        if has_rot:
+            for i, fc in enumerate(rot_fcs):
+                if fc is not None:
+                    _set_keypoint_value(fc, t, rot[i])
+
+    for fc in loc_fcs + rot_fcs:
+        if fc is not None:
+            fc.update()
+
+
 def clear_rest_pose_from_bone(pose_bone: bpy.types.PoseBone) -> None:
     """Place the given pose bone at the armature origin (in world space).
 
@@ -397,20 +432,6 @@ def compute_rest_inverse_delta(
     return before_world, delta_world
 
 
-def _get_ik_bone_names(track_mapping: Dict[str, BoneParameters], root_bone_name: str) -> List[str]:
-    """Return Blender bone names for IK targets (``space_l=world``) excluding root."""
-    ik_names: List[str] = []
-    for fox_name, bone_params in track_mapping.items():
-        blender_name = _blender_bone_name_for_fox(fox_name, track_mapping)
-        if blender_name == root_bone_name:
-            continue
-        space_l = bone_params.space_l
-        if space_l and isinstance(space_l, dict) and space_l.get("space") == "WORLD":
-            if blender_name not in ik_names:
-                ik_names.append(blender_name)
-    return ik_names
-
-
 def _move_ik_bones_by_delta(custom_rig: bpy.types.Object, ik_bone_names: List[str], delta_world: Matrix) -> None:
     """Apply a world-space delta transform to a set of IK bones.
 
@@ -439,7 +460,6 @@ def _key_bone_to_arm_origin(
     custom_rig: bpy.types.Object,
     action: bpy.types.Action,
     bone_name: str,
-    ik_bone_names: Optional[List[str]] = None,
 ) -> None:
     """Keep the root bone's keyframe timing while cancelling its rest pose.
 
@@ -449,10 +469,11 @@ def _key_bone_to_arm_origin(
     """
     pose_bone = custom_rig.pose.bones.get(bone_name)
     if pose_bone is None:
-        Debug.log_warning(
-            f"  _key_bone_to_arm_origin: Bone '{bone_name}' not found in rig '{custom_rig.name}'"
-        )
+        Debug.log_warning(f"  _key_bone_to_arm_origin: Bone '{bone_name}' not found in rig '{custom_rig.name}'")
         return
+
+    if pose_bone.parent:
+        Debug.log(f"  _key_bone_to_arm_origin: Bone '{bone_name}' has parent '{pose_bone.parent.name}'; results may be affected by parent animation.")
 
     # Determine the correction that cancels the rest pose, which places the bone
     # exactly at the armature origin in armature space.
@@ -482,17 +503,6 @@ def _key_bone_to_arm_origin(
     first_frame = frame_times[0]
     loc_interps = [_get_interpolation_at_frame(fc, first_frame) for fc in loc_fcs]
     rot_interps = [_get_interpolation_at_frame(fc, first_frame) for fc in rot_fcs]
-
-    # Determine the world-space delta caused by applying the rest-inverse correction.
-    # This delta can be applied to IK bones so they remain in the same world position.
-    before_world = custom_rig.matrix_world @ pose_bone.matrix
-    pose_bone.matrix = Matrix.Identity(4)
-    after_world = custom_rig.matrix_world @ pose_bone.matrix
-    delta_world = after_world @ before_world.inverted()
-
-    # Apply the same delta to IK bones if requested
-    if ik_bone_names:
-        _move_ik_bones_by_delta(custom_rig, ik_bone_names, delta_world)
 
     # Now write the corrected pose values into existing keyframes (keeps keyframe timing)
     prev_rot: Optional[Quaternion] = None
@@ -546,12 +556,54 @@ def _set_keypoint_value(
             break
 
 
+def _densify_bone_fcurves(
+    action: bpy.types.Action,
+    bone_name: str,
+    target_frame_times: List[float],
+) -> int:
+    """Insert keyframe points in IK bone FCurves at *target_frame_times* where missing.
+
+    Evaluates each FCurve at the target time using ``fc.evaluate(t)`` (which reads
+    the existing curve value without disturbing the shape) and inserts a new
+    keypoint at that time.  This ensures ``_compensate_one_bone`` can overwrite a
+    correct value at every target frame rather than silently skipping frames.
+
+    Returns the total number of keyframe points inserted across all channels.
+    """
+    loc_path = _bone_loc_path(bone_name)
+    rot_path = _bone_rot_path(bone_name)
+    fcs = (
+        [find_action_fcurve(action, loc_path, i) for i in range(3)]
+        + [find_action_fcurve(action, rot_path, i) for i in range(4)]
+    )
+
+    inserted = 0
+    for fc in fcs:
+        if fc is None:
+            continue
+        for t in target_frame_times:
+            already_keyed = any(abs(kp.co[0] - t) < 0.001 for kp in fc.keyframe_points)
+            if already_keyed:
+                continue
+            value = fc.evaluate(t)
+            kp = fc.keyframe_points.insert(t, value, options={"FAST"})
+            kp.interpolation = 'LINEAR'
+            inserted += 1
+
+    for fc in fcs:
+        if fc is not None:
+            fc.update()
+
+    return inserted
+
+
 def _compensate_one_bone(
     custom_rig: bpy.types.Object,
     action: bpy.types.Action,
     bone_name: str,
     obj_transforms: Dict[float, Tuple[Vector, Quaternion]],
     pre_move_world: Dict[float, Tuple[Vector, Quaternion]],
+    effective_rest: Matrix,
 ) -> None:
     """Apply world-space compensation to a single IK bone in *action*.
 
@@ -561,13 +613,15 @@ def _compensate_one_bone(
 
     The correct formula for a parentless bone with rest matrix ``R``::
 
-        old_armspace = R @ old_basis   (captured as pre_move_world when arm was at identity)
-        We need: M_obj @ R @ new_basis = R @ old_basis  (preserve world position)
-        Therefore: new_basis = R⁻¹ @ M_obj⁻¹ @ R @ old_basis
+        old_world = arm_world_orig @ R @ old_basis   (captured in pre_move_world)
+        We need: M_obj @ R @ new_basis = old_world  (preserve world position)
+        Therefore: new_basis = R⁻¹ @ M_obj⁻¹ @ old_world
 
-    Which simplifies to ``new_basis = rest⁻¹ @ M_obj⁻¹ @ old_armspace``.
+    Which simplifies to ``new_basis = rest⁻¹ @ M_obj⁻¹ @ old_world``.
 
-    Only **existing** keyframe points are modified — no new keyframes are inserted.
+    Keyframe points at *all* times in ``pre_move_world`` are overwritten.  Call
+    ``_densify_bone_fcurves`` first to ensure FCurve keypoints exist at every
+    target frame time before this function runs.
     """
     loc_path = _bone_loc_path(bone_name)
     rot_path = _bone_rot_path(bone_name)
@@ -592,30 +646,35 @@ def _compensate_one_bone(
     if pose_bone is None:
         Debug.log_warning(f"    _compensate_one_bone: Bone '{bone_name}' not found — skipping")
         return
-    rest_matrix = pose_bone.bone.matrix_local.copy()
-    rest_matrix_inv = rest_matrix.inverted()
+
+    # The rest matrix is a constant property of the armature skeleton; compute
+    # its inverse once outside the loop for efficiency.
+    rest_matrix_inv = effective_rest.inverted()
 
     frame_times = sorted(pre_move_world.keys())
     Debug.log(f"    Compensating IK bone '{bone_name}' over {len(frame_times)} frame times")
 
     prev_rot: Optional[Quaternion] = None
     for t in frame_times:
+
         # Get the object transform at this frame
         obj_data = obj_transforms.get(t)
         if obj_data is None:
-            # Should not normally happen (root has keyframes at all bone times)
+            # Should not happen after dense evaluation, but guard defensively.
+            Debug.log_warning(
+                f"    _compensate_one_bone: No obj_transform at t={t} for '{bone_name}' — skipping frame"
+            )
             continue
         obj_loc, obj_rot = obj_data
         m_obj = Matrix.LocRotScale(obj_loc, obj_rot, Vector((1.0, 1.0, 1.0)))
         m_obj_inv = m_obj.inverted()
 
-        # Get the bone's pre-move armature-space transform
-        # (arm_world was identity at evaluation time, so "world" = armspace)
+        # Get the bone's pre-move world-space transform (arm_world_orig @ bone_armspace).
         world_loc, world_rot = pre_move_world[t]
-        old_armspace = Matrix.LocRotScale(world_loc, world_rot, Vector((1.0, 1.0, 1.0)))
+        old_world = Matrix.LocRotScale(world_loc, world_rot, Vector((1.0, 1.0, 1.0)))
 
-        # new_basis = rest⁻¹ @ M_obj⁻¹ @ old_armspace
-        new_basis = rest_matrix_inv @ m_obj_inv @ old_armspace
+        # new_basis = rest⁻¹ @ M_obj⁻¹ @ old_world
+        new_basis = rest_matrix_inv @ m_obj_inv @ old_world
 
         if has_loc:
             new_loc = new_basis.to_translation()
@@ -781,9 +840,27 @@ def apply_root_motion_to_object(
         # --- Phase 1: Evaluate transforms BEFORE modifying anything ---
         # (action still has the root bone FCurves, armature at origin)
 
-        # 1a. Evaluate root bone → object transforms
+        # Pre-collect IK own keyframe times to build a dense evaluation set
+        # (union of root + IK times).  After independent decimation the two sets
+        # diverge; evaluating at the union ensures obj_transforms and
+        # pre_move_world are both available at every frame that matters.
+        ik_own_times: Set[float] = set()
+        if ik_bone_names:
+            for ik_name in ik_bone_names:
+                ik_fcs = (
+                    [find_action_fcurve(action, _bone_loc_path(ik_name), i) for i in range(3)]
+                    + [find_action_fcurve(action, _bone_rot_path(ik_name), i) for i in range(4)]
+                )
+                ik_own_times.update(_collect_keyframe_times(ik_fcs))
+
+        dense_frame_times: List[float] = sorted(set(root_frame_times) | ik_own_times)
+
+        # 1a. Evaluate root bone → object transforms at all dense frame times.
+        # Including IK-own times gives _compensate_one_bone a valid M_obj at
+        # every frame the IK bone is keyed, and adds armature keyframes there
+        # so the object animation is exact at those frames too.
         obj_transforms = _evaluate_root_bone_transforms(
-            custom_rig, action, root_bone_name, root_frame_times, arm_world_orig
+            custom_rig, action, root_bone_name, dense_frame_times, arm_world_orig
         )
         if not obj_transforms:
             Debug.log_warning(
@@ -791,24 +868,13 @@ def apply_root_motion_to_object(
             )
             continue
 
-        # 1b. Evaluate IK bone world transforms (before root motion is removed)
+        # 1b. Evaluate IK bone world transforms at all dense frame times.
         ik_world_transforms: Dict[str, Dict[float, Tuple[Vector, Quaternion]]] = {}
         if ik_bone_names:
-            # Collect per-bone keyframe times
-            ik_frame_times: Dict[str, List[float]] = {}
-            for ik_name in ik_bone_names:
-                ik_fcs = (
-                    [find_action_fcurve(action, _bone_loc_path(ik_name), i) for i in range(3)]
-                    + [find_action_fcurve(action, _bone_rot_path(ik_name), i) for i in range(4)]
-                )
-                times = sorted(_collect_keyframe_times(ik_fcs))
-                if times:
-                    ik_frame_times[ik_name] = times
-
-            if ik_frame_times:
-                ik_world_transforms = _evaluate_ik_bone_world_transforms(
-                    custom_rig, action, list(ik_frame_times.keys()), ik_frame_times
-                )
+            dense_per_bone = {ik_name: dense_frame_times for ik_name in ik_bone_names}
+            ik_world_transforms = _evaluate_ik_bone_world_transforms(
+                custom_rig, action, ik_bone_names, dense_per_bone, arm_world_orig
+            )
 
         # --- Phase 2: Write object FCurves and delete bone FCurves ---
 
@@ -818,8 +884,11 @@ def apply_root_motion_to_object(
             continue
 
         _key_bone_to_arm_origin(custom_rig, action, root_bone_name)
+        ik_extra_count = len(dense_frame_times) - len(root_frame_times)
         Debug.log(
-            f"    Wrote {len(obj_transforms)} object keyframes, preserved root bone keyframe times"
+            f"    Wrote {len(obj_transforms)} object keyframes "
+            f"(root: {len(root_frame_times)}, IK-extra: {ik_extra_count}); "
+            f"preserved root bone keyframe times"
         )
 
         if obj_transforms:
@@ -841,7 +910,17 @@ def apply_root_motion_to_object(
         if ik_world_transforms:
             for ik_name, world_data in ik_world_transforms.items():
                 if world_data:
-                    _compensate_one_bone(custom_rig, action, ik_name, obj_transforms, world_data)
+                    densified = _densify_bone_fcurves(action, ik_name, dense_frame_times)
+                    if densified:
+                        Debug.log(f"    Densified '{ik_name}': inserted {densified} keypoint(s) at dense frame times")
+                    
+                    pb = custom_rig.pose.bones.get(ik_name)
+                    effective_rest = pb.bone.matrix_local.copy() if pb else Matrix.Identity(4)
+
+                    _compensate_one_bone(
+                        custom_rig, action, ik_name, obj_transforms, world_data,
+                        effective_rest
+                    )
 
     if not any_moved:
         Debug.log_warning(
@@ -851,4 +930,288 @@ def apply_root_motion_to_object(
         return False
 
     Debug.log("apply_root_motion_to_object: Complete")
+    return True
+
+
+def apply_root_motion_to_object_framebyframe(
+    custom_rig: bpy.types.Object,
+    baked_actions: List[bpy.types.Action],
+    layout_action: bpy.types.Action,
+    track_mapping: Optional[Dict[str, BoneParameters]] = None,
+) -> bool:
+    """Apply root motion using frame-by-frame live pose manipulation.
+
+    Alternative to :func:`apply_root_motion_to_object`.  Instead of evaluating
+    transforms analytically via depsgraph, this function mirrors what the debug
+    operator ``MTAR_OT_DebugRootMotionRestInverseWithIKAndArmature`` does — but
+    across every keyframe time — and then writes the recorded results as FCurves.
+
+    Uses a two-phase approach to prevent NLA contamination between actions:
+
+    **Phase 1 — Record all actions (NLA isolated)**
+
+    All NLA tracks are muted before the recording loop so that ``frame_set``
+    evaluates *only* the directly assigned action.  For each action and frame T:
+
+    1. Reset ``arm.matrix_world`` to ``arm_world_orig`` and call ``frame_set(T)``
+       so all pose bone FCurves are freshly evaluated.
+    2. Capture ``before_world = arm.matrix_world @ root_bone.matrix`` — the root
+       bone's world-space transform, which becomes the new armature object transform.
+    3. Zero the root bone to rest pose (``clear_rest_pose_from_bone``).
+    4. Compute ``delta_world = after_world @ before_world⁻¹``.
+    5. Apply ``delta_world`` to all IK bones via ``_move_ik_bones_by_delta`` to
+       preserve their world-space positions.
+    6. Record ``obj_transforms[T] = decompose(before_world)`` and
+       ``ik_recorded[bone][T] = decompose(ik_bone.matrix_basis)`` for each IK bone.
+
+    After all actions are recorded, NLA track mute states are restored and the
+    armature is reset to its original world transform.
+
+    **Phase 2 — Apply all recorded data (pure FCurve writes)**
+
+    No ``frame_set`` calls here — only FCurve manipulation:
+
+    7. Write ``obj_transforms`` as object-level FCurves.
+    8. Zero root bone FCurves (``_key_bone_to_arm_origin``).
+    9. Densify IK bone FCurves to the dense frame set, then overwrite them with
+       the recorded ``matrix_basis`` values.
+
+    After all actions are applied, the armature is moved to the first recorded
+    position of the first action (viewport convenience).
+    """
+    if not custom_rig or not layout_action or not baked_actions:
+        Debug.log("apply_root_motion_to_object_framebyframe: Missing required args — skipping")
+        return False
+
+    root_info = find_root_motion_track_info(layout_action)
+    if root_info is None:
+        Debug.log(
+            "apply_root_motion_to_object_framebyframe: No root-motion track detected — skipping"
+        )
+        return False
+
+    _, fox_track_name = root_info
+    root_bone_name = _blender_bone_name_for_fox(fox_track_name, track_mapping)
+
+    Debug.log(
+        f"apply_root_motion_to_object_framebyframe: root-motion bone = '{root_bone_name}' "
+        f"(fox: '{fox_track_name}')"
+    )
+
+    if root_bone_name not in custom_rig.pose.bones:
+        Debug.log_warning(
+            f"apply_root_motion_to_object_framebyframe: Bone '{root_bone_name}' not found "
+            f"in rig '{custom_rig.name}' — skipping"
+        )
+        return False
+
+    ik_bone_names: List[str] = []
+    if track_mapping:
+        ik_bone_names = _get_ik_bone_names(track_mapping, root_bone_name)
+        if ik_bone_names:
+            Debug.log(f"  IK bones to compensate ({len(ik_bone_names)}): {ik_bone_names}")
+
+    custom_rig.rotation_mode = 'QUATERNION'
+    arm_world_orig: Matrix = custom_rig.matrix_world.copy()
+    custom_rig[MTAR_ROOT_MOTION_ARM_WORLD_PROP] = [v for row in arm_world_orig for v in row]
+    Debug.log(
+        f"  arm_world_orig = loc={arm_world_orig.to_translation()}, "
+        f"rot={arm_world_orig.to_quaternion()}"
+    )
+
+    scene = bpy.context.scene
+    original_frame = scene.frame_current
+
+    # -----------------------------------------------------------------------
+    # Phase 1 — Record all actions with NLA isolated
+    # Mute every NLA track so frame_set() evaluates only the directly assigned
+    # action and cannot be contaminated by strips from other (already-modified)
+    # actions.
+    # -----------------------------------------------------------------------
+    nla_mute_states: Dict[str, bool] = {}
+    if custom_rig.animation_data and custom_rig.animation_data.nla_tracks:
+        for nla_track in custom_rig.animation_data.nla_tracks:
+            nla_mute_states[nla_track.name] = nla_track.mute
+            nla_track.mute = True
+    if nla_mute_states:
+        Debug.log(f"  [fbf] Muted {len(nla_mute_states)} NLA track(s) for isolated recording")
+
+    # recorded_data: action → (obj_transforms, ik_recorded, dense_times)
+    recorded_data: Dict[
+        "bpy.types.Action",
+        Tuple[
+            Dict[float, Tuple[Vector, Quaternion]],
+            Dict[str, Dict[float, Tuple[Vector, Quaternion]]],
+            List[float],
+        ],
+    ] = {}
+
+    try:
+        for action in baked_actions:
+            Debug.log(f"  [fbf] Recording action '{action.name}' ...")
+
+            # Collect root bone keyframe times
+            root_fcs = (
+                [find_action_fcurve(action, _bone_loc_path(root_bone_name), i) for i in range(3)]
+                + [find_action_fcurve(action, _bone_rot_path(root_bone_name), i) for i in range(4)]
+            )
+            root_times = sorted(_collect_keyframe_times(root_fcs))
+            if not root_times:
+                Debug.log(f"    No root bone keyframes in '{action.name}' — skipping")
+                continue
+
+            # Build dense frame set: union of root times and IK bone own keyframe times
+            ik_own_times: Set[float] = set()
+            for ik_name in ik_bone_names:
+                ik_fcs = (
+                    [find_action_fcurve(action, _bone_loc_path(ik_name), i) for i in range(3)]
+                    + [find_action_fcurve(action, _bone_rot_path(ik_name), i) for i in range(4)]
+                )
+                ik_own_times.update(_collect_keyframe_times(ik_fcs))
+
+            dense_times: List[float] = sorted(set(root_times) | ik_own_times)
+            Debug.log(
+                f"    Root: {len(root_times)}, IK-extra: {len(ik_own_times - set(root_times))}, "
+                f"dense total: {len(dense_times)}"
+            )
+
+            # Per-action recording buffers
+            obj_transforms: Dict[float, Tuple[Vector, Quaternion]] = {}
+            ik_recorded: Dict[str, Dict[float, Tuple[Vector, Quaternion]]] = {
+                n: {} for n in ik_bone_names
+            }
+            prev_arm_rot: Optional[Quaternion] = None
+            prev_ik_rot: Dict[str, Optional[Quaternion]] = {n: None for n in ik_bone_names}
+
+            assign_action_to_datablock(custom_rig, action, slot_name=MTAR_ARMATURE_SLOT_NAME)
+            try:
+                for t in dense_times:
+                    # Reset armature to original world so FCurve-driven pose is evaluated
+                    # correctly.  NLA tracks are muted so only this action contributes.
+                    custom_rig.matrix_world = arm_world_orig.copy()
+                    scene.frame_set(int(round(t)), subframe=t - int(round(t)))
+                    bpy.context.view_layer.update()
+
+                    pose_bone = custom_rig.pose.bones.get(root_bone_name)
+                    if pose_bone is None:
+                        continue
+
+                    # Step 2: capture root bone's current world transform
+                    before_world: Matrix = custom_rig.matrix_world @ pose_bone.matrix
+
+                    # Step 3: zero root bone to rest pose
+                    clear_rest_pose_from_bone(pose_bone)
+                    bpy.context.view_layer.update()
+
+                    # Step 4: compute world-space delta (how far the root bone moved)
+                    after_world: Matrix = custom_rig.matrix_world @ pose_bone.matrix
+                    delta_world: Matrix = after_world @ before_world.inverted()
+
+                    # Step 5: shift IK bones by delta and record their new matrix_basis
+                    if ik_bone_names:
+                        _move_ik_bones_by_delta(custom_rig, ik_bone_names, delta_world)
+                        bpy.context.view_layer.update()
+
+                        for ik_name in ik_bone_names:
+                            ik_bone = custom_rig.pose.bones.get(ik_name)
+                            if ik_bone is None:
+                                continue
+                            mb = ik_bone.matrix_basis.copy()
+                            ik_loc = mb.to_translation()
+                            ik_rot = mb.to_quaternion()
+                            prev = prev_ik_rot.get(ik_name)
+                            if prev is not None:
+                                ik_rot.make_compatible(prev)
+                            prev_ik_rot[ik_name] = ik_rot.copy()
+                            ik_recorded[ik_name][t] = (ik_loc, ik_rot)
+
+                    # Step 6: record armature object transform
+                    obj_loc = before_world.to_translation()
+                    obj_rot = before_world.to_quaternion()
+                    if prev_arm_rot is not None:
+                        obj_rot.make_compatible(prev_arm_rot)
+                    prev_arm_rot = obj_rot.copy()
+                    obj_transforms[t] = (obj_loc, obj_rot)
+
+            finally:
+                remove_action_from_datablock(custom_rig)
+
+            if obj_transforms:
+                recorded_data[action] = (obj_transforms, ik_recorded, dense_times)
+            else:
+                Debug.log_warning(f"    No transforms recorded for '{action.name}' — skipping")
+
+    finally:
+        # Restore NLA mute states regardless of any errors during recording
+        if custom_rig.animation_data and custom_rig.animation_data.nla_tracks:
+            for nla_track in custom_rig.animation_data.nla_tracks:
+                if nla_track.name in nla_mute_states:
+                    nla_track.mute = nla_mute_states[nla_track.name]
+        if nla_mute_states:
+            Debug.log(f"  [fbf] Restored {len(nla_mute_states)} NLA track mute state(s)")
+        # Clean final reset after all recording — the armature and timeline are
+        # left pristine before the apply pass begins.
+        custom_rig.matrix_world = arm_world_orig.copy()
+        scene.frame_set(original_frame)
+
+    # -----------------------------------------------------------------------
+    # Phase 2 — Apply all recorded data (pure FCurve writes, no frame_set)
+    # -----------------------------------------------------------------------
+    any_moved = False
+    first_action_transform: Optional[Tuple[Vector, Quaternion]] = None
+
+    for action in baked_actions:
+        if action not in recorded_data:
+            continue
+
+        obj_transforms, ik_recorded, dense_times = recorded_data[action]
+        Debug.log(f"  [fbf] Applying action '{action.name}' ...")
+
+        # Step 7: write object-level location + rotation FCurves
+        wrote = _write_object_fcurves(custom_rig, action, obj_transforms)
+        if not wrote:
+            Debug.log_warning(f"    Failed to write object FCurves for '{action.name}' — skipping")
+            continue
+
+        # Step 8: zero root bone FCurves (bone stays at rest; armature carries motion)
+        _key_bone_to_arm_origin(custom_rig, action, root_bone_name)
+
+        # Step 9: densify IK bone FCurves and overwrite with recorded matrix_basis values
+        for ik_name in ik_bone_names:
+            recorded = ik_recorded.get(ik_name, {})
+            if not recorded:
+                continue
+            densified = _densify_bone_fcurves(action, ik_name, dense_times)
+            if densified:
+                Debug.log(f"    [fbf] Densified '{ik_name}': +{densified} keypoints")
+            _write_ik_bone_fcurves_from_basis(action, ik_name, recorded)
+
+        if first_action_transform is None:
+            first_t = min(obj_transforms.keys())
+            first_action_transform = obj_transforms[first_t]
+
+        Debug.log(
+            f"    [fbf] Wrote {len(obj_transforms)} armature keyframes, "
+            f"compensated {len(ik_bone_names)} IK bone(s)"
+        )
+        any_moved = True
+
+    # Move armature to first frame of first action (viewport convenience)
+    if first_action_transform is not None:
+        loc0, rot0 = first_action_transform
+        custom_rig.matrix_world = Matrix.LocRotScale(loc0, rot0, Vector((1.0, 1.0, 1.0)))
+        try:
+            bpy.context.view_layer.update()
+        except Exception:  # noqa: BLE001
+            pass
+        Debug.log("  [fbf] Moved armature to first recorded position")
+
+    if not any_moved:
+        Debug.log_warning(
+            f"apply_root_motion_to_object_framebyframe: No actions processed for "
+            f"bone '{root_bone_name}'"
+        )
+        return False
+
+    Debug.log("apply_root_motion_to_object_framebyframe: Complete")
     return True

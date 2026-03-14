@@ -25,6 +25,7 @@ from .blender_operators_debug import (
     MTAR_OT_DebugRootMotionRestInverse,
     MTAR_OT_DebugRootMotionRestInverseWithIK,
     MTAR_OT_DebugRootMotionRestInverseWithIKAndArmature,
+    MTAR_OT_DebugApplyRootMotionFrameByFrame,
     # Bake
     MTAR_OT_DebugRunBake,
     MTAR_OT_DebugSetupGraphContext,
@@ -454,6 +455,22 @@ def draw_root_motion_page(layout: UILayout, context: Context) -> None:
     else:
         box.label(text="Selected bone: (none)")
 
+    # --- Multi-frame / FCurve approach ---
+    sep_box = layout.box()
+    sep_box.label(text="Root Motion to FCurves (Frame-by-Frame)", icon='ACTION')
+    sep_box.label(text="Active object: armature with baked NLA strips / active action", icon='INFO')
+    row = sep_box.row()
+    row.scale_y = 1.3
+    row.enabled = (
+        context.active_object is not None
+        and context.active_object.type == 'ARMATURE'
+    )
+    row.operator(
+        "mtar.debug_apply_root_motion_framebyframe",
+        text="Apply Root Motion (Frame-by-Frame)",
+        icon='FORCE_CHARGE'
+    )
+
 
 def draw_bake_page(layout: UILayout, context: Context) -> None:
     """Draw the contents originally provided by the old Bake panel."""
@@ -625,6 +642,7 @@ classes = (
     MTAR_OT_DebugRootMotionRestInverse,
     MTAR_OT_DebugRootMotionRestInverseWithIK,
     MTAR_OT_DebugRootMotionRestInverseWithIKAndArmature,
+    MTAR_OT_DebugApplyRootMotionFrameByFrame,
     # Bake
     MTAR_OT_DebugRunBake,
     MTAR_OT_DebugSetupGraphContext,
