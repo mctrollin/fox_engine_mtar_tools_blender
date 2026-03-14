@@ -116,17 +116,20 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
         animinfo_box.label(text=combined, icon=info_icon)
 
         # Mapping file (optional - shared with import)
-        box = box_export
+        box = box_export.box()
         box.prop(props, "mapping_filepath", text="", icon='TEXT')
-
-       
 
         if settings_props.show_advanced_settings:
             adv_box = box_export.box()
             adv_box.alert = True
 
-            # FCurve cleaning threshold (advanced setting)
-            adv_box.prop(export_props, 'export_fcurve_clean_threshold', text='Clean Threshold', icon='IPO_LINEAR')
+            # FCurve cleaning controls (advanced setting)
+            row = adv_box.row(align=True)
+            draw_bool_prop_checkbox_icon(row, export_props, 'export_clean_fcurves')
+
+            sub = row.row(align=True)
+            sub.enabled = export_props.export_clean_fcurves and export_props.export_decimate_fcurves
+            sub.prop(export_props, 'export_fcurve_clean_threshold', text='Clean Threshold', icon='IPO_LINEAR')
 
             # Force highest bit encoding option
             row2 = adv_box.row()

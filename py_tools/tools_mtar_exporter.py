@@ -35,6 +35,8 @@ from ..py_utilities.utilities_blender_armature import (
 )
 from ..py_utilities.utilities_fcurve_processing import bake_and_clean_export_fcurves
 
+from ..blender_properties import get_effective_export_fcurve_clean_threshold
+
 from ..py_foxwrap.foxwrap_motionevent import read_motion_events_from_action
 from ..py_foxwrap.foxwrap_metadata import read_track_header_properties_from_action, read_mtar_properties_from_any_action, iter_all_node_params_from_action
 from ..py_fox import fox_gani_constants as gani_const
@@ -1567,6 +1569,9 @@ def export_mtar(context: bpy.types.Context,
     # Get force_highest_bit_encoding once here to avoid multiple context accesses
     force_highest_bit_encoding = export_props.force_highest_bit_encoding
 
+    # Determine whether to run FCurve cleaning based on UI toggles
+    export_clean_threshold = get_effective_export_fcurve_clean_threshold(export_props)
+
     # Capture original animation state before any processing
     original_armature_action = None
     original_animation_data_exists = False
@@ -1640,7 +1645,7 @@ def export_mtar(context: bpy.types.Context,
     actions_to_export = collect_actions_for_export_from_armature(
         armature, 
         use_nla,
-        export_clean_threshold=export_props.export_fcurve_clean_threshold
+        export_clean_threshold=export_clean_threshold
     )
     
     if layout_action:
@@ -1744,7 +1749,7 @@ def export_mtar(context: bpy.types.Context,
 
         # Collect motion point actions
         motion_point_actions_data = collect_motion_point_actions(
-            motion_points_armature, use_nla, export_props.export_fcurve_clean_threshold
+            motion_points_armature, use_nla, export_clean_threshold
         )
 
         if motion_point_actions_data:
@@ -1769,7 +1774,7 @@ def export_mtar(context: bpy.types.Context,
     if shader_nodes_armature and not writer.is_new_format:
         Debug.log(f"Found shader nodes armature: {shader_nodes_armature.name}")
         shader_nodes_actions_data = collect_shader_nodes_actions(
-            shader_nodes_armature, use_nla, export_props.export_fcurve_clean_threshold
+            shader_nodes_armature, use_nla, export_clean_threshold
         )
         if shader_nodes_actions_data:
             Debug.log(f"Found {len(shader_nodes_actions_data)} shader node action(s)")

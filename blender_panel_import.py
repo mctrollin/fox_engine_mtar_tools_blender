@@ -67,12 +67,13 @@ def draw_import_page(layout: UILayout, context: Context) -> None:
     mapping_box = box_import.box()
     row = mapping_box.row(align=True)
     row.prop(import_props, "frig_filepath", text="", icon='OUTLINER_OB_ARMATURE')
-    mapping_box.operator("mtar.generate_track_mapping_template_file", text="Generate Mapping Template", icon='TEXT')
 
     box_gani = box_import.box()
     # Track mapping file picker (shared)
     row = mapping_box.row(align=True)
     row.prop(props, "mapping_filepath", text="", icon='TEXT')
+    row.operator("mtar.generate_track_mapping_template_file", text="", icon='FILE_NEW')
+
     box = box_gani
     box.prop(import_props, "gani_indices_str", text="", icon='FILTER')
 
@@ -132,18 +133,16 @@ def draw_import_page(layout: UILayout, context: Context) -> None:
         # Bake after import checkbox (only shown if advanced settings enabled and custom rig is specified)
         draw_bool_prop_checkbox_icon(adv_box, import_props, "import_bake_constraints")
 
-        # Delete imported armature option is an advanced, dependent setting
         if import_props.import_bake_constraints:
-            # FCurve decimation settings (advanced setting) — per-import property
-            row = adv_box.row()
-            row.prop(import_props, 'import_bake_decimate_fcurve_error', text='Decimate Error', icon='IPO_BEZIER')
-
-            # Decimation track type filter (only shown if decimation error > 0)
-            if import_props.import_bake_decimate_fcurve_error > 0:
-                row.prop(import_props, 'import_bake_decimate_skip_types', text='', icon='FILTER')
-
-            # Root motion: move root bone transforms to armature-object level
             draw_bool_prop_checkbox_icon(adv_box, import_props, "import_apply_root_motion")
+            
+            row = adv_box.row(align=True)
+            draw_bool_prop_checkbox_icon(row, import_props, 'import_bake_do_decimate')
+            sub = row.row(align=True)
+            sub.enabled = import_props.import_bake_do_decimate
+            sub.prop(import_props, 'import_bake_decimate_fcurve_error', text=':', icon='IPO_BEZIER')
+            sub.prop(import_props, 'import_bake_decimate_skip_types', text='', icon='FILTER')
+
             draw_bool_prop_checkbox_icon(adv_box, import_props, "delete_import_armature")
 
     # Import button

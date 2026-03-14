@@ -666,6 +666,52 @@ def apply_root_motion_to_object_framebyframe(
     scene = bpy.context.scene
     original_frame = scene.frame_current
 
+    # Precompute root-motion+IK keyframe times for progress reporting.
+    # Build a *minimal* set of frames where any of the affected bones already has a keyframe.
+    action_record_times: Dict[bpy.types.Action, List[float]] = {}
+    action_ik_bones: Dict[bpy.types.Action, List[str]] = {}
+    total_frames = 0
+
+    for action in baked_actions:
+        root_fcs = (
+            [find_action_fcurve(action, _bone_loc_path(root_bone_name), i) for i in range(3)]
+            + [find_action_fcurve(action, _bone_rot_path(root_bone_name), i) for i in range(4)]
+        )
+        root_times = sorted(_collect_keyframe_times(root_fcs))
+        if not root_times:
+            continue
+
+        # Collect IK bone keyframes if present (unioned into the record set)
+        ik_bones_with_keys: List[str] = []
+        ik_times: Set[float] = set()
+        for ik_name in ik_bone_names:
+            ik_fcs = (
+                [find_action_fcurve(action, _bone_loc_path(ik_name), i) for i in range(3)]
+                + [find_action_fcurve(action, _bone_rot_path(ik_name), i) for i in range(4)]
+            )
+            this_ik_times = _collect_keyframe_times(ik_fcs)
+            if this_ik_times:
+                ik_bones_with_keys.append(ik_name)
+                ik_times.update(this_ik_times)
+
+        record_times: List[float] = sorted(set(root_times) | ik_times)
+        action_record_times[action] = record_times
+        if ik_bones_with_keys:
+            action_ik_bones[action] = ik_bones_with_keys
+
+        total_frames += len(record_times)
+
+    if total_frames == 0:
+        Debug.log_warning(
+            "apply_root_motion_to_object_framebyframe: No keyframes found in any baked action — skipping"
+        )
+        return False
+
+    progress_step = max(1, total_frames // 100)
+    processed_frames = 0
+
+    Debug.update_progress(75, "Applying root motion (recording)...")
+
     # -----------------------------------------------------------------------
     # Phase 1 — Record all actions with NLA isolated
     # Mute every NLA track so frame_set() evaluates only the directly assigned
@@ -680,7 +726,7 @@ def apply_root_motion_to_object_framebyframe(
     if nla_mute_states:
         Debug.log(f"  [fbf] Muted {len(nla_mute_states)} NLA track(s) for isolated recording")
 
-    # recorded_data: action → (obj_transforms, ik_recorded, dense_times)
+    # recorded_data: action → (obj_transforms, ik_recorded, record_times)
     recorded_data: Dict[
         "bpy.types.Action",
         Tuple[
@@ -691,45 +737,27 @@ def apply_root_motion_to_object_framebyframe(
     ] = {}
 
     try:
-        for action in baked_actions:
-            Debug.log(f"  [fbf] Recording action '{action.name}' ...")
-
-            # Collect root bone keyframe times
-            root_fcs = (
-                [find_action_fcurve(action, _bone_loc_path(root_bone_name), i) for i in range(3)]
-                + [find_action_fcurve(action, _bone_rot_path(root_bone_name), i) for i in range(4)]
-            )
-            root_times = sorted(_collect_keyframe_times(root_fcs))
-            if not root_times:
-                Debug.log(f"    No root bone keyframes in '{action.name}' — skipping")
+        for action_idx, action in enumerate(baked_actions, 1):
+            record_times = action_record_times.get(action)
+            if not record_times:
+                Debug.log(f"  [fbf] Skipping action '{action.name}' (no keyframes)")
                 continue
 
-            # Build dense frame set: union of root times and IK bone own keyframe times
-            ik_own_times: Set[float] = set()
-            for ik_name in ik_bone_names:
-                ik_fcs = (
-                    [find_action_fcurve(action, _bone_loc_path(ik_name), i) for i in range(3)]
-                    + [find_action_fcurve(action, _bone_rot_path(ik_name), i) for i in range(4)]
-                )
-                ik_own_times.update(_collect_keyframe_times(ik_fcs))
-
-            dense_times: List[float] = sorted(set(root_times) | ik_own_times)
-            Debug.log(
-                f"    Root: {len(root_times)}, IK-extra: {len(ik_own_times - set(root_times))}, "
-                f"dense total: {len(dense_times)}"
-            )
+            Debug.log(f"  [fbf] Recording action {action_idx}/{len(baked_actions)}: '{action.name}' ...")
+            Debug.log(f"    Record frame count: {len(record_times)}")
 
             # Per-action recording buffers
             obj_transforms: Dict[float, Tuple[Vector, Quaternion]] = {}
+            ik_bones_for_action: List[str] = action_ik_bones.get(action, [])
             ik_recorded: Dict[str, Dict[float, Tuple[Vector, Quaternion]]] = {
-                n: {} for n in ik_bone_names
+                n: {} for n in ik_bones_for_action
             }
             prev_arm_rot: Optional[Quaternion] = None
-            prev_ik_rot: Dict[str, Optional[Quaternion]] = {n: None for n in ik_bone_names}
+            prev_ik_rot: Dict[str, Optional[Quaternion]] = {n: None for n in ik_bones_for_action}
 
             assign_action_to_datablock(custom_rig, action, slot_name=MTAR_ARMATURE_SLOT_NAME)
             try:
-                for t in dense_times:
+                for t in record_times:
                     # Reset armature to original world so FCurve-driven pose is evaluated
                     # correctly.  NLA tracks are muted so only this action contributes.
                     custom_rig.matrix_world = arm_world_orig.copy()
@@ -751,12 +779,12 @@ def apply_root_motion_to_object_framebyframe(
                     after_world: Matrix = custom_rig.matrix_world @ pose_bone.matrix
                     delta_world: Matrix = after_world @ before_world.inverted()
 
-                    # Step 5: shift IK bones by delta and record their new matrix_basis
-                    if ik_bone_names:
-                        _move_ik_bones_by_delta(custom_rig, ik_bone_names, delta_world)
+                    # Step 5: shift IK bones by delta and record their new matrix_basis (only for bones with keyframes)
+                    if ik_bones_for_action:
+                        _move_ik_bones_by_delta(custom_rig, ik_bones_for_action, delta_world)
                         bpy.context.view_layer.update()
 
-                        for ik_name in ik_bone_names:
+                        for ik_name in ik_bones_for_action:
                             ik_bone = custom_rig.pose.bones.get(ik_name)
                             if ik_bone is None:
                                 continue
@@ -777,11 +805,20 @@ def apply_root_motion_to_object_framebyframe(
                     prev_arm_rot = obj_rot.copy()
                     obj_transforms[t] = (obj_loc, obj_rot)
 
+                    # Progress update
+                    processed_frames += 1
+                    if processed_frames % progress_step == 0 or processed_frames == total_frames:
+                        pct = 75 + (processed_frames / total_frames) * 20
+                        Debug.update_progress(
+                            pct,
+                            f"Applying root motion (recording) {action_idx}/{len(baked_actions)}: {action.name}"
+                        )
+
             finally:
                 remove_action_from_datablock(custom_rig)
 
             if obj_transforms:
-                recorded_data[action] = (obj_transforms, ik_recorded, dense_times)
+                recorded_data[action] = (obj_transforms, ik_recorded, record_times)
             else:
                 Debug.log_warning(f"    No transforms recorded for '{action.name}' — skipping")
 
@@ -804,11 +841,14 @@ def apply_root_motion_to_object_framebyframe(
     any_moved = False
     first_action_transform: Optional[Tuple[Vector, Quaternion]] = None
 
-    for action in baked_actions:
-        if action not in recorded_data:
-            continue
+    apply_actions = [a for a in baked_actions if a in recorded_data]
+    apply_total = len(apply_actions)
 
-        obj_transforms, ik_recorded, dense_times = recorded_data[action]
+    for idx, action in enumerate(apply_actions):
+        pct = 95 + (idx / max(1, apply_total)) * 4
+        Debug.update_progress(pct, f"Applying root motion (writing FCurves) {idx+1}/{apply_total}: {action.name}")
+
+        obj_transforms, ik_recorded, record_times = recorded_data[action]
         Debug.log(f"  [fbf] Applying action '{action.name}' ...")
 
         # Step 7: write object-level location + rotation FCurves
@@ -821,11 +861,10 @@ def apply_root_motion_to_object_framebyframe(
         _key_bone_to_arm_origin(custom_rig, action, root_bone_name)
 
         # Step 9: densify IK bone FCurves and overwrite with recorded matrix_basis values
-        for ik_name in ik_bone_names:
-            recorded = ik_recorded.get(ik_name, {})
+        for ik_name, recorded in ik_recorded.items():
             if not recorded:
                 continue
-            densified = _densify_bone_fcurves(action, ik_name, dense_times)
+            densified = _densify_bone_fcurves(action, ik_name, record_times)
             if densified:
                 Debug.log(f"    [fbf] Densified '{ik_name}': +{densified} keypoints")
             _write_ik_bone_fcurves_from_basis(action, ik_name, recorded)
@@ -857,5 +896,6 @@ def apply_root_motion_to_object_framebyframe(
         )
         return False
 
+    Debug.update_progress(99, "Root motion applied")
     Debug.log("apply_root_motion_to_object_framebyframe: Complete")
     return True

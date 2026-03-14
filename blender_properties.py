@@ -119,6 +119,32 @@ def _set_show_pose_markers(self, value: bool) -> None:
     _apply_show_pose_markers_value(bool(value))
 
 
+def get_effective_export_fcurve_clean_threshold(export_props: 'MTAR_PG_ExportProperties') -> float:
+    """Return the effective export clean threshold based on UI toggles.
+
+    The export clean threshold only applies when both the "Clean" and "Decimate" toggles
+    are enabled. When either is disabled, the threshold is treated as 0.0 (disabled).
+    """
+    if not export_props:
+        return 0.0
+    return export_props.export_fcurve_clean_threshold if (
+        export_props.export_clean_fcurves and export_props.export_decimate_fcurves
+    ) else 0.0
+
+
+def get_effective_import_bake_decimate_error(import_props: 'MTAR_PG_ImportProperties') -> float:
+    """Return the effective import bake decimation error threshold based on UI toggles.
+
+    The decimation error only applies when both the "Clean" and "Decimate" toggles are enabled.
+    When either is disabled, it returns 0.0 (skip decimation).
+    """
+    if not import_props:
+        return 0.0
+    return import_props.import_bake_decimate_fcurve_error if (
+        import_props.import_bake_clean_keyframes and import_props.import_bake_do_decimate
+    ) else 0.0
+
+
 def _update_show_pose_markers(self, context) -> None:
     # Backwards-compatible update for the stored preference
     _apply_show_pose_markers_value(bool(self.show_pose_markers_pref))
@@ -195,6 +221,18 @@ Also used by "Generate Mapping Template" to annotate each track with its type as
         min=0,
     )
 
+    import_bake_clean_keyframes: BoolProperty(
+        name="Clean",
+        description="Remove redundant keyframes after baking (keeps only original keyframes).",
+        default=True,
+    )
+
+    import_bake_do_decimate: BoolProperty(
+        name="Decimate",
+        description="Convert linear baked keyframes to Bezier f-curves for better editability.",
+        default=True,
+    )
+
     import_bake_decimate_skip_types: StringProperty(
         name="Decimation Track Type Filter",
         description=(
@@ -227,7 +265,7 @@ Also used by "Generate Mapping Template" to annotate each track with its type as
             "Bones with space_l=world in the mapping are compensated automatically.\n"
             "Only available when a custom rig and baking are enabled."
         ),
-        default=False,
+        default=True,
     )
 
     use_verbose_naming: BoolProperty(
@@ -311,6 +349,18 @@ class MTAR_PG_ExportProperties(PropertyGroup):
         name="Force highest bit encoding",
         description="When enabled, export uses the highest available bit encoding for each segment (may increase file size)",
         default=False
+    )
+
+    export_clean_fcurves: BoolProperty(
+        name="Clean",
+        description="Remove redundant keyframes after baking (keeps only original frames).",
+        default=True,
+    )
+
+    export_decimate_fcurves: BoolProperty(
+        name="Decimate",
+        description="When enabled, allows cleaning to run (controlled by the threshold setting).",
+        default=True,
     )
 
     export_fcurve_clean_threshold: FloatProperty(

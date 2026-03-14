@@ -1014,6 +1014,8 @@ def bake_constraints_and_decimate_fcurves(
                 Debug.log_warning(f"Decimation after bake failed: {e}")
             finally:
                 Debug.update_progress_status("Decimation complete", secondary_progress=0.3)
+        else:
+            result['fcurves_decimated'] = 0
 
         # Call internal handler to perform post-bake cleanup/reporting
         _handle_bake_result(result, rig_armature, source_armature, delete_import_armature, None)

@@ -272,9 +272,19 @@ class FCurveCache:
         for fcurve in iter_action_fcurves(action):
             bone_name = extract_bone_name_from_fcurve_path(fcurve.data_path)
             if not bone_name:
-                # Non-pose-bone path (e.g. custom property or unexpected flat path).
+                # Non-pose-bone path (e.g. custom property or armature object transform).
                 # FCurveCache is designed for pose-bone actions; these paths are
                 # intentionally not indexed here.
+                # Common object-level paths (root motion stored on the armature object)
+                # are expected and should not spam warnings.
+                if fcurve.data_path in {
+                    "location",
+                    "rotation_quaternion",
+                    "rotation_euler",
+                    "scale",
+                }:
+                    continue
+
                 Debug.log_warning(f"  FCurveCache.build: skipping non-pose-bone path '{fcurve.data_path}'")
                 continue
 

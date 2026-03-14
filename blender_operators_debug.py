@@ -37,6 +37,7 @@ from .py_tools.tools_animation_bake import (
     bake_constraints_and_decimate_fcurves,
     clear_armature_transforms,
 )
+from .blender_properties import get_effective_import_bake_decimate_error
 from .py_tools.tools_root_motion import (
     compute_rest_inverse_delta,
     _get_ik_bone_names,
@@ -685,7 +686,7 @@ class MTAR_OT_DebugRunBake(Operator):
                                 if hasattr(context.scene, 'mtar_properties'):
                                     ip = getattr(context.scene.mtar_properties, 'import_props', None)
                                     if ip is not None:
-                                        decimate_err = getattr(ip, 'import_bake_decimate_fcurve_error', 0.0)
+                                        decimate_err = get_effective_import_bake_decimate_error(ip)
                                         decimate_skip_types = getattr(ip, 'import_bake_decimate_skip_types', '')
 
                                 # Decimate via decimate_import_fcurves_to_bezier (operates on armature level)

@@ -24,7 +24,9 @@ from .py_tools.tools_hash_generator import build_gani_hash_dictionary
 from .py_tools.tools_mapping import generate_mapping_template
 from .py_tools.tools_mtar_importer import import_mtar
 from .py_tools.tools_animation_bake import bake_constraints_and_decimate_fcurves
+from .blender_properties import get_effective_import_bake_decimate_error
 from .py_tools.tools_root_motion import apply_root_motion_to_object_framebyframe
+from .py_utilities.utilities_fcurve_processing import decimate_import_fcurves_to_bezier
 
 
 
@@ -71,7 +73,6 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
 
         props = context.scene.mtar_properties
         import_props = props.import_props
-        execution_props = props.execution_props
         
         # Validate MTAR file path
         if not import_props.mtar_filepath:
@@ -172,9 +173,9 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
 
         # NLA tweak mode guard — AnimData.action is read-only while use_tweak_mode is True.
         with nla_tweak_guard(custom_rig):
-            # Import MTAR animation
             try:
                 with Debug.busy_cursor():
+                    # Import MTAR animation
                     import_result: Tuple[Set[str], Optional[bpy.types.Object]] = import_mtar(context, mtar_filepath_abs, frig_data, track_mapping, gani_indices, custom_rig, import_props.strip_padding, gani_hash_dict=gani_hash_dict)
                     
                     # Extract result and imported armature
@@ -187,21 +188,26 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                         imported_armature = None
                     
                     Debug.log("\n========= Finished IMPORT MTAR OPERATION =========\n")
+                    if result != {'FINISHED'}:
+                        Debug.report_and_log(self, 'WARNING', "MTAR import completed with warnings")
+                        Debug.stop_timer("Import Operator")
+                        return {'FINISHED'}
+                    
+                    Debug.report_and_log(self, 'INFO', "MTAR animation imported successfully")
+                    
+                    # Custom rig post processing
+                    if custom_rig:
+                        layout_action = try_find_layout_track_action()
 
-                    if result == {'FINISHED'}:
-                        Debug.report_and_log(self, 'INFO', "MTAR animation imported successfully")
-                        
                         # Bake custom rig if requested + decimation
-                        if import_props.import_bake_constraints and custom_rig:
-                            Debug.log("\n========= STARTING BAKE OPERATION =========\n")
-                            Debug.update_progress(75, "Baking...")
-
-                            # Time the bake operation separately and run post-bake optimization via shared utility
-                            Debug.start_timer("Bake Operation")
-                            bake_result = None  # ensure defined even when try raises
+                        bake_result = None  # ensure defined even when try raises
+                        if import_props.import_bake_constraints:
                             try:
-                                # Delegate constraint-baking + optional fcurve decimation to shared utility
-                                layout_action = try_find_layout_track_action()
+                                Debug.log("\n========= STARTING BAKE OPERATION =========\n")
+                                Debug.update_progress(75, "Baking...")
+                                Debug.start_timer("Bake + Decimate")
+
+                                # Delegate constraint-baking to shared utility (decimation deferred until after root motion)
                                 bake_result = bake_constraints_and_decimate_fcurves(
                                     rig_armature=custom_rig,
                                     source_armature=imported_armature,
@@ -209,62 +215,66 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                                     new_action_suffix="_baked",
                                     remove_constraints=True,
                                     delete_import_armature=import_props.delete_import_armature,
-                                    bake_decimate_fcurve_error=import_props.import_bake_decimate_fcurve_error,
-                                    decimate_skip_types=import_props.import_bake_decimate_skip_types,
+                                    bake_decimate_fcurve_error=0.0,
+                                    decimate_skip_types='',
                                     layout_action=layout_action,
                                     blender_to_fox_map=blender_to_fox_map,
                                 )
-
-                                # Report outcome (the utility already performs cleanup/logging)
-                                if bake_result.get('success'):
-                                    Debug.log(f"Bake completed: {bake_result.get('message')}")
-                                    Debug.log(f"  Decimated {bake_result.get('fcurves_decimated', 0)} FCurves")
-
-                                    # Apply root motion to armature object (post-bake, optional)
-                                    if import_props.import_apply_root_motion:
-                                        baked_actions = bake_result.get('actions_created') or []
-                                        if layout_action and baked_actions:
-                                            Debug.log("\n========= APPLYING ROOT MOTION TO OBJECT =========\n")
-                                            try:
-                                                apply_root_motion_to_object_framebyframe(
-                                                    custom_rig=custom_rig,
-                                                    baked_actions=baked_actions,
-                                                    layout_action=layout_action,
-                                                    track_mapping=track_mapping,
-                                                )
-                                            except Exception as e:
-                                                Debug.report_and_log(
-                                                    self, 'WARNING',
-                                                    f"Root motion transfer failed: {e}"
-                                                )
-                                                traceback.print_exc()
-                                        elif not layout_action:
-                                            Debug.report_and_log(
-                                                self, 'WARNING',
-                                                "Apply Root Motion: no layout action found — skipping"
-                                            )
-                                        else:
-                                            Debug.report_and_log(
-                                                self, 'WARNING',
-                                                "Apply Root Motion: bake produced no actions — skipping"
-                                            )
-                                else:
-                                    Debug.report_and_log(self, 'WARNING', f"Bake failed: {bake_result.get('message')}")
-
                             except Exception as e:
                                 Debug.report_and_log(self, 'ERROR', f"Failed to bake custom rig: {str(e)}")
                                 traceback.print_exc()
                             finally:
-                                Debug.stop_timer("Bake Operation")
-                        
-                        Debug.update_progress(100, "Done")
-                        Debug.stop_timer("Import Operator")
-                        return {'FINISHED'}
-                    else:
-                        Debug.report_and_log(self, 'WARNING', "MTAR import completed with warnings")
-                        Debug.stop_timer("Import Operator")
-                        return {'FINISHED'}
-            
+                                Debug.stop_timer("Bake + Decimate")
+                                if bake_result and bake_result.get('success'):
+                                    Debug.log(f"Bake result: {bake_result.get('message')}")
+                                    Debug.log(f"  Decimated {bake_result.get('fcurves_decimated', 0)} FCurves")
+                                else:
+                                    Debug.report_and_log(self, 'WARNING', f"Bake failed: {bake_result.get('message')}")
+
+                        # Apply root motion to armature object (post-bake, optional)
+                        if bake_result and bake_result.get('success') and import_props.import_apply_root_motion:
+                            try:
+                                Debug.log("\n========= APPLYING ROOT MOTION TO OBJECT =========\n")
+                                Debug.start_timer("Root Motion")
+                                baked_actions = bake_result.get('actions_created') or []
+                                if not layout_action:
+                                    Debug.report_and_log(self, 'WARNING', "Apply Root Motion: no layout action found — skipping")
+                                elif len(baked_actions) <= 0:
+                                    Debug.report_and_log(self, 'WARNING', "Apply Root Motion: bake produced no actions — skipping")
+                                else:
+                                    apply_root_motion_to_object_framebyframe(
+                                        custom_rig=custom_rig,
+                                        baked_actions=baked_actions,
+                                        layout_action=layout_action,
+                                        track_mapping=track_mapping,
+                                    )
+
+                                    # Optional post-root-motion decimation (keeps keyframes sparse)
+                                    post_decimate_err = get_effective_import_bake_decimate_error(import_props)
+                                    if post_decimate_err > 0.0:
+                                        try:
+                                            Debug.log("\n========= DECIMATING POST-ROOT-MOTION =========\n")
+                                            Debug.start_timer("Post-Root Motion Decimate")
+                                            dec_res = decimate_import_fcurves_to_bezier(
+                                                armature=custom_rig,
+                                                bake_decimate_fcurve_error=post_decimate_err,
+                                                decimate_skip_types=import_props.import_bake_decimate_skip_types,
+                                                layout_action=layout_action,
+                                            )
+                                            Debug.log(f"  Post-root-motion decimated: {dec_res.get('fcurves_decimated', 0)}")
+                                        except Exception as e:
+                                            Debug.log_warning(f"Post-root-motion decimation failed: {e}")
+                                        finally:
+                                            Debug.stop_timer("Post-Root Motion Decimate")
+                            except Exception as e:
+                                Debug.report_and_log(self, 'WARNING', f"Root motion transfer failed: {e}")
+                                traceback.print_exc()
+                            finally:
+                                Debug.stop_timer("Root Motion")
+
+                    Debug.stop_timer("Import Operator")
+                    return {'FINISHED'}
+
             except (OSError, ValueError) as e:  # noqa: E722
                 Debug.report_and_log(self, 'ERROR', f"Failed to import MTAR: {str(e)}")
                 traceback.print_exc()
@@ -273,6 +283,3 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
             finally:
                 wm.progress_end()
                 Debug.update_progress(0, "")
-
-
-
