@@ -28,7 +28,7 @@ from ..py_foxwrap.foxwrap_misc import TrackDataBlobWrapper, Tracks
 from ..py_foxwrap.foxwrap_misc_import import GaniImportData
 from ..py_foxwrap.foxwrap_motionevent import store_motion_events_on_action
 from ..py_foxwrap.foxwrap_mtar_reader import MtarReader
-from ..py_foxwrap.foxwrap_mapping import BoneParameters, ARMATURE_TARGET_NAME
+from ..py_foxwrap.foxwrap_mapping import BoneParameters, ARMATURE_TARGET_NAME, TransformConstraintEntry
 
 from ..py_fox.fox_mtar_types import MtarTableList, MtarTableList2, MtarHeader
 from ..py_fox.fox_gani_types import SegmentType
@@ -438,7 +438,7 @@ def create_animation_actions(
 
 # Armature #############################################################
 
-def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object, track_mapping: Optional[Dict[str, BoneParameters]] = None) -> None:
+def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object, track_mapping: Optional[Dict[str, BoneParameters]] = None, transform_constraints: Optional[List[TransformConstraintEntry]] = None) -> None:
     """Set up constraints on a Rigify rig to follow the imported animation armature.
     
     This function processes the track mapping data to create constraints on the custom rig
@@ -750,7 +750,27 @@ def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object,
             constraint2.mix_mode = 'ADD'
             
             constraints_added += 1
-    
+
+    # Apply standalone transform constraint directives from mapping file
+    if transform_constraints:
+        Debug.log("\n--- Creating standalone Transform constraints ---")
+        for entry in transform_constraints:
+            if entry.owner_bone not in custom_rig.pose.bones:
+                Debug.log_warning(f"  constraint_transform: owner bone '{entry.owner_bone}' not found in custom rig, skipping")
+                continue
+            if entry.target_bone not in custom_rig.pose.bones:
+                Debug.log_warning(f"  constraint_transform: target bone '{entry.target_bone}' not found in custom rig, skipping")
+                continue
+
+            owner_pose_bone = custom_rig.pose.bones[entry.owner_bone]
+            c = owner_pose_bone.constraints.new('COPY_TRANSFORMS')
+            c.name = f"MTAR_Transform_{entry.target_bone}"
+            c.target = custom_rig
+            c.subtarget = entry.target_bone
+            # All other settings (spaces, ranges, mix mode, influence) stay at Blender defaults.
+            constraints_added += 1
+            Debug.log(f"  Created Transform constraint: {custom_rig.name}['{entry.owner_bone}'] <- {custom_rig.name}['{entry.target_bone}']")
+
     Debug.log(f"Constraints setup complete: {constraints_added} constraint(s) added")
 
 def create_and_setup_armature(
@@ -808,6 +828,8 @@ def create_and_setup_armature(
     # Add limits to prevent the imported armature from being moved or rotated
     # by anything other than animation (object-level FCurves). Setting min/max
     # to zero locks all axes.
+    # This is necessary when mapping the root motion bone to the armature itself
+    # for proper ik-targets (e.g. hands, feet) transforms on the custom rig bone constraints
     loc_constraint = armature.constraints.new('LIMIT_LOCATION')
     loc_constraint.name = 'MTAR_LimitLocation'
     loc_constraint.use_min_x = True
@@ -936,7 +958,8 @@ def import_mtar(
         gani_indices: Optional[List[int]] = None, 
         custom_rig: Optional[bpy.types.Object] = None, 
         strip_padding: int = 10,
-        gani_hash_dict: Optional[Dict[int, str]] = None) -> Tuple[Dict[str, str], bpy.types.Object]:
+        gani_hash_dict: Optional[Dict[int, str]] = None,
+        transform_constraints: Optional[List[TransformConstraintEntry]] = None) -> Tuple[Dict[str, str], bpy.types.Object]:
     """Import MTAR animation data and create corresponding objects and animations.
     
     Args:
@@ -954,7 +977,7 @@ def import_mtar(
     
     # Set up rig constraints if custom rig is provided
     if custom_rig and imported_armature:
-        setup_rig(imported_armature, custom_rig, track_mapping)
+        setup_rig(imported_armature, custom_rig, track_mapping, transform_constraints)
     
     return result, imported_armature
 

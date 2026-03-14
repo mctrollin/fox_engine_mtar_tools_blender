@@ -22,6 +22,32 @@ from .foxwrap_metadata import (
 # guarantees this string can never be a valid Blender bone name.
 ARMATURE_TARGET_NAME: str = "[armature]"
 
+# Reserved source name for standalone constraint directives in the mapping file.
+# These lines are not track mappings; they declare extra constraints on the custom rig.
+CONSTRAINT_TRANSFORM_SOURCE: str = "[constraint_transform]"
+
+
+@dataclass
+class TransformConstraintEntry:
+    """A standalone Transform constraint directive from the mapping file.
+
+    Syntax in the mapping file::
+
+        constraint_transform : ownerBone,targetBone
+
+    where ``ownerBone`` is the bone on the custom rig that receives the
+    constraint and ``targetBone`` is the bone (on the imported armature)
+    that acts as the source.
+
+    All other constraint settings are left at Blender defaults.
+
+    Attributes:
+        owner_bone:  Bone on the custom rig that gets the TRANSFORM constraint.
+        target_bone: Bone on the imported armature used as the constraint target.
+    """
+    owner_bone: str
+    target_bone: str
+
 
 def parse_segment_suffix(fox_name: str) -> tuple[str, int]:
     """Utility for splitting Option-D track names.
@@ -140,6 +166,7 @@ class TrackMappingData:
         self.blender_property_to_fox_base: Dict[Tuple[str, str], str] = {}  # (blender_name, property_type) -> fox_base_name (NO COLLISIONS)
         self.blender_to_fox_base_names: Dict[str, str] = {}  # blender_name -> fox_base_name (fallback for single-property)
         self.fox_base_to_blender_names: Dict[str, List[str]] = {}  # fox_base_name -> [blender_names] (one-to-many)
+        self.transform_constraints: List[TransformConstraintEntry] = []  # standalone constraint_transform directives
     
     @staticmethod
     def _infer_property_type_from_params(mapping_dict: dict) -> str:
@@ -554,6 +581,22 @@ def parse_track_mapping_file(filepath: str) -> TrackMappingData:
                 if result:
                     source_name, bone_mapping_dict = result  # source_name is the Fox bone name
                     blender_bone_name = bone_mapping_dict['name']
+
+                    # Standalone constraint directive: constraint_transform : ownerBone,targetBone
+                    if source_name == CONSTRAINT_TRANSFORM_SOURCE:
+                        parts = blender_bone_name.split(',', 1)
+                        if len(parts) == 2:
+                            entry = TransformConstraintEntry(
+                                owner_bone=parts[0].strip(),
+                                target_bone=parts[1].strip(),
+                            )
+                            mapping_data.transform_constraints.append(entry)
+                            Debug.log(f"  Transform constraint: owner='{entry.owner_bone}' target='{entry.target_bone}'")
+                        else:
+                            Debug.log_warning(
+                                f"  Warning: constraint_transform on line {line_num} expects 'ownerBone,targetBone', got '{blender_bone_name}'"
+                            )
+                        continue
 
                     # Add to mapping data object
                     mapping_data.add_bone_mapping(source_name, blender_bone_name, bone_mapping_dict)

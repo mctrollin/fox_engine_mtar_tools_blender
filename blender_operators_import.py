@@ -117,6 +117,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
         # Load track mapping file if provided
         track_mapping: Optional[Dict[str, BoneParameters]] = None
         blender_to_fox_map: Optional[Dict[str, str]] = None
+        transform_constraints = None
         if props.mapping_filepath:
             mapping_filepath_abs = bpy.path.abspath(props.mapping_filepath)
             if not os.path.exists(mapping_filepath_abs):
@@ -126,8 +127,11 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                     mapping_data: TrackMappingData = parse_track_mapping_file(mapping_filepath_abs)
                     track_mapping = mapping_data.fox_to_blender
                     blender_to_fox_map = mapping_data.blender_to_fox_names
+                    transform_constraints = mapping_data.transform_constraints or None
                     if track_mapping:
                         Debug.log(f"Loaded {len(track_mapping)} track mapping(s)")
+                    if transform_constraints:
+                        Debug.log(f"Loaded {len(transform_constraints)} transform constraint(s)")
                 except Exception as e:  # noqa: E722
                     Debug.report_and_log(self, 'WARNING', f"Failed to load track mapping file: {str(e)}")
         
@@ -176,7 +180,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
             try:
                 with Debug.busy_cursor():
                     # Import MTAR animation
-                    import_result: Tuple[Set[str], Optional[bpy.types.Object]] = import_mtar(context, mtar_filepath_abs, frig_data, track_mapping, gani_indices, custom_rig, import_props.strip_padding, gani_hash_dict=gani_hash_dict)
+                    import_result: Tuple[Set[str], Optional[bpy.types.Object]] = import_mtar(context, mtar_filepath_abs, frig_data, track_mapping, gani_indices, custom_rig, import_props.strip_padding, gani_hash_dict=gani_hash_dict, transform_constraints=transform_constraints)
                     
                     # Extract result and imported armature
                     if isinstance(import_result, tuple):

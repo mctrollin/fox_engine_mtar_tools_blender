@@ -24,4 +24,29 @@
 #   Camera_Rot : camera_bone ; space_r=world
 #   LookTarget_Rot : look_target ; as_ik_up=head,Z,2.0 ; space_ik=custom,torso ; offset_r=90,0,0,XYZ
 #
+# === Armature/Object-Level Motion ===
+#
+# A special target name "[armature]" routes the track's keyframes to the armature
+# object itself (object-level location/rotation FCurves) instead of a pose bone.
+# This is useful for root motion tracks.
+#
+# Example:
+#   RIG_ROOT : [armature] ; offset_r=0,0,180,zyx
+#   RIG_ROOT_1 : [armature]
+#
+# === Standalone Transform Constraints ===
+#
+# Define a constraint directly in the mapping file (independent from a specific
+# track mapping) using the special source name "constraint_transform".
+# This can be used to make a custom rig bone follow another bone on the custom rig.
+#
+# Syntax:
+#   constraint_transform : <owner_bone>,<target_bone>
+#
+# Example:
+#   constraint_transform : rig_root,root
+#
+# (This creates a TRANSFORM constraint named MTAR_Transform_root on bone
+#  "rig_root" that copies the transform of "root".)
+#
 # (Remnants of @meta directives have been removed; they no longer affect import/export.)
