@@ -27,6 +27,7 @@ from ..py_utilities.utilities_blender_animation import (
 )
 from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper, TrackDataBlobWrapper
 from ..py_fox.fox_gani_types import SegmentType
+from ..py_foxwrap.foxwrap_mapping import ARMATURE_TARGET_NAME
 
 
 def import_keyframes_track(
@@ -63,8 +64,20 @@ def import_keyframes_track(
 
     # Always use LINEAR interpolation — decimation will create bezier curves later if enabled.
 
-    # Ensure group_name is always a string (name can be an integer hash)
-    group_name: str = str(keyframes_track.name)
+    # Detect armature-object target: uses direct property paths, no bone group.
+    is_armature_target: bool = (keyframes_track.name == ARMATURE_TARGET_NAME)
+    # Pre-compute data paths: direct property names for armature target, bone paths otherwise.
+    data_path_rotation: str = (
+        'rotation_quaternion' if is_armature_target
+        else build_data_path_for_bone(keyframes_track.name, 'rotation_quaternion')
+    )
+    data_path_location: str = (
+        'location' if is_armature_target
+        else build_data_path_for_bone(keyframes_track.name, 'location')
+    )
+    # Ensure group_name is a string (name can be an integer hash).
+    # For armature targets, no bone group is used (object FCurves are not grouped).
+    group_name: Optional[str] = None if is_armature_target else str(keyframes_track.name)
 
     # Prepare rotation transformations (only applies to rotation tracks)
     rotation_offset_quats: List[Quaternion] = []
@@ -123,7 +136,7 @@ def import_keyframes_track(
 
                 for i in range(3):
                     try:
-                        data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
+                        data_path_str = data_path_location
                         fcurve: bpy.types.FCurve = ensure_action_fcurve(
                             action,
                             data_path=data_path_str,
@@ -132,7 +145,7 @@ def import_keyframes_track(
                             slot_name=slot_name,
                         )
                     except Exception as e:
-                        data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
+                        data_path_str = data_path_location
                         Debug.log_warning(
                             f"Could not create fcurve '{data_path_str}[{i}]' "
                             f"on action '{getattr(action, 'name', '<unknown>')}': {e}"
@@ -185,9 +198,7 @@ def import_keyframes_track(
 
         for i in range(4):
             try:
-                data_path_str = build_data_path_for_bone(
-                    keyframes_track.name, 'rotation_quaternion'
-                )
+                data_path_str = data_path_rotation
                 fcurve: bpy.types.FCurve = ensure_action_fcurve(
                     action,
                     data_path=data_path_str,
@@ -196,9 +207,7 @@ def import_keyframes_track(
                     slot_name=slot_name,
                 )
             except Exception as e:
-                data_path_str = build_data_path_for_bone(
-                    keyframes_track.name, 'rotation_quaternion'
-                )
+                data_path_str = data_path_rotation
                 Debug.log_warning(
                     f"Could not create fcurve '{data_path_str}[{i}]' "
                     f"on action '{getattr(action, 'name', '<unknown>')}': {e}"
@@ -227,7 +236,7 @@ def import_keyframes_track(
 
         for i in range(3):
             try:
-                data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
+                data_path_str = data_path_location
                 fcurve: bpy.types.FCurve = ensure_action_fcurve(
                     action,
                     data_path=data_path_str,
@@ -236,7 +245,7 @@ def import_keyframes_track(
                     slot_name=slot_name,
                 )
             except Exception as e:
-                data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
+                data_path_str = data_path_location
                 Debug.log_warning(
                     f"Could not create fcurve '{data_path_str}[{i}]' "
                     f"on action '{getattr(action, 'name', '<unknown>')}': {e}"
@@ -265,7 +274,7 @@ def import_keyframes_track(
             max_frame = max(max_frame, absolute_frame)
 
         try:
-            data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
+            data_path_str = data_path_location
             fcurve: bpy.types.FCurve = ensure_action_fcurve(
                 action,
                 data_path=data_path_str,
@@ -274,7 +283,7 @@ def import_keyframes_track(
                 slot_name=slot_name,
             )
         except Exception as e:
-            data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
+            data_path_str = data_path_location
             Debug.log_warning(
                 f"Could not create fcurve '{data_path_str}[0]' "
                 f"on action '{getattr(action, 'name', '<unknown>')}': {e}"
@@ -298,7 +307,7 @@ def import_keyframes_track(
 
         for i in range(2):
             try:
-                data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
+                data_path_str = data_path_location
                 fcurve: bpy.types.FCurve = ensure_action_fcurve(
                     action,
                     data_path=data_path_str,
@@ -307,7 +316,7 @@ def import_keyframes_track(
                     slot_name=slot_name,
                 )
             except Exception as e:
-                data_path_str = build_data_path_for_bone(keyframes_track.name, 'location')
+                data_path_str = data_path_location
                 Debug.log_warning(
                     f"Could not create fcurve '{data_path_str}[{i}]' "
                     f"on action '{getattr(action, 'name', '<unknown>')}': {e}"

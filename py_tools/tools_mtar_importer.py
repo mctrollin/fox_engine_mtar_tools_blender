@@ -28,7 +28,7 @@ from ..py_foxwrap.foxwrap_misc import TrackDataBlobWrapper, Tracks
 from ..py_foxwrap.foxwrap_misc_import import GaniImportData
 from ..py_foxwrap.foxwrap_motionevent import store_motion_events_on_action
 from ..py_foxwrap.foxwrap_mtar_reader import MtarReader
-from ..py_foxwrap.foxwrap_mapping import BoneParameters
+from ..py_foxwrap.foxwrap_mapping import BoneParameters, ARMATURE_TARGET_NAME
 
 from ..py_fox.fox_mtar_types import MtarTableList, MtarTableList2, MtarHeader
 from ..py_fox.fox_gani_types import SegmentType
@@ -490,6 +490,22 @@ def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object,
     Debug.log(f"Source armature: {imported_armature.name}")
     Debug.log(f"custom rig: {custom_rig.name}")
     
+    # Set custom rig rotation mode to QUATERNION if any mappings target [armature] with rotation data
+    has_armature_rotation = False
+    if track_mapping:
+        for source_name, mapping_data in track_mapping.items():
+            target_name = mapping_data.track_name if mapping_data.track_name else mapping_data.fox_name
+            if target_name == ARMATURE_TARGET_NAME:
+                # Check if this track has rotation segments
+                # (We check the data blobs from the imported tracks)
+                # For now, we'll be conservative and assume it might
+                has_armature_rotation = True
+                break
+    
+    if has_armature_rotation:
+        custom_rig.rotation_mode = 'QUATERNION'
+        Debug.log(f"Set custom rig '{custom_rig.name}' rotation mode to QUATERNION for [armature] rotation segments")
+    
     # Remove any action currently assigned to the custom rig to ensure constraints and
     # baked animations applied during import do not accidentally modify an existing action.
     try:
@@ -547,7 +563,13 @@ def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object,
         target_bone_name = mapping_data.track_name if mapping_data.track_name else mapping_data.fox_name
         if not target_bone_name:
             continue
-        
+
+        # Armature-object target: FCurves are written directly to the action,
+        # no constraints are needed in the custom rig.
+        if target_bone_name == ARMATURE_TARGET_NAME:
+            Debug.log(f"  Skipping constraint setup for '{source_name}' -> '[armature]' (object-level FCurves)")
+            continue
+
         # Check if target bone exists in rig
         if target_bone_name not in custom_rig.pose.bones:
             Debug.log_warning(f"  Warning: Target bone '{target_bone_name}' not found in custom rig, skipping")
@@ -767,6 +789,9 @@ def create_and_setup_armature(
         for gani_track in data.bone_tracks:
             for keyframes_track in gani_track.segments_track_data:
                 bone_name_str = str(keyframes_track.name)
+                # Skip the special armature-object target — it is not a real bone.
+                if bone_name_str == ARMATURE_TARGET_NAME:
+                    continue
                 if bone_name_str not in all_bone_names:
                     all_bone_names.append(bone_name_str)
 
@@ -779,6 +804,36 @@ def create_and_setup_armature(
     Debug.log("Setting up animation data on armature...")
     if not armature.animation_data:
         armature.animation_data_create()
+
+    # Add limits to prevent the imported armature from being moved or rotated
+    # by anything other than animation (object-level FCurves). Setting min/max
+    # to zero locks all axes.
+    loc_constraint = armature.constraints.new('LIMIT_LOCATION')
+    loc_constraint.name = 'MTAR_LimitLocation'
+    loc_constraint.use_min_x = True
+    loc_constraint.use_min_y = True
+    loc_constraint.use_min_z = True
+    loc_constraint.use_max_x = True
+    loc_constraint.use_max_y = True
+    loc_constraint.use_max_z = True
+    loc_constraint.min_x = 0.0
+    loc_constraint.min_y = 0.0
+    loc_constraint.min_z = 0.0
+    loc_constraint.max_x = 0.0
+    loc_constraint.max_y = 0.0
+    loc_constraint.max_z = 0.0
+
+    rot_constraint = armature.constraints.new('LIMIT_ROTATION')
+    rot_constraint.name = 'MTAR_LimitRotation'
+    rot_constraint.use_limit_x = True
+    rot_constraint.use_limit_y = True
+    rot_constraint.use_limit_z = True
+    rot_constraint.min_x = 0.0
+    rot_constraint.min_y = 0.0
+    rot_constraint.min_z = 0.0
+    rot_constraint.max_x = 0.0
+    rot_constraint.max_y = 0.0
+    rot_constraint.max_z = 0.0
 
     # Create NLA track for organizing strips on imported armature
     nla_track: bpy.types.NlaTrack = armature.animation_data.nla_tracks.new()

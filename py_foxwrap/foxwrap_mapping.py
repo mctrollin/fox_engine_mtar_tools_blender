@@ -17,6 +17,11 @@ from .foxwrap_metadata import (
     parse_as_ik_up_parameter,
 )
 
+# Reserved mapping target name: routes the track's keyframes to the armature
+# object itself (object-level FCurves) instead of a pose bone.  Bracket syntax
+# guarantees this string can never be a valid Blender bone name.
+ARMATURE_TARGET_NAME: str = "[armature]"
+
 
 def parse_segment_suffix(fox_name: str) -> tuple[str, int]:
     """Utility for splitting Option-D track names.
@@ -495,15 +500,26 @@ def validate_track_mappings(track_mapping: Dict[str, BoneParameters]) -> None:
     # Check for rotation conflicts
     for target_name, source_names in target_to_rotation_sources.items():
         if len(source_names) > 1:
-            Debug.log_error(f"  ERROR: Multiple rotation tracks map to '{target_name}': {source_names}")
-            Debug.log_error("    Only one rotation track per target bone is allowed")
-    
+            if target_name == ARMATURE_TARGET_NAME:
+                Debug.log_warning(
+                    f"  Multiple rotation tracks map to '[armature]': {source_names}. "
+                    f"Only the first encountered will be used."
+                )
+            else:
+                Debug.log_error(f"  ERROR: Multiple rotation tracks map to '{target_name}': {source_names}")
+                Debug.log_error("    Only one rotation track per target bone is allowed")
+
     # Check for location conflicts
     for target_name, source_names in target_to_location_sources.items():
         if len(source_names) > 1:
-            Debug.log_error(f"  ERROR: Multiple location tracks map to '{target_name}': {source_names}")
-            Debug.log_error("    Only one location track per target bone is allowed")
-            Debug.log_error("    Only one location track per target bone is allowed")
+            if target_name == ARMATURE_TARGET_NAME:
+                Debug.log_warning(
+                    f"  Multiple location tracks map to '[armature]': {source_names}. "
+                    f"Only the first encountered will be used."
+                )
+            else:
+                Debug.log_error(f"  ERROR: Multiple location tracks map to '{target_name}': {source_names}")
+                Debug.log_error("    Only one location track per target bone is allowed")
 
 def parse_track_mapping_file(filepath: str) -> TrackMappingData:
     """Parse a track mapping file into a TrackMappingData object.
