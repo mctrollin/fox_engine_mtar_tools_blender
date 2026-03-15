@@ -2,13 +2,11 @@
 Blender operators for MTAR import functionality.
 """
 import os
-import io
-from typing import Set, Optional, List, Dict, Any, Tuple
+from typing import Set, Optional, List, Dict, Tuple
 import traceback
 
 import bpy
 from bpy.types import Operator, Context
-
 
 from .py_utilities.utilities_logging import Debug
 from .py_utilities.utilities_blender_state import nla_tweak_guard
@@ -25,8 +23,6 @@ from .py_tools.tools_mapping import generate_mapping_template
 from .py_tools.tools_mtar_importer import import_mtar
 from .py_tools.tools_animation_bake import bake_constraints_and_decimate_fcurves
 from .blender_properties import get_effective_import_bake_decimate_error
-from .py_utilities.utilities_fcurve_processing import decimate_import_fcurves_to_bezier
-
 
 
 class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):

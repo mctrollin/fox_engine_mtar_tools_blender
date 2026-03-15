@@ -55,9 +55,7 @@ from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_fox import fox_gani_constants as gani_const
 
 from .tools_gani_track_importer import import_gani_track
-from .tools_motion_points_importer import (
-    create_nla_strips_for_actions,
-)
+from .tools_motion_points_importer import create_nla_strips_for_actions
 
 
 def _store_shader_property_header_on_action(

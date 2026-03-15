@@ -9,7 +9,7 @@ from typing import Optional, Dict, List
 from pathlib import Path
 
 import bpy
-from mathutils import Matrix, Quaternion, Vector
+from mathutils import Quaternion, Vector
 
 from ..py_utilities.utilities_logging import Debug
 from ..py_utilities.utilities_transforms import (

@@ -20,8 +20,8 @@ from ..py_utilities.utilities_transforms import (
     apply_rest_pose_correction_local,
 )
 from ..py_utilities.utilities_blender_animation import (
+    BLENDER_OBJECT_TRANSFORMS_GROUP_NAME,
     MTAR_ARMATURE_SLOT_NAME,
-    MTAR_SHADER_SLOT_NAME,
     ensure_action_fcurve,
     build_data_path_for_bone,
 )
@@ -76,8 +76,12 @@ def import_keyframes_track(
         else build_data_path_for_bone(keyframes_track.name, 'location')
     )
     # Ensure group_name is a string (name can be an integer hash).
-    # For armature targets, no bone group is used (object FCurves are not grouped).
-    group_name: Optional[str] = None if is_armature_target else str(keyframes_track.name)
+    # For armature targets, put object transform fcurves in Blender's default group.
+    group_name: Optional[str] = (
+        BLENDER_OBJECT_TRANSFORMS_GROUP_NAME
+        if is_armature_target
+        else str(keyframes_track.name)
+    )
 
     # Prepare rotation transformations (only applies to rotation tracks)
     rotation_offset_quats: List[Quaternion] = []

@@ -3,10 +3,10 @@
 from dataclasses import dataclass
 from typing import List, Tuple, Optional, Dict
 
-from ..py_foxwrap.foxwrap_misc_import import GaniImportData
-
 import bpy
 from mathutils import Euler, Matrix
+
+from ..py_foxwrap.foxwrap_misc_import import GaniImportData
 
 from .utilities_logging import Debug
 

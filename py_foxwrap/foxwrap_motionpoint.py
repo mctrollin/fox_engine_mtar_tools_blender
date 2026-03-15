@@ -17,7 +17,7 @@ Round-trip helpers
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional, TYPE_CHECKING
+from typing import List, Optional
 
 import bpy
 
@@ -30,8 +30,7 @@ from .foxwrap_metadata import (
     store_foxdata_stringlist_on_action,
 )
 
-if TYPE_CHECKING:
-    from ..py_fox.fox_mtar_types import MotionPointList2
+from ..py_fox.fox_mtar_types import MotionPointList2
 
 
 # ---------------------------------------------------------------------------

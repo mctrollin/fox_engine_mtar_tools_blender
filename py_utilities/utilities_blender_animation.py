@@ -12,6 +12,10 @@ from .utilities_logging import Debug
 # Global constants
 MTAR_ARMATURE_SLOT_NAME = 'mtar_import_armature'
 MTAR_OBJECT_SLOT_NAME = 'mtar_import_object'
+# Blender groups object transform FCurves under 'Object Transforms'.
+# Use this when creating object-level animation curves so they match Blender's UI.
+BLENDER_OBJECT_TRANSFORMS_GROUP_NAME = 'Object Transforms'
+
 # Dedicated slot name for shader-nodes armatures.  We create actions
 # before the shader armature exists and need a separate slot so that
 # ensure_action_fcurve can create channelbags without an assigned datablock.
