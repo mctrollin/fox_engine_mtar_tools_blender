@@ -24,7 +24,7 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
 
     # Armatures selector
     box_rig = box_export.box()
-    box_rig.prop(export_props, "armature", text="", icon='ARMATURE_DATA')
+    box_rig.prop(export_props, "armature", text="", icon='OUTLINER_OB_ARMATURE')
     if export_props.armature:
         # Resolve the layout action once; reused for format/info logic below.
         _layout_action = try_find_layout_track_action()

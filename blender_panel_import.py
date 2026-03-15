@@ -25,7 +25,7 @@ def draw_import_page(layout: UILayout, context: Context) -> None:
     mtar_box = layout.box()
 
     # MTAR file picker
-    mtar_box.prop(import_props, "mtar_filepath", text="", icon='ANIM')
+    mtar_box.prop(import_props, "mtar_filepath", text="", icon='FILE_BLANK')
 
     # MTAR header preview (read-only display)
     info_box = mtar_box.box()
@@ -66,7 +66,7 @@ def draw_import_page(layout: UILayout, context: Context) -> None:
     # FRIG file picker
     mapping_box = box_import.box()
     row = mapping_box.row(align=True)
-    row.prop(import_props, "frig_filepath", text="", icon='OUTLINER_OB_ARMATURE')
+    row.prop(import_props, "frig_filepath", text="", icon='RNA')
 
     box_gani = box_import.box()
     # Track mapping file picker (shared)
@@ -95,11 +95,34 @@ def draw_import_page(layout: UILayout, context: Context) -> None:
         if parse_error_msg:
             err_row = box.row()
             err_row.alert = True
-            err_row.label(text=f"Invalid GANI selection: {parse_error_msg}", icon='ERROR')
+            err_row.label(text=f"{parse_error_msg}", icon='ERROR')
         else:
             label_text = f"{selected_count} of {header_info.file_count} animation{'s' if selected_count != 1 else ''} selected"
             row = box.row()
-            row.label(text=label_text, icon='ANIM')
+            row.label(text=label_text, icon='CHECKMARK')
+
+            # Estimated import time (4 seconds per GANI)
+            est_time_per_gani = 1
+            if import_props.custom_rig: 
+                if import_props.import_bake_constraints:
+                    est_time_per_gani += 2
+                    if import_props.import_bake_do_decimate:
+                        est_time_per_gani += 2
+            est_seconds = selected_count * est_time_per_gani
+            est_minutes, est_secs = divmod(est_seconds, 60)
+            import_time_warning: bool = est_minutes > 1
+            est_text = "Import time: ~ " + (f"{est_minutes}m" if est_minutes else f"{est_secs}s")
+            row = box.row()
+            if import_time_warning:
+                row.alert = True
+            row.label(text=est_text, icon='TIME')
+
+            # Show a slim warning if the number of animations that will be processed (after applying the GANI filter)
+            # exceeds the threshold; keep parse error shown only below the filter (do not duplicate it here).
+            if import_time_warning:
+                warn_box = box.row()
+                warn_box.alert = True
+                warn_box.label(text="View console to track progress.")
     
     if settings_props.show_advanced_settings:
         adv_box = box_gani.box()
@@ -122,7 +145,7 @@ def draw_import_page(layout: UILayout, context: Context) -> None:
 
     # custom rig selector
     box_custom_rig = box_import.box()
-    box_custom_rig.prop(import_props, "custom_rig", text="", icon='ARMATURE_DATA')
+    box_custom_rig.prop(import_props, "custom_rig", text="", icon='OUTLINER_OB_ARMATURE')
     
     if settings_props.show_advanced_settings and import_props.custom_rig:
         # IK Up Distance (advanced setting, shown when advanced settings are enabled)
@@ -152,16 +175,6 @@ def draw_import_page(layout: UILayout, context: Context) -> None:
     col.operator("mtar.import_animation", text="Import Animation", icon='IMPORT')
 
     draw_progress_bar(box_button, props)
-
-    # Show a slim warning if the number of animations that will be processed (after applying the GANI filter)
-    # exceeds the threshold; keep parse error shown only below the filter (do not duplicate it here).
-    if header_info:
-        if selected_count is not None and selected_count > 100 and check_bake_during_import(import_props) and not parse_error_msg:
-            warn_box = box_button.box()
-            warn_box.alert = True
-            warn_box.label(text=f"Importing + baking {selected_count} animations.")
-            warn_box.label(text="This may take several minutes.")
-            warn_box.label(text="View console to track progress.")
 
     if not import_props.mtar_filepath:
         box_button.label(text="No import path set", icon='ERROR')

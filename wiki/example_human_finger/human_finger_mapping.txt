@@ -1,6 +1,11 @@
-﻿# Track 0 (qd, vd)
-RIG_ROOT : torso_root                           ; offset_r=0,0,180,zyx
-RIG_ROOT_1 : torso_root
+﻿# Add constraint to root motion bone (torso_root) because we map the root motion directly to the [armature]
+[constraint_transform] : torso_root,root
+
+# Track 0 (qd, vd)
+RIG_ROOT : [armature]                           ; offset_r=0,0,180,zyx
+RIG_ROOT_1 : [armature]
+#RIG_ROOT : torso_root                           ; offset_r=0,0,180,zyx
+#RIG_ROOT_1 : torso_root
 
 # Track 1 (q, v)
 RIG_SKL_000_WAIST : torso                       ; space_r=custom,torso_root

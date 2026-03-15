@@ -55,6 +55,12 @@ def draw_progress_bar(layout: UILayout, props) -> None:
     status_text: str = exec_props.status
 
     if hasattr(layout, "progress"):
-        col = layout.column()
-        col.scale_y = 0.6
-        col.progress(factor=progress, text=status_text)
+        row = layout.row(align=True)
+        row.scale_y = 0.8
+        col = row.column()
+        if props.settings_props.use_redraw_timer:
+            col.progress(factor=progress, text=status_text)
+
+        if props.settings_props.show_advanced_settings:
+            draw_bool_prop_checkbox_icon(row, props.settings_props, "use_redraw_timer", text=("" if props.settings_props.use_redraw_timer else " "), toggle=True, icon="RECOVER_LAST")
+            draw_bool_prop_checkbox_icon(row, props.settings_props, "enable_timer_logs", text="", toggle=True, icon="MOD_TIME")

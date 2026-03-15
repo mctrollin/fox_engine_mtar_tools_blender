@@ -153,20 +153,22 @@ class MTAR_PG_ImportProperties(PropertyGroup):
     """Property group for MTAR import settings."""
     mtar_filepath: StringProperty(**_file_path_kwargs(
         name="MTAR File",
-        description="Path to the .mtar animation file",
+        description="Path to the .mtar animation file.",
         default="",
         maxlen=1024
     ))
     
     frig_filepath: StringProperty(**_file_path_kwargs(
         name="FRIG File",
-        description="""Optional rig definition (.frig) file.
-
-Its only functional role is providing the RigUnitType for each track (ROOT, ORIENTATION, TWO_BONE, ARM, etc.). This determines whether the exporter reads a bone's transform in world space or local space. Without it, world-space tracks (e.g. IK/orientation solver bones) will export with wrong rotations.
-
-Once imported with a FRIG, the type is stored permanently in the layout action's custom properties — re-exports no longer need the FRIG file.
-
-Also used by "Generate Mapping Template" to annotate each track with its type as a comment.""",
+        description=(
+            "Optional rig definition (.frig) file.\n\n"
+            "Its only functional role is providing the RigUnitType for each track (ROOT, ORIENTATION, TWO_BONE, ARM, etc.). "
+            "This determines whether the exporter reads a bone's transform in world space or local space. "
+            "Without it, world-space tracks (e.g. IK/orientation solver bones) will export with wrong rotations.\n\n"
+            "Once imported with a FRIG, the type is stored permanently in the layout action's custom properties — "
+            "re-exports no longer need the FRIG file.\n\n"
+            "Also used by \"Generate Mapping Template\" to annotate each track with its type as a comment."
+        ),
         default="",
         maxlen=1024
     ))
@@ -189,14 +191,14 @@ Also used by "Generate Mapping Template" to annotate each track with its type as
     
     custom_rig: PointerProperty(
         name="custom rig",
-        description="Optional Rigify rig to connect to imported animation (constraints will be added based on mapping file)",
+        description="Optional Rigify rig to connect to imported animation (constraints will be added based on mapping file).",
         type=bpy.types.Object,
         poll=lambda self, obj: obj.type == 'ARMATURE'
     )
     
     ik_up_distance: FloatProperty(
         name="IK Up Distance",
-        description="Distance for directional IK up vector calculation",
+        description="Distance for directional IK up vector calculation.",
         default=1.0,
         min=0.0,
         soft_max=10.0,
@@ -210,13 +212,13 @@ Also used by "Generate Mapping Template" to annotate each track with its type as
     
     delete_import_armature: BoolProperty(
         name="Delete Raw Import-Armature",
-        description="Remove the temporary imported armature after baking is complete",
+        description="Remove the temporary imported armature after baking is complete.",
         default=True
     )
     
     strip_padding: IntProperty(
         name="Strip Padding (Frames)",
-        description="Number of frames to insert between animation strips to prevent overlap",
+        description="Number of frames to insert between animation strips to prevent overlap.",
         default=10,
         min=0,
     )
@@ -284,14 +286,14 @@ class MTAR_PG_ExportProperties(PropertyGroup):
     """Property group for MTAR export settings."""
     armature: PointerProperty(
         name="Export Armature",
-        description="Armature to export animation from",
+        description="Armature to export animation from.",
         type=bpy.types.Object,
         poll=lambda self, obj: obj.type == 'ARMATURE'
     )
     
     filepath: StringProperty(**_file_path_kwargs(
         name="Export File",
-        description="Path for the exported .mtar animation file",
+        description="Path for the exported .mtar animation file.",
         default="",
         maxlen=1024
     ))
@@ -299,7 +301,7 @@ class MTAR_PG_ExportProperties(PropertyGroup):
     
     use_nla: BoolProperty(
         name="Export NLA Strips",
-        description="Export all unmuted NLA strips as separate GANI files. If disabled or no NLA tracks exist, exports only the active action",
+        description="Export all unmuted NLA strips as separate GANI files. If disabled or no NLA tracks exist, exports only the active action.",
         default=True
     )
 
@@ -329,13 +331,13 @@ class MTAR_PG_ExportProperties(PropertyGroup):
 
     info_file: BoolProperty(
         name="Export Info File",
-        description="Write a '<mtar file name>.mtar.info.txt' file containing exported GANI names or hashes",
+        description="Write a '<mtar file name>.mtar.info.txt' file containing exported GANI names or hashes.",
         default=True
     )
 
     force_highest_bit_encoding: BoolProperty(
         name="Force highest bit encoding",
-        description="When enabled, export uses the highest available bit encoding for each segment (may increase file size)",
+        description="When enabled, export uses the highest available bit encoding for each segment (may increase file size).",
         default=False
     )
 
@@ -364,7 +366,7 @@ class MTAR_PG_ExecutionProperties(PropertyGroup):
     """Property group for tracking operation progress and status."""
     progress: FloatProperty(
         name="Execution Progress",
-        description="Progress of the current operation",
+        description="Progress of the current operation.",
         default=0.0,
         min=0.0,
         max=1.0,
@@ -372,7 +374,7 @@ class MTAR_PG_ExecutionProperties(PropertyGroup):
     
     status: StringProperty(
         name="Execution Status",
-        description="Current status of the operation",
+        description="Current status of the operation.",
         default="",
     )
     
@@ -381,7 +383,7 @@ class MTAR_PG_SettingsProperties(PropertyGroup):
     """Property group for general plugin settings."""
     show_advanced_settings: BoolProperty(
         name="Show Advanced Settings",
-        description="Display advanced import/export settings",
+        description="Display advanced import/export settings.",
         default=False
     )
 
@@ -393,31 +395,31 @@ class MTAR_PG_SettingsProperties(PropertyGroup):
             ('SETTINGS', "Settings", "Plugin-wide settings"),
         ],
         default='IMPORT',
-        description="Select which page of the MTAR panel to display",
+        description="Select which page of the MTAR panel to display.",
     )
     
     log_verbosity: EnumProperty(
         name="Log Verbosity",
-        description="Minimum log level to display (ERROR and above are always shown, lower levels add more detail)",
+        description="Minimum log level to display (ERROR and above are always shown, lower levels add more detail).",
         items=[
-            ('ERROR', "Errors", "Show only error messages", 0),
-            ('WARNING', "Warnings", "Show warnings and errors (default)", 1),
-            ('INFO', "Infos", "Show informational messages, warnings, and errors", 2),
-            ('DEBUG', "Debug", "Show all messages including debug output", 3),
+            ('ERROR', "Errors", "Show only error messages.", 0),
+            ('WARNING', "Warnings", "Show warnings and errors (default).", 1),
+            ('INFO', "Infos", "Show informational messages, warnings, and errors.", 2),
+            ('DEBUG', "Debug", "Show all messages including debug output.", 3),
         ],
         default='WARNING'
     )
     
     enable_timer_logs: BoolProperty(
         name="Log timings",
-        description="Log performance timing information for import/export operations",
+        description="Log performance timing information for import/export operations.",
         default=False
     )
 
     # Toggle whether the add-on uses bpy.ops.wm.redraw_timer for UI redraws
     use_redraw_timer: BoolProperty(
         name="Use Redraw Timer",
-        description="Enable use of bpy.ops.wm.redraw_timer in progress updates (disable if this causes instability)",
+        description="Show progress bar. Uses bpy.ops.wm.redraw_timer in progress updates (disable if this causes instability).",
         default=True
     )
     
@@ -437,7 +439,7 @@ class MTAR_PG_SettingsProperties(PropertyGroup):
     # Stored preference for marker visibility (persisted)
     show_pose_markers_pref: BoolProperty(
         name="Show Pose Markers (pref)",
-        description="Stored preference controlling pose marker visibility for editors",
+        description="Stored preference controlling pose marker visibility for editors.",
         default=True,
         update=_update_show_pose_markers
     )
@@ -445,7 +447,7 @@ class MTAR_PG_SettingsProperties(PropertyGroup):
     # Public property shown in UI — computed: True iff both editor types have markers shown
     show_pose_markers: BoolProperty(
         name="Show Pose Markers",
-        description="Toggle display of pose markers in the Action/Dope Sheet and NLA editors (true only if both are enabled)",
+        description="Toggle display of pose markers in the Action/Dope Sheet and NLA editors (true only if both are enabled).",
         get=_get_show_pose_markers,
         set=_set_show_pose_markers
     )

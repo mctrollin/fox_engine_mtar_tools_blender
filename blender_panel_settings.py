@@ -36,11 +36,7 @@ def draw_settings_page(layout, context) -> None:
     box = layout.box()
     box.label(text="Logging", icon='PREFERENCES')
     box.prop(settings_props, "log_verbosity", text="", icon='INFO')
-    if settings_props.show_advanced_settings:
-        adv_box = box.box()
-        adv_box.alert = True
-        draw_bool_prop_checkbox_icon(adv_box, settings_props, "enable_timer_logs", toggle=True)
-        draw_bool_prop_checkbox_icon(adv_box, settings_props, "use_redraw_timer", text="Use Redraw Timer", toggle=True)
+
 
 
 # no classes to register
