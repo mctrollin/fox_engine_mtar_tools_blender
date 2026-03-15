@@ -129,7 +129,7 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
 
             sub = row.row(align=True)
             sub.enabled = export_props.export_clean_fcurves and export_props.export_decimate_fcurves
-            sub.prop(export_props, 'export_fcurve_clean_threshold', text='Clean Threshold', icon='IPO_LINEAR')
+            sub.prop(export_props, 'export_fcurve_clean_threshold', text=' ', icon='IPO_LINEAR')
 
             # Force highest bit encoding option
             row2 = adv_box.row()
@@ -166,15 +166,16 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
         # Show an estimated export duration based on GANI count
         if export_count is not None and export_count > 0:
             warn_box = box_button.box()
-            warn_box.alert = True
             warn_box.label(text=f"Exporting {export_count} animations.")
             draw_estimated_operation_time(warn_box, export_count, 1.5)
 
         if not export_props.armature:
-            box_button.label(text="No armature selected", icon='ERROR')
+            warn_box.alert = True
+            warn_box.label(text="No armature selected", icon='ERROR')
         
         if not export_props.filepath:
-            box_button.label(text="No export path set", icon='ERROR')
+            warn_box.alert = True
+            warn_box.label(text="No export path set", icon='ERROR')
 
 
 classes = (

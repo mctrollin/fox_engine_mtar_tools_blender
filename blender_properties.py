@@ -355,7 +355,10 @@ class MTAR_PG_ExportProperties(PropertyGroup):
 
     export_fcurve_clean_threshold: FloatProperty(
         name="Clean Threshold",
-        description="After baking non-linear Bezier fcurves to linear (required for Fox binary format), remove redundant keyframes (0.0 = skip, higher = more aggressive).",
+        description=(
+            "After baking Bezier fcurves to linear, remove redundant keyframes (0.0 = skip, higher = more aggressive). "
+            "Fox Engine uses linear keyframe interpolation."
+            ),
         default=0.03,
         min=0.0,
         max=1.0,
