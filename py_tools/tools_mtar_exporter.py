@@ -855,6 +855,10 @@ def export_rotation_segment(armature: bpy.types.Object,
                 rot = transform_cache.get_object_rotation(frame)
                 if rot is not None:
                     return rot
+                Debug.log_warning(
+                    f"Export rotation: TransformCache missing armature object rotation for frame {frame}; "
+                    f"falling back to armature.matrix_world"
+                )
             bpy.context.scene.frame_set(frame)
             return armature.matrix_world.to_quaternion()
     else:
@@ -874,14 +878,15 @@ def export_rotation_segment(armature: bpy.types.Object,
     
     # Unified frame loop for both as_ik_up and normal rotation
     prev_frame = frame_start  # Track previous frame for relative delta computation
+    prev_blender_quat_transformed: Quaternion = None
     for frame in export_frames:
         # Set frame explicitly for performance (if no cache present)
         if not transform_cache:
             bpy.context.scene.frame_set(frame)
         
         # Get rotation using appropriate method (as_ik_up or normal)
-        blender_quat = get_rotation(frame)
-        
+        blender_quat: Quaternion = get_rotation(frame)
+
         # Apply reverse rest pose corrections (must happen BEFORE axis mapping and offsets)
         # World space tracks (space_r=world): reverse offset_r using simple multiplication
         # Local space tracks (default): reverse map_r using similarity transformation
@@ -893,13 +898,16 @@ def export_rotation_segment(armature: bpy.types.Object,
         elif map_r_dict:
             # Local space track - reverse similarity transformation
             blender_quat = reverse_rest_pose_correction_local(blender_quat, map_r_dict)
-        
+
         # Apply reverse transformations (offsets, axis mapping)
-        fox_quat = apply_reverse_transforms(blender_quat, rotation_offset, rotation_axis_map)
+        blender_quat_transformed = apply_reverse_transforms(blender_quat, rotation_offset, rotation_axis_map)
+        if prev_blender_quat_transformed is not None:
+            blender_quat_transformed.make_compatible(prev_blender_quat_transformed)
+        prev_blender_quat_transformed = blender_quat_transformed.copy()
         
         # Convert to Fox Engine coordinate system
-        fox_quat_final = blender_to_fox_quaternion(fox_quat)
-        
+        fox_quat_final = blender_to_fox_quaternion(blender_quat_transformed)
+
         # Create keyframe with relative frame delta from previous frame
         if is_static:
             frame_delta = 0
@@ -987,7 +995,13 @@ def export_location_segment(armature: bpy.types.Object,
         if use_object_level:
             # Read object-level location directly from FCurves or armature transform
             if transform_cache:
-                blender_location = transform_cache.get_object_location(frame) or Vector((0, 0, 0))
+                blender_location = transform_cache.get_object_location(frame)
+                if blender_location is None:
+                    Debug.log_warning(
+                        f"Export location: TransformCache missing armature object location for frame {frame}; "
+                        f"falling back to armature.matrix_world"
+                    )
+                    blender_location = Vector((0, 0, 0))
             else:
                 blender_location = armature.matrix_world.to_translation()
         # Read location (using pre-determined space)

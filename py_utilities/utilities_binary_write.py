@@ -58,7 +58,8 @@ def write_unaligned_bits(buffer: bytearray, bit_pos: int, value: int, bit_size: 
     return write_bits(buffer, bit_pos, value, bit_size)
 
 
-def write_unaligned_quaternion(buffer: bytearray, bit_pos: int, quat: List[float], bit_size: int) -> int:
+def write_unaligned_quaternion(buffer: bytearray, bit_pos: int, quat: List[float], bit_size: int,
+                               prev_axis: List[float] = None) -> tuple:
     """Write a bit-packed quaternion to the buffer.
     
     The encoding stores:
@@ -74,9 +75,15 @@ def write_unaligned_quaternion(buffer: bytearray, bit_pos: int, quat: List[float
         bit_pos: Starting bit position
         quat: Quaternion [x, y, z, w] in Fox Engine format
         bit_size: Bit size for each component (12, 13, or 15)
+        prev_axis: Optional post-flip axis [X, Y, Z] from the previous keyframe.
+                   When provided, the hemisphere ambiguity at halfTheta ≈ π/2 is
+                   resolved by choosing the hemisphere whose axis has a positive dot
+                   product with prev_axis, preventing sign-bit flips between frames.
         
     Returns:
-        New bit position after write
+        Tuple (new_bit_position, post_flip_axis) where post_flip_axis is the axis
+        after the hemisphere decision (to be passed as prev_axis for the next
+        keyframe).
     """
     if bit_size not in (12, 13, 15):
         raise ValueError(f"Unsupported quaternion bit size: {bit_size}")
@@ -100,11 +107,34 @@ def write_unaligned_quaternion(buffer: bytearray, bit_pos: int, quat: List[float
         Y = qy / sin_half
         Z = qz / sin_half
     
-    # Ensure half_theta is in [0, Pi/2]
-    if half_theta > math.pi / 2.0:
+    # Ensure half_theta is in [0, Pi/2].
+    # When halfTheta > π/2 both (halfTheta, axis) and (π−halfTheta, −axis) encode
+    # the same rotation.  Near the boundary (qw ≈ 0) floating-point noise makes the
+    # threshold fire inconsistently across frames, flipping sign bits discontinuously.
+    # If prev_axis is available AND we are near the boundary, choose the hemisphere
+    # whose axis agrees with the previous frame instead of the noisy threshold.
+    # IMPORTANT: Only override the standard decision near the π/2 boundary (|qw| < ε).
+    # Far from the boundary the standard decision is correct and must not be overridden:
+    # forcing a flip when half_theta < π/2 would produce an encoded half_theta > π/2,
+    # which is an invalid encoding and corrupts the animation data.
+    needs_flip = half_theta > math.pi / 2.0
+    if prev_axis is not None:
+        # ~5.7° window around the π/2 boundary — wide enough to absorb float noise
+        BOUNDARY_EPSILON = 0.0001
+        if abs(qw) < BOUNDARY_EPSILON:
+            dot = X * prev_axis[0] + Y * prev_axis[1] + Z * prev_axis[2]
+            if dot > 1e-6:
+                needs_flip = False
+            elif dot < -1e-6:
+                needs_flip = True
+            # dot ≈ 0: axes are orthogonal — fall back to threshold-based decision
+    if needs_flip:
         half_theta = math.pi - half_theta
         X, Y, Z = -X, -Y, -Z
-    
+
+    # Record the axis after any hemisphere flip (used for consistent encoding across frames)
+    post_flip_axis = [X, Y, Z]
+
     # Extract sign bits
     x_sign_bit = 1 if X < 0 else 0
     y_sign_bit = 1 if Y < 0 else 0
@@ -146,7 +176,7 @@ def write_unaligned_quaternion(buffer: bytearray, bit_pos: int, quat: List[float
     bit_pos = write_bits(buffer, bit_pos, y_sign_bit, 1)
     bit_pos = write_bits(buffer, bit_pos, z_sign_bit, 1)
     
-    return bit_pos
+    return bit_pos, post_flip_axis
 
 
 def write_anim_half(f: BinaryIO, value: float) -> None:

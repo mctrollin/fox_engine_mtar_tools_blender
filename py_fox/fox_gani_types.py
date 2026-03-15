@@ -235,7 +235,7 @@ class AnimKeyframe:
             
             # Write initial quaternion (bit-packed)
             initial_quat = keyframes[0].data.value
-            bit_pos = write_unaligned_quaternion(buffer, bit_pos, initial_quat, component_bit_size)
+            bit_pos, prev_axis = write_unaligned_quaternion(buffer, bit_pos, initial_quat, component_bit_size)
             
             # Write subsequent keyframes if this is not a static track
             if has_frames and len(keyframes) > 1:
@@ -254,9 +254,9 @@ class AnimKeyframe:
                     # Write frame delta (8 bits)
                     bit_pos = write_unaligned_bits(buffer, bit_pos, frame_delta, 8)
                     
-                    # Write quaternion
+                    # Write quaternion, passing prev_axis for stable hemisphere selection
                     quat = keyframes[i].data.value
-                    bit_pos = write_unaligned_quaternion(buffer, bit_pos, quat, component_bit_size)
+                    bit_pos, prev_axis = write_unaligned_quaternion(buffer, bit_pos, quat, component_bit_size, prev_axis)
             
             # Ensure buffer is byte-aligned first (round up bit_pos to next byte)
             byte_size = (bit_pos + 7) // 8
