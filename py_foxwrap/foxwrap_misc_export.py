@@ -4,7 +4,7 @@ Export-only fake types for MTAR exporter.
 from dataclasses import dataclass
 import io
 import copy
-from typing import Optional, List, Dict, Tuple, Callable, Union
+from typing import Optional, List, Dict, Tuple, Callable, Union, Set
 
 import bpy
 
@@ -622,6 +622,14 @@ class TrackSegmentBoneMapping:
             Dictionary of (track_idx, segment_idx) -> (bone_name, bone_parameters)
         """
         return self._mappings.copy()
+
+    def get_all_bone_names(self) -> Set[str]:
+        """Get all unique Blender bone names referenced in this mapping.
+
+        Returns:
+            Set of bone names (may include special names such as the armature target).
+        """
+        return {bone_name for (bone_name, _) in self._mappings.values()}
     
     def __len__(self) -> int:
         """Get total number of segment mappings."""

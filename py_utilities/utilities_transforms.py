@@ -6,12 +6,17 @@ that work with standard Blender types (Vector, Quaternion) and Blender objects.
 """
 
 import math
-from typing import List, Optional, Tuple, Union, Dict
+from typing import List, Optional, Tuple, Union, Dict, Set
 
 import bpy
 from mathutils import Vector, Quaternion, Euler
 
 from .utilities_logging import Debug
+
+
+class TransformsCacheError(RuntimeError):
+    """Raised when a required transform cannot be retrieved from the cache."""
+
 
 # Directional location (for IK up vector) #############################################################
 
@@ -544,17 +549,56 @@ class TransformsCache:
     per frame (``get_object_location`` / ``get_object_rotation``), which is
     used when root motion has been moved to the armature object level.
     """
-    def __init__(self, armature: bpy.types.Object, frame_start: int, frame_end: int):
+    def __init__(self, armature: bpy.types.Object, frame_start: int, frame_end: int,
+                 bone_filter: Optional[Set[str]] = None):
         self.armature = armature
         self.frame_start = frame_start
         self.frame_end = frame_end
+        # If set, only these bones are cached (object transforms are always cached).
+        self._bone_filter = bone_filter
         # Map: bone_name -> frame -> (local_rot, local_loc, world_rot, world_loc, bone_mat)
         self._data: Dict[str, Dict[int, tuple]] = {}
         # Map: frame -> (object_loc: Vector, object_rot: Quaternion)
         self._object_data: Dict[int, tuple] = {}
 
+    def _compute_and_cache_frame(self, bone_name: str, frame: int) -> bool:
+        """Compute and cache transforms for a bone/frame on demand.
+
+        Returns True if the transform could be computed and cached, False otherwise.
+        """
+        if not self.armature or bone_name not in self.armature.pose.bones:
+            return False
+
+        # Ensure frame is evaluated before reading pose data
+        bpy.context.scene.frame_set(frame)
+
+        try:
+            local_loc, local_rot = get_local_space_transform(self.armature, bone_name, frame)
+            world_loc, world_rot = get_world_space_transform(self.armature, bone_name, frame)
+        except Exception:
+            return False
+
+        # Store raw matrix too for custom space computations
+        bone_mat = self.armature.pose.bones[bone_name].matrix.copy()
+
+        if bone_name not in self._data:
+            self._data[bone_name] = {}
+
+        self._data[bone_name][frame] = (
+            local_rot,
+            local_loc,
+            world_rot,
+            world_loc,
+            bone_mat
+        )
+        return True
+
     def build(self):
-        """Precompute all bone transforms and armature-object transforms for the frame range."""
+        """Precompute all bone transforms and armature-object transforms for the frame range.
+
+        If *bone_filter* was supplied at construction only those bones are cached;
+        armature-object transforms are always cached regardless of the filter.
+        """
         if not self.armature or not self.armature.pose:
             return
 
@@ -563,9 +607,18 @@ class TransformsCache:
         original_frame = bpy.context.scene.frame_current
 
         try:
-            bone_names = [bone.name for bone in self.armature.pose.bones]
-            for name in bone_names:
-                self._data[name] = {}
+            all_pose_bones = [bone for bone in self.armature.pose.bones]
+            if self._bone_filter is not None:
+                bones_to_cache = [bone for bone in all_pose_bones if bone.name in self._bone_filter]
+                skipped = len(all_pose_bones) - len(bones_to_cache)
+                Debug.log(f"    TransformsCache: caching {len(bones_to_cache)}/{len(all_pose_bones)} bones "
+                          f"({skipped} skipped by filter)")
+                Debug.log(f"    TransformsCache bone list: {sorted([b.name for b in bones_to_cache])}")
+            else:
+                bones_to_cache = all_pose_bones
+
+            for bone in bones_to_cache:
+                self._data[bone.name] = {}
 
             # Track previous frame quaternions to ensure sign consistency and avoid rotations to flip
             prev_local_rots: Dict[str, Quaternion] = {}
@@ -577,7 +630,7 @@ class TransformsCache:
 
                 arm_matrix_world = self.armature.matrix_world.copy()
 
-                # Cache armature-object-level transforms
+                # Cache armature-object-level transforms (always, regardless of bone_filter)
                 obj_loc = arm_matrix_world.to_translation()
                 obj_rot = arm_matrix_world.to_quaternion()
                 if prev_obj_rot is not None:
@@ -585,7 +638,7 @@ class TransformsCache:
                 prev_obj_rot = obj_rot.copy()
                 self._object_data[frame] = (obj_loc, obj_rot)
 
-                for bone in self.armature.pose.bones:
+                for bone in bones_to_cache:
                     local_mat = bone.matrix_basis
                     local_loc = local_mat.to_translation()
                     local_rot = local_mat.to_quaternion()
@@ -624,20 +677,38 @@ class TransformsCache:
         frame_data = self._data.get(bone_name, {}).get(frame)
         if frame_data:
             return frame_data[1], frame_data[0]
-        return None, None
+
+        # Attempt to compute missing transform on the fly.
+        if self._compute_and_cache_frame(bone_name, frame):
+            frame_data = self._data.get(bone_name, {}).get(frame)
+            if frame_data:
+                return frame_data[1], frame_data[0]
+
+        # If we get here, the bone is missing or cannot be evaluated.
+        raise TransformsCacheError(
+            f"TransformsCache missing local transform for bone='{bone_name}' frame={frame}"
+        )
 
     def get_world(self, bone_name: str, frame: int, space_bone: Optional[str] = None):
         """Return (location, rotation) in world or custom bone space for a bone at a frame."""
         bone_frame_data = self._data.get(bone_name, {}).get(frame)
         if not bone_frame_data:
-            return None, None
+            if not self._compute_and_cache_frame(bone_name, frame):
+                raise TransformsCacheError(
+                    f"TransformsCache missing world transform for bone='{bone_name}' frame={frame}"
+                )
+            bone_frame_data = self._data.get(bone_name, {}).get(frame)
 
         if not space_bone:
             return bone_frame_data[3], bone_frame_data[2]
 
         space_frame_data = self._data.get(space_bone, {}).get(frame)
         if not space_frame_data:
-            return bone_frame_data[3], bone_frame_data[2]
+            if not self._compute_and_cache_frame(space_bone, frame):
+                raise TransformsCacheError(
+                    f"TransformsCache missing world transform for space_bone='{space_bone}' frame={frame}"
+                )
+            space_frame_data = self._data.get(space_bone, {}).get(frame)
 
         bone_rel_mat = bone_frame_data[4]
         space_rel_mat = space_frame_data[4]
@@ -648,9 +719,23 @@ class TransformsCache:
     def get_object_location(self, frame: int) -> Optional[Vector]:
         """Return the armature object's world-space location at *frame*, or ``None``."""
         data = self._object_data.get(frame)
-        return data[0] if data else None
+        if data:
+            return data[0]
+        # Try to compute and cache object transforms if missing
+        self.build()  # safe: will rebuild only if needed
+        data = self._object_data.get(frame)
+        if data:
+            return data[0]
+        raise TransformsCacheError(f"TransformsCache missing object location for frame={frame}")
 
     def get_object_rotation(self, frame: int) -> Optional[Quaternion]:
         """Return the armature object's world-space rotation at *frame*, or ``None``."""
         data = self._object_data.get(frame)
-        return data[1] if data else None
+        if data:
+            return data[1]
+        # Try to compute and cache object transforms if missing
+        self.build()  # safe: will rebuild only if needed
+        data = self._object_data.get(frame)
+        if data:
+            return data[1]
+        raise TransformsCacheError(f"TransformsCache missing object rotation for frame={frame}")

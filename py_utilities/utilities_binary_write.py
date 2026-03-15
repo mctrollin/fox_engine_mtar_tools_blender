@@ -119,8 +119,11 @@ def write_unaligned_quaternion(buffer: bytearray, bit_pos: int, quat: List[float
     # which is an invalid encoding and corrupts the animation data.
     needs_flip = half_theta > math.pi / 2.0
     if prev_axis is not None:
-        # ~5.7° window around the π/2 boundary — wide enough to absorb float noise
-        BOUNDARY_EPSILON = 0.0001
+        # Narrow window around the π/2 boundary: only override hemisphere selection
+        # when qw is very close to 0 (near 180° rotation). A larger window
+        # incorrectly catches bones whose qw is only slightly above 0 and forces
+        # invalid hemisphere flips on them.
+        BOUNDARY_EPSILON = 0.001
         if abs(qw) < BOUNDARY_EPSILON:
             dot = X * prev_axis[0] + Y * prev_axis[1] + Z * prev_axis[2]
             if dot > 1e-6:

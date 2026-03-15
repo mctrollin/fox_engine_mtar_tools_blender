@@ -336,7 +336,9 @@ def _make_quaternion_fcurves_compatible(action: bpy.types.Action) -> int:
 
         for frame in sorted(frames):
             vals = [fc.evaluate(frame) for fc in fcurves_sorted]
-            quat = Quaternion((vals[3], vals[0], vals[1], vals[2]))
+            # fcurves_sorted is ordered by array_index: 0=W, 1=X, 2=Y, 3=Z
+            # mathutils.Quaternion constructor takes (W, X, Y, Z)
+            quat = Quaternion((vals[0], vals[1], vals[2], vals[3]))
             orig_quat = quat.copy()
 
             if prev_quat is not None:
@@ -344,8 +346,8 @@ def _make_quaternion_fcurves_compatible(action: bpy.types.Action) -> int:
 
             # Only update keyframes if the hemisphere changed
             if quat.dot(orig_quat) < 0.999999:
-                # Write back corrected values where keyframes exist
-                corrected_vals = [quat.x, quat.y, quat.z, quat.w]
+                # Write back in array_index order: 0=W, 1=X, 2=Y, 3=Z
+                corrected_vals = [quat.w, quat.x, quat.y, quat.z]
                 for idx, fc in enumerate(fcurves_sorted):
                     kp = _find_keyframe_point(fc, frame)
                     if kp is not None:
@@ -558,72 +560,80 @@ def bake_and_clean_export_fcurves(armature: bpy.types.Object,
             # Track this FCurve's key for filtering
             baked_fcurve_keys.add((fcurve.data_path, fcurve.array_index))
     
+    # We only apply the following post processing to nonlinear fcurves (bezier)
+    if len(nonlinear_fcurves) <= 0:
+        return {
+            'action': action,
+            'fcurves_baked': 0,
+            'fcurves_cleaned': 0,
+            'fcurves_already_linear': 0
+        }
+    
     fcurves_baked: int = 0
     fcurves_cleaned: int = 0
     processed_action: bpy.types.Action = action
     
     # If we have non-linear fcurves, create a copy and bake them
-    if nonlinear_fcurves:
-        # Create a copy to avoid modifying original
-        processed_action = action.copy()
-        processed_action.name = f"{action.name}_export_temp"
+    # Create a copy to avoid modifying original
+    processed_action = action.copy()
+    processed_action.name = f"{action.name}_export_temp"
+    
+    # Determine frame range from action
+    frame_start = int(action.frame_range[0])
+    frame_end = int(action.frame_range[1])
+    
+    # Assign copy to armature temporarily for baking
+    assign_action_to_datablock(armature, processed_action, slot_name=MTAR_ARMATURE_SLOT_NAME)
+    
+    try:
+        # Select FCurves that need baking (non-linear ones)
+        for fcurve in iter_action_fcurves(processed_action):
+            fcurve.select = (fcurve.data_path, fcurve.array_index) in baked_fcurve_keys
         
-        # Determine frame range from action
-        frame_start = int(action.frame_range[0])
-        frame_end = int(action.frame_range[1])
+        _sample_fcurves_to_linear(armature, processed_action, frame_start, frame_end)
+        fcurves_baked = len(nonlinear_fcurves)
         
-        # Assign copy to armature temporarily for baking
-        armature.animation_data.action = processed_action
-        
-        try:
-            # Select FCurves that need baking (non-linear ones)
-            for fcurve in iter_action_fcurves(processed_action):
-                fcurve.select = (fcurve.data_path, fcurve.array_index) in baked_fcurve_keys
-            
-            _sample_fcurves_to_linear(armature, processed_action, frame_start, frame_end)
-            fcurves_baked = len(nonlinear_fcurves)
-            
-            # Deselect all FCurves
-            for fcurve in iter_action_fcurves(processed_action):
-                fcurve.select = False
-        
-        except Exception as e:
-            bpy.data.actions.remove(processed_action)
-            armature.animation_data.action = action
-            raise e
-        
-        finally:
-            # Always restore original action on armature
-            armature.animation_data.action = action
+        # Deselect all FCurves
+        for fcurve in iter_action_fcurves(processed_action):
+            fcurve.select = False
+    
+    except Exception as e:
+        bpy.data.actions.remove(processed_action)
+        armature.animation_data.action = action
+        raise e
+    finally:
+        # Always restore original action on armature
+        armature.animation_data.action = action
     
     # Clean redundant keyframes only if we actually baked something
-    if nonlinear_fcurves and fcurve_clean_threshold > 0.0:
+    if fcurve_clean_threshold > 0.0:
         fcurves_cleaned = clean_fcurves(processed_action, fcurve_clean_threshold, fcurve_filter=baked_fcurve_keys, obj=armature)
 
-    # Validate: warn if cleaned fcurves have keyframe gaps > 255 frames.
-    # The GANI binary format stores inter-keyframe deltas as ubyte (1-255).
-    # A gap larger than 255 cannot be encoded and the exporter clamps it to
-    # 255, which shifts all subsequent keyframe timings and corrupts the track.
-    if nonlinear_fcurves and fcurve_clean_threshold > 0.0 and fcurves_cleaned > 0:
-        gap_violations = _check_fcurves_for_large_gaps(processed_action, baked_fcurve_keys)
-        if gap_violations:
-            Debug.log_error(
-                f"Export: {len(gap_violations)} FCurve(s) have keyframe gaps exceeding the "
-                f"255-frame binary format limit after baking and cleaning "
-                f"(fcurve_clean_threshold={fcurve_clean_threshold}). The exported MTAR will be INVALID. "
-                f"Reduce the export clean threshold to fix this. "
-                f"First affected: '{gap_violations[0][0]}[{gap_violations[0][1]}]', "
-                f"gap={gap_violations[0][2]} frames."
-            )
+        # Validate: warn if cleaned fcurves have keyframe gaps > 255 frames.
+        # The GANI binary format stores inter-keyframe deltas as ubyte (1-255).
+        # A gap larger than 255 cannot be encoded and the exporter clamps it to
+        # 255, which shifts all subsequent keyframe timings and corrupts the track.
+        if  fcurves_cleaned > 0:
+            gap_violations = _check_fcurves_for_large_gaps(processed_action, baked_fcurve_keys)
+            if gap_violations:
+                Debug.log_error(
+                    f"Export: {len(gap_violations)} FCurve(s) have keyframe gaps exceeding the "
+                    f"255-frame binary format limit after baking and cleaning "
+                    f"(fcurve_clean_threshold={fcurve_clean_threshold}). The exported MTAR will be INVALID. "
+                    f"Reduce the export clean threshold to fix this. "
+                    f"First affected: '{gap_violations[0][0]}[{gap_violations[0][1]}]', "
+                    f"gap={gap_violations[0][2]} frames."
+                )
 
-    # Ensure quaternion keyframes do not flip sign (q -> -q) due to clean/decimate.
-    # This post-process stabilizes the quaternion hemisphere across frames.
-    if processed_action:
-        # Operate on a temporary copy to avoid mutating the user's original action.
-        if processed_action is action:
-            processed_action = action.copy()
-            processed_action.name = f"{action.name}_export_temp"
-        _make_quaternion_fcurves_compatible(processed_action)
+    # Stabilize quaternion hemisphere in FCurve values after clean/decimate.
+    # Only run when keyframes were actually removed by the clean step, as that
+    # is when per-channel sign flips can be introduced.
+    # At this point processed_action is always a copy (created by the baking block
+    # above), so no additional copy is needed here.
+    # if fcurves_cleaned > 0:
+    #     n_quat_modified = _make_quaternion_fcurves_compatible(processed_action)
+    #     if n_quat_modified > 0:
+    #         Debug.log(f"    Quaternion FCurve compatibility pass: stabilized {n_quat_modified} track(s) in '{processed_action.name}'")
 
     return {
         'action': processed_action,

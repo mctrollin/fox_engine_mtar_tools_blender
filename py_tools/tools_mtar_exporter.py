@@ -5,7 +5,7 @@ This module handles the export of Blender animation data to MTAR format.
 """
 
 import math
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Set
 from pathlib import Path
 
 import bpy
@@ -24,7 +24,7 @@ from ..py_utilities.utilities_transforms import (
     TransformsCache
 )
 from ..py_utilities.utilities_blender_animation import (
-    FCurveCache, iter_action_fcurves, is_relevant_strip, try_find_layout_track_action,
+    FCurveCache, iter_action_fcurves, is_relevant_strip, remove_action_from_datablock, try_find_layout_track_action,
     build_data_path_for_bone, assign_action_to_datablock, MTAR_ARMATURE_SLOT_NAME,
     find_action_fcurve,
 )
@@ -363,9 +363,7 @@ def extract_rest_pose_correction_mapping_from_armature(track_segment_bone_mappin
         segments = track_segment_bone_mapping.get_track_segments(track_idx)
         for seg_idx, blender_bone_name, bone_params in segments:
             # Skip as_ik_up bones - they should not be affected by rest pose corrections
-            # Duck-typed access to handle dict or dataclass
-            as_ik_up_value = getattr(bone_params, 'as_ik_up', None) if hasattr(bone_params, 'as_ik_up') else bone_params.get('as_ik_up') if isinstance(bone_params, dict) else None
-            if as_ik_up_value:
+            if bone_params.as_ik_up:
                 continue
             
             # Check if bone exists in armature
@@ -383,39 +381,23 @@ def extract_rest_pose_correction_mapping_from_armature(track_segment_bone_mappin
             }
             
             # Determine how to apply based on track space type
-            # Duck-typed access to handle dict or dataclass
-            space_r_value = getattr(bone_params, 'space_r', None) if hasattr(bone_params, 'space_r') else bone_params.get('space_r') if isinstance(bone_params, dict) else None
-            
-            if space_r_value:
+            if bone_params.space_r:
                 # WORLD space track - add to rotation_offset list
-                if hasattr(bone_params, 'rotation_offset'):
-                    if bone_params.rotation_offset is None:
-                        bone_params.rotation_offset = []
-                    bone_params.rotation_offset.append(rest_pose_dict)
-                elif isinstance(bone_params, dict):
-                    if 'rotation_offset' not in bone_params or bone_params['rotation_offset'] is None:
-                        bone_params['rotation_offset'] = []
-                    bone_params['rotation_offset'].append(rest_pose_dict)
+                if bone_params.rotation_offset is None:
+                    bone_params.rotation_offset = []
+                bone_params.rotation_offset.append(rest_pose_dict)
                 Debug.log(f"  {blender_bone_name} [WORLD]: Added rest pose to offset_r: ({euler_deg[0]:.1f}, {euler_deg[1]:.1f}, {euler_deg[2]:.1f})")
             else:
                 # LOCAL space track - merge with existing map_r or set if missing
-                existing_map_r = getattr(bone_params, 'map_r', None) if hasattr(bone_params, 'map_r') else bone_params.get('map_r') if isinstance(bone_params, dict) else None
-                
-                if existing_map_r is None:
+                if bone_params.map_r is None:
                     # No map_r from mapping file - use rest pose from armature
-                    if hasattr(bone_params, 'map_r'):
-                        bone_params.map_r = rest_pose_dict
-                    elif isinstance(bone_params, dict):
-                        bone_params['map_r'] = rest_pose_dict
+                    bone_params.map_r = rest_pose_dict
                     Debug.log(f"  {blender_bone_name} [LS]: Set rest pose from armature: ({euler_deg[0]:.1f}, {euler_deg[1]:.1f}, {euler_deg[2]:.1f})")
                 else:
                     # Already has map_r from mapping file - use armature instead
-                    existing_euler = existing_map_r['euler']
+                    existing_euler = bone_params.map_r['euler']
                     Debug.log(f"  {blender_bone_name} [LS]: Mapping file has map_r=({existing_euler[0]:.1f}, {existing_euler[1]:.1f}, {existing_euler[2]:.1f}), using armature instead")
-                    if hasattr(bone_params, 'map_r'):
-                        bone_params.map_r = rest_pose_dict
-                    elif isinstance(bone_params, dict):
-                        bone_params['map_r'] = rest_pose_dict
+                    bone_params.map_r = rest_pose_dict
             
             rest_pose_count += 1
     
@@ -870,9 +852,9 @@ def export_rotation_segment(armature: bpy.types.Object,
         else:
             space_bone = TrackMetaData.extract_space_bone(bone_params.space_r)
         
-        # Extract rest pose correction parameters (duck-typed dict access)
-        map_r_dict = getattr(bone_params, 'map_r', None) if hasattr(bone_params, 'map_r') else bone_params.get('map_r') if isinstance(bone_params, dict) else None
-        space_r_value = getattr(bone_params, 'space_r', None) if hasattr(bone_params, 'space_r') else bone_params.get('space_r') if isinstance(bone_params, dict) else None
+        # Extract rest pose correction parameters
+        map_r_dict = bone_params.map_r
+        space_r_value = bone_params.space_r
         
         # Get rotation transform function (varies by as_ik_up and space type)
         get_rotation = _get_rotation_transform_fn(bone_params, armature, blender_bone_name, space_bone, rig_unit_type, transform_cache)
@@ -1352,6 +1334,54 @@ def export_gani_track_from_action(armature: bpy.types.Object,
     )
 
 
+def _find_nla_strip_for_action(armature: bpy.types.Object,
+                               action: bpy.types.Action
+                               ) -> Optional['bpy.types.NlaStrip']:
+    """Return the first NLA strip on *armature* whose .action is *action*, or None."""
+    if not armature.animation_data or not armature.animation_data.nla_tracks:
+        return None
+    for track in armature.animation_data.nla_tracks:
+        for strip in track.strips:
+            if strip.action is action:
+                return strip
+    return None
+
+
+def _collect_bones_for_transform_cache(track_segment_bone_mapping: TrackSegmentBoneMapping) -> Set[str]:
+    """Collect all bone names that must be available in the transforms cache.
+
+    This includes:
+    - All bones explicitly listed in the mapping (track/segment bones)
+    - Any custom-space bones referenced via space_r/space_l/space_ik
+    - Any as_ik_up base bones used for directional-up calculations
+
+    The cache is expected to provide transforms for these bones, or export will
+    fail with a clear exception when they are missing.
+    """
+    bones: Set[str] = set()
+
+    for bone_name, bone_params in track_segment_bone_mapping.get_all_mappings().values():
+        if bone_name:
+            bones.add(bone_name)
+
+        # Space bones (custom coordinate spaces used by mapping params)
+        for space_attr in (bone_params.space_r, bone_params.space_l, bone_params.space_ik):
+            if space_attr:
+                space_bone = TrackMetaData.extract_space_bone(space_attr)
+                if space_bone:
+                    bones.add(space_bone)
+
+        # as_ik_up uses a separate base bone whose transform is required
+        if bone_params.as_ik_up and bone_params.as_ik_up.bone_base:
+            bones.add(bone_params.as_ik_up.bone_base)
+
+    # The special [armature] target is not a real pose bone and must not be used
+    # as a cache key (it's handled via object-level transforms instead).
+    bones.discard(ARMATURE_TARGET_NAME)
+
+    return bones
+
+
 def export_gani_tracks_from_action(armature: bpy.types.Object,
                        action_data: ExportActionData,
                        track_segment_bone_mapping: Optional[TrackSegmentBoneMapping],
@@ -1431,7 +1461,9 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
                 else:
                     if armature.animation_data:
                         try:
-                            armature.animation_data.action = None
+                            # armature.animation_data.action = None
+                            # assign_action_to_datablock(armature, None, slot_name=MTAR_ARMATURE_SLOT_NAME)
+                            remove_action_from_datablock(armature)
                         except Exception:
                             pass
                 
@@ -1449,19 +1481,68 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
         if fcurve_cache and not fcurve_cache.is_empty():
             Debug.log(f"    Built fcurve cache: {len(fcurve_cache.get_bones())} bones indexed")
         else:
-            Debug.log_warning(f"    Built fcurve cache is empty")
+            Debug.log_warning("    Built fcurve cache is empty")
 
         # Build Transform Cache ------------------------------------------------------
         # Once for this action (major performance optimization)
-        # This eliminates thousands of scene.frame_set() calls during track export
-        transform_cache = TransformsCache(armature, frame_start, frame_end)
-        transform_cache.build()
+        # This eliminates thousands of scene.frame_set() calls during track export.
+        #
+        # IMPORTANT: evaluate processed_action (baked + cleaned + hemisphere-fixed by
+        # Layer 3 in bake_and_clean_export_fcurves), NOT the original action.
+        # The bake/clean step restores the original action to the armature before
+        # returning, so a temporary re-assign is needed here. Without this, Layer 3
+        # fixes processed_action FCurves but TransformsCache still evaluates the
+        # original action and the hemisphere fix has no effect on exported values.
+
+        # Compute which bones are actually relevant so the cache can skip the rest.
+        # Armature-object transforms are always cached regardless of the filter.
+        #
+        # Must include bones referenced by mapping parameters (space_r/space_l/space_ik, as_ik_up base)
+        # because those are used as custom space bones or IK bases during export.
+        if track_segment_bone_mapping is not None:
+            relevant_bone_names = _collect_bones_for_transform_cache(track_segment_bone_mapping)
+            Debug.log(f"    TransformsCache bone filter: {len(relevant_bone_names)} bones from mapping (including space bones)")
+        elif fcurve_cache is not None:
+            relevant_bone_names = set(fcurve_cache.get_bones())
+            Debug.log(f"    TransformsCache bone filter: {len(relevant_bone_names)} bones from FCurve cache")
+        else:
+            relevant_bone_names = None
+            Debug.log("    TransformsCache bone filter: None (caching all bones)")
+
+        transform_cache = TransformsCache(armature, frame_start, frame_end, bone_filter=relevant_bone_names)
+        if processed_action is not action:
+            # If the original action lives in an NLA strip, swap the strip's action
+            # pointer to the processed copy and evaluate through the NLA so the
+            # strip's timeline offset is applied automatically.  No keyframe data
+            # needs to be modified.
+            # If no strip is found (active-action export), fall back to direct
+            # assignment — the action's internal frame range already matches
+            # frame_start in that case so no offset issue exists.
+            nla_strip = _find_nla_strip_for_action(armature, action)
+            if nla_strip:
+                nla_strip.action = processed_action
+                remove_action_from_datablock(armature)  # ensure NLA evaluates, not a direct override
+                try:
+                    transform_cache.build()
+                finally:
+                    nla_strip.action = action
+            else:
+                assign_action_to_datablock(armature, processed_action, slot_name=MTAR_ARMATURE_SLOT_NAME)
+                try:
+                    transform_cache.build()
+                finally:
+                    remove_action_from_datablock(armature)
+        else:
+            transform_cache.build()
 
         # Create Synthetic Mapping ------------------------------------------------------
         # If needed (when no mapping provided)
         if not track_segment_bone_mapping or not layout_metadata_dict:
+            # Use the processed action (baked, cleaned, and hemisphere-fixed) when
+            # deriving synthetic mapping/metadata so the frame/keyframe set matches
+            # what will ultimately be exported.
             track_segment_bone_mapping, synthetic_metadata = create_synthetic_mapping(
-                armature, action, layout_metadata_dict
+                armature, processed_action, layout_metadata_dict
             )
             # Merge synthetic metadata into layout_metadata_dict
             layout_metadata_dict = {**(layout_metadata_dict or {}), **synthetic_metadata}
@@ -1488,7 +1569,7 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
                     # Fallback: layout action exists but has no matching entry for this bone.
                     # Derive minimal metadata from FCurves so export can proceed.
                     layout_metadata = TrackMetaData.from_fcurves(
-                        bone_name=_blender_bone_name, action=action
+                        bone_name=_blender_bone_name, action=processed_action
                     )
                     if layout_metadata:
                         Debug.log_warning(
@@ -1498,7 +1579,7 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
             
             gani_track = export_gani_track_from_action(
                 armature,
-                action,
+                processed_action,
                 track_idx,
                 frame_start,
                 frame_end,
