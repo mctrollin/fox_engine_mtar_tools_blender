@@ -9,7 +9,7 @@ from .py_utilities.utilities_blender_animation import is_relevant_strip, try_fin
 from .py_foxwrap.foxwrap_metadata import read_mtar_properties_from_action, read_mtar_properties_from_any_action
 from .py_fox import fox_mtar_constants as mtar_const
 
-from .blender_panel_shared import draw_bool_prop_checkbox_icon, draw_progress_bar
+from .blender_panel_shared import draw_bool_prop_checkbox_icon, draw_estimated_operation_time, draw_progress_bar
 
 
 def draw_export_page(layout: UILayout, context: Context) -> None:
@@ -163,13 +163,12 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
 
         draw_progress_bar(box_button, props)
 
-        # Slim warning if exporting many animations/strips (no filtering available for export)
-        if export_count is not None and export_count > 100:
+        # Show an estimated export duration based on GANI count
+        if export_count is not None and export_count > 0:
             warn_box = box_button.box()
             warn_box.alert = True
             warn_box.label(text=f"Exporting {export_count} animations.")
-            warn_box.label(text="This may take several minutes.")
-            warn_box.label(text="View console to track progress.")
+            draw_estimated_operation_time(warn_box, export_count, 1.5)
 
         if not export_props.armature:
             box_button.label(text="No armature selected", icon='ERROR')

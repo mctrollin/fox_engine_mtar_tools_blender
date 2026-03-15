@@ -960,16 +960,22 @@ def bake_constraints_and_decimate_fcurves(
         'failed_strips': []
     }
 
+    # Bake stage ------------------------
     try:
         # Prefer NLA strips when present
         if rig_armature.animation_data and rig_armature.animation_data.nla_tracks:
-            bake_res = bake_armature_nla_strips_to_keyframes(
-                rig_armature=rig_armature,
-                create_new_action=create_new_action,
-                new_action_suffix=new_action_suffix,
-                source_armature=source_armature,
-                remove_constraints=remove_constraints
-            )
+            Debug.start_timer("Bake (NLA strips)")
+            try:
+                bake_res = bake_armature_nla_strips_to_keyframes(
+                    rig_armature=rig_armature,
+                    create_new_action=create_new_action,
+                    new_action_suffix=new_action_suffix,
+                    source_armature=source_armature,
+                    remove_constraints=remove_constraints
+                )
+            finally:
+                Debug.stop_timer("Bake (NLA strips)")
+
             result.update({
                 'success': bake_res.get('success', False),
                 'message': bake_res.get('message', ''),
@@ -977,14 +983,19 @@ def bake_constraints_and_decimate_fcurves(
                 'failed_strips': bake_res.get('failed_strips', [])
             })
         elif rig_armature.animation_data and rig_armature.animation_data.action:
-            bake_res = bake_armature_constraints_to_keyframes(
-                rig_armature=rig_armature,
-                action=rig_armature.animation_data.action,
-                remove_constraints=remove_constraints,
-                create_new_action=create_new_action,
-                new_action_suffix=new_action_suffix,
-                source_armature=source_armature
-            )
+            Debug.start_timer("Bake (single action)")
+            try:
+                bake_res = bake_armature_constraints_to_keyframes(
+                    rig_armature=rig_armature,
+                    action=rig_armature.animation_data.action,
+                    remove_constraints=remove_constraints,
+                    create_new_action=create_new_action,
+                    new_action_suffix=new_action_suffix,
+                    source_armature=source_armature
+                )
+            finally:
+                Debug.stop_timer("Bake (single action)")
+
             result.update({
                 'success': bake_res.get('success', False),
                 'message': bake_res.get('message', ''),
@@ -996,34 +1007,34 @@ def bake_constraints_and_decimate_fcurves(
             result['success'] = False
             result['message'] = 'No NLA tracks or active action to bake'
             return result
-
-        # Run decimation if requested (operate on armature so decimate_import_fcurves_to_bezier
-        # will find NLA-created actions and/or active action)
-        if bake_decimate_fcurve_error > 0.0:
-            Debug.update_progress_status("Decimating fcurves", secondary_progress=0.1)
-            try:
-                dec_res = decimate_import_fcurves_to_bezier(
-                    armature=rig_armature,
-                    bake_decimate_fcurve_error=bake_decimate_fcurve_error,
-                    decimate_skip_types=decimate_skip_types,
-                    layout_action=layout_action,
-                    blender_to_fox_map=blender_to_fox_map,
-                )
-                result['fcurves_decimated'] = dec_res.get('fcurves_decimated', 0)
-            except Exception as e:
-                Debug.log_warning(f"Decimation after bake failed: {e}")
-            finally:
-                Debug.update_progress_status("Decimation complete", secondary_progress=0.3)
-        else:
-            result['fcurves_decimated'] = 0
-
-        # Call internal handler to perform post-bake cleanup/reporting
-        _handle_bake_result(result, rig_armature, source_armature, delete_import_armature, None)
-
-        return result
-
     except Exception as e:
-        Debug.log_warning(f"bake_constraints_and_decimate_fcurves failed: {e}")
+        Debug.log_warning(f"Bake failed: {e}")
         result['success'] = False
-        result['message'] = str(e)
+        result['message'] = f"Bake failed: {e}"
         return result
+
+    # Decimation stage ------------------------
+    if bake_decimate_fcurve_error > 0.0:
+        Debug.start_timer("Decimation")
+        Debug.update_progress_status("Decimating fcurves", secondary_progress=0.1)
+        try:
+            dec_res = decimate_import_fcurves_to_bezier(
+                armature=rig_armature,
+                bake_decimate_fcurve_error=bake_decimate_fcurve_error,
+                decimate_skip_types=decimate_skip_types,
+                layout_action=layout_action,
+                blender_to_fox_map=blender_to_fox_map,
+            )
+            result['fcurves_decimated'] = dec_res.get('fcurves_decimated', 0)
+        except Exception as e:
+            Debug.log_warning(f"Decimation failed: {e}")
+        finally:
+            Debug.stop_timer("Decimation")
+            Debug.update_progress_status("Decimation complete", secondary_progress=0.3)
+    else:
+        result['fcurves_decimated'] = 0
+
+    # Call internal handler to perform post-bake cleanup/reporting
+    _handle_bake_result(result, rig_armature, source_armature, delete_import_armature, None)
+
+    return result

@@ -13,7 +13,7 @@ from .blender_operators_import import (
     MTAR_OT_GenerateTrackMappingTemplateFile,
     MTAR_OT_ImportAnimationFromMTAR
 )
-from .blender_panel_shared import draw_bool_prop_checkbox_icon, draw_progress_bar
+from .blender_panel_shared import draw_bool_prop_checkbox_icon, draw_estimated_operation_time, draw_progress_bar
 
 
 def draw_import_page(layout: UILayout, context: Context) -> None:
@@ -28,7 +28,7 @@ def draw_import_page(layout: UILayout, context: Context) -> None:
     mtar_box.prop(import_props, "mtar_filepath", text="", icon='FILE_BLANK')
 
     # MTAR header preview (read-only display)
-    info_box = mtar_box.box()
+    mtar_header_info_box = mtar_box.box()
     header_info = None
     if import_props.mtar_filepath:
         mtar_filepath_abs = bpy.path.abspath(import_props.mtar_filepath)
@@ -37,7 +37,7 @@ def draw_import_page(layout: UILayout, context: Context) -> None:
                 reader = MtarReader(mtar_filepath_abs)
                 header_info = reader.get_header_info()
                 
-                row = info_box.row()
+                row = mtar_header_info_box.row()
                 # construct descriptive text: MTAR version and GANI details
                 # - new-format files simply report "gani2"
                 # - old-format files report "gani1" plus the per-GANI version when available
@@ -52,14 +52,14 @@ def draw_import_page(layout: UILayout, context: Context) -> None:
                 # Validate MTAR header and show warning if invalid
                 is_valid, error_msg = reader.validate_header()
                 if not is_valid:
-                    warn_box = info_box.box()
+                    warn_box = mtar_header_info_box.box()
                     warn_box.alert = True
                     warn_box.label(text="File validation", icon='ERROR')
                     warn_box.label(text=error_msg)
             except Exception as e:
-                info_box.label(text=f"Error reading MTAR: {e}", icon='ERROR')
+                mtar_header_info_box.label(text=f"Error reading MTAR: {e}", icon='ERROR')
         else:
-            info_box.label(text="MTAR path not found", icon='ERROR')
+            mtar_header_info_box.label(text="MTAR path not found", icon='ERROR')
 
     box_import = layout.box()
 
@@ -97,32 +97,11 @@ def draw_import_page(layout: UILayout, context: Context) -> None:
             err_row.alert = True
             err_row.label(text=f"{parse_error_msg}", icon='ERROR')
         else:
-            label_text = f"{selected_count} of {header_info.file_count} animation{'s' if selected_count != 1 else ''} selected"
+            label_text = f"{selected_count} of {header_info.file_count} animation{'s' if selected_count != 1 else ''}"
             row = box.row()
             row.label(text=label_text, icon='CHECKMARK')
 
-            # Estimated import time (4 seconds per GANI)
-            est_time_per_gani = 1
-            if import_props.custom_rig: 
-                if import_props.import_bake_constraints:
-                    est_time_per_gani += 2
-                    if import_props.import_bake_do_decimate:
-                        est_time_per_gani += 2
-            est_seconds = selected_count * est_time_per_gani
-            est_minutes, est_secs = divmod(est_seconds, 60)
-            import_time_warning: bool = est_minutes > 1
-            est_text = "Import time: ~ " + (f"{est_minutes}m" if est_minutes else f"{est_secs}s")
-            row = box.row()
-            if import_time_warning:
-                row.alert = True
-            row.label(text=est_text, icon='TIME')
-
-            # Show a slim warning if the number of animations that will be processed (after applying the GANI filter)
-            # exceeds the threshold; keep parse error shown only below the filter (do not duplicate it here).
-            if import_time_warning:
-                warn_box = box.row()
-                warn_box.alert = True
-                warn_box.label(text="View console to track progress.")
+            
     
     if settings_props.show_advanced_settings:
         adv_box = box_gani.box()
@@ -176,8 +155,20 @@ def draw_import_page(layout: UILayout, context: Context) -> None:
 
     draw_progress_bar(box_button, props)
 
+    import_info_box = box_button.box()
     if not import_props.mtar_filepath:
         box_button.label(text="No import path set", icon='ERROR')
+
+    # Estimated import time (4 seconds per GANI)
+    est_time_per_gani = 0.15
+    if import_props.custom_rig:
+        if import_props.import_bake_constraints:
+            est_time_per_gani += 1.2
+            if import_props.import_bake_do_decimate:
+                est_time_per_gani += 0.75
+
+    draw_estimated_operation_time(import_info_box, selected_count, est_time_per_gani)
+
 
 
 def check_bake_during_import(import_props) -> bool:

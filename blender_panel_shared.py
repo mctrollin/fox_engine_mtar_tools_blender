@@ -9,6 +9,7 @@ common helpers.
 
 from typing import Optional
 
+import math
 import bpy
 from bpy.types import UILayout
 
@@ -64,3 +65,42 @@ def draw_progress_bar(layout: UILayout, props) -> None:
         if props.settings_props.show_advanced_settings:
             draw_bool_prop_checkbox_icon(row, props.settings_props, "use_redraw_timer", text=("" if props.settings_props.use_redraw_timer else " "), toggle=True, icon="RECOVER_LAST")
             draw_bool_prop_checkbox_icon(row, props.settings_props, "enable_timer_logs", text="", toggle=True, icon="MOD_TIME")
+
+
+def draw_estimated_operation_time(
+    layout: UILayout,
+    count: int | None,
+    seconds_per_item: float,
+    warn_threshold_seconds: int = 60,
+) -> None:
+    """Draw an estimated operation duration and optional warning.
+
+    Args:
+        layout: UI layout to draw into.
+        count: Number of items being processed (e.g. GANIs). If None or 0, no UI is drawn.
+        seconds_per_item: Estimated seconds per item.
+        warn_threshold_seconds: When the total estimated duration exceeds this,
+            mark the label as alerting and draw a "view console" warning.
+    """
+    if not count or count <= 0:
+        return
+
+    total_seconds = count * seconds_per_item
+    if total_seconds >= 60:
+        minutes = math.ceil(total_seconds / 60)
+        est_text = f"Time: ~ {minutes}m"
+    else:
+        secs = int(total_seconds)
+        est_text = f"Time: ~ {secs}s"
+
+    row = layout.row()
+    if total_seconds >= warn_threshold_seconds:
+        row.alert = True
+    row.label(text=est_text, icon='TIME')
+
+    if total_seconds >= warn_threshold_seconds:
+        warn_row = layout.row(align=True)
+        warn_row.alert = True
+        warn_row.label(text="View console to track progress.", icon='INFO')
+        # Quick toggle for Blender's system console (Windows) / terminal (macOS/Linux)
+        warn_row.operator("wm.console_toggle", text="", icon="CONSOLE")
