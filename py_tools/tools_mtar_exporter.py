@@ -424,9 +424,10 @@ def extract_rest_pose_correction_mapping_from_armature(track_segment_bone_mappin
 
 # Animation #############################################################
 
-def collect_actions_for_export_from_armature(armature: bpy.types.Object, 
+def collect_actions_for_export_from_armature(armature: bpy.types.Object,
                                             use_nla: bool = True,
-                                            export_clean_threshold: float = 0.0) -> List[ExportActionData]:
+                                            export_clean_threshold: float = 0.0
+                                            ) -> List[ExportActionData]:
     """Collect actions to export based on NLA tracks or active action.
     
     Args:
@@ -1632,8 +1633,8 @@ def export_mtar(context: bpy.types.Context,
     
     # Collect actions to export first (needed for metadata merging in old-format)
     actions_to_export = collect_actions_for_export_from_armature(
-        armature, 
-        use_nla,
+        armature=armature,
+        use_nla=use_nla,
         export_clean_threshold=export_clean_threshold
     )
     

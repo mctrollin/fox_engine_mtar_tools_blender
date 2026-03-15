@@ -7,7 +7,8 @@ This module provides functions to optimize fcurves for import/export workflows:
 """
 from typing import List, Set, Optional, Dict, Any
 
-import bpy
+import bpy  # type: ignore[import]
+from mathutils import Quaternion  # type: ignore[import]
 
 from .utilities_logging import Debug
 from .utilities_blender_animation import (
@@ -234,6 +235,7 @@ def clean_fcurves(action: bpy.types.Action, threshold: float,
     Returns:
         Number of fcurves processed
     """
+
     if threshold <= 0.0 or not action or not action_has_fcurves(action):
         return 0
     
@@ -277,6 +279,85 @@ def clean_fcurves(action: bpy.types.Action, threshold: float,
     except (RuntimeError, AttributeError) as e:
         Debug.log(f"Warning: FCurve clean failed: {e}")
         return 0
+
+
+def _find_keyframe_point(fcurve: bpy.types.FCurve, frame: float, eps: float = 1e-4):
+    """Find a keyframe point at (or very near) a given frame.
+
+    Blender's keyframe_points.find() can raise internal errors on some
+    versions/contexts. Use a safe fallback scan instead.
+    """
+    # Using a small epsilon to tolerate float rounding differences
+    for kp in fcurve.keyframe_points:
+        if abs(kp.co[0] - frame) < eps:
+            return kp
+    return None
+
+
+def _make_quaternion_fcurves_compatible(action: bpy.types.Action) -> int:
+    """Stabilize quaternion sign across keyframes (prevent q -> -q flips).
+
+    This function walks all "rotation_quaternion" fcurves in the action and
+    ensures the quaternion stored at each keyframe stays in the same hemisphere
+    by applying mathutils.Quaternion.make_compatible() sequentially.
+
+    The function modifies keyframe values in-place.
+
+    Returns:
+        Number of quaternion tracks modified.
+    """
+    if not action or not action_has_fcurves(action):
+        return 0
+
+    # Group quaternion fcurves by data_path (bone/object path)
+    quat_groups: Dict[str, List[bpy.types.FCurve]] = {}
+    for fc in iter_action_fcurves(action):
+        if fc.data_path.endswith("rotation_quaternion"):
+            quat_groups.setdefault(fc.data_path, []).append(fc)
+
+    modified_tracks = 0
+
+    for _, fcurves in quat_groups.items():
+        if len(fcurves) < 4:
+            continue
+        # Ensure stable x/y/z/w ordering
+        fcurves_sorted = sorted(fcurves, key=lambda fc: fc.array_index)
+
+        # Collect all keyframe frames across the 4 channels
+        frames: Set[int] = set()
+        for fc in fcurves_sorted:
+            frames.update(int(kp.co[0]) for kp in fc.keyframe_points)
+
+        if not frames:
+            continue
+
+        prev_quat: Optional[Quaternion] = None
+        track_modified = False
+
+        for frame in sorted(frames):
+            vals = [fc.evaluate(frame) for fc in fcurves_sorted]
+            quat = Quaternion((vals[3], vals[0], vals[1], vals[2]))
+            orig_quat = quat.copy()
+
+            if prev_quat is not None:
+                quat.make_compatible(prev_quat)
+
+            # Only update keyframes if the hemisphere changed
+            if quat.dot(orig_quat) < 0.999999:
+                # Write back corrected values where keyframes exist
+                corrected_vals = [quat.x, quat.y, quat.z, quat.w]
+                for idx, fc in enumerate(fcurves_sorted):
+                    kp = _find_keyframe_point(fc, frame)
+                    if kp is not None:
+                        kp.co[1] = corrected_vals[idx]
+                track_modified = True
+
+            prev_quat = quat
+
+        if track_modified:
+            modified_tracks += 1
+
+    return modified_tracks
 
 
 def decimate_import_fcurves_to_bezier(armature: bpy.types.Object,
@@ -534,6 +615,15 @@ def bake_and_clean_export_fcurves(armature: bpy.types.Object,
                 f"First affected: '{gap_violations[0][0]}[{gap_violations[0][1]}]', "
                 f"gap={gap_violations[0][2]} frames."
             )
+
+    # Ensure quaternion keyframes do not flip sign (q -> -q) due to clean/decimate.
+    # This post-process stabilizes the quaternion hemisphere across frames.
+    if processed_action:
+        # Operate on a temporary copy to avoid mutating the user's original action.
+        if processed_action is action:
+            processed_action = action.copy()
+            processed_action.name = f"{action.name}_export_temp"
+        _make_quaternion_fcurves_compatible(processed_action)
 
     return {
         'action': processed_action,
