@@ -266,6 +266,46 @@ def auto_detect_aux_armatures(main_armature: 'bpy.types.Object') -> tuple[Option
     )
 
 
+# Export helpers ##############################################################
+
+# NOTE: The helpers below are only used for auxiliary armatures (motion points /
+# shader nodes / etc.) to get them back to a clean world space setup no matter what
+# the parent armature does with root motion. 
+# They are attached for auto-detection purposes only.
+# The main export armature is never detached and should not be attached to anything.
+
+def detach_armature_for_export(armature: 'bpy.types.Object') -> Optional[bpy.types.Object]:
+    """Detach an armature from its parent and clear its transforms.
+
+    This ensures auxiliary armatures export with an identity world transform regardless
+    of any pre-existing offsets.
+
+    Returns:
+        The original parent object (or None if there was no parent).
+    """
+    parent = armature.parent
+
+    armature.parent = None
+    armature.parent_type = 'OBJECT'
+    armature.parent_bone = ""
+    armature.matrix_parent_inverse = Matrix.Identity(4)
+    armature.matrix_world = Matrix.Identity(4)
+
+    return parent
+
+
+def restore_armature_after_export(armature: 'bpy.types.Object', parent: Optional[bpy.types.Object]) -> None:
+    """Restore an armature's parent and clear transforms.
+
+    The armature will remain at identity transform after restore (as intended for
+    these auxiliary rigs)."""
+    armature.parent = parent
+    armature.parent_type = 'OBJECT'
+    armature.parent_bone = ""
+    armature.matrix_parent_inverse = Matrix.Identity(4)
+    armature.matrix_world = Matrix.Identity(4)
+
+
 # Pose Bone Utilities #########################################################
 
 def clear_rest_pose_from_bone(pose_bone: 'bpy.types.PoseBone') -> None:

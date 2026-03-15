@@ -32,6 +32,8 @@ from ..py_utilities.utilities_blender_animation import (
 from ..py_utilities.utilities_blender_armature import (
     auto_detect_motion_points_armature,
     auto_detect_shader_nodes_armature,
+    detach_armature_for_export,
+    restore_armature_after_export,
 )
 from ..py_utilities.utilities_fcurve_processing import bake_and_clean_export_fcurves
 
@@ -1716,21 +1718,27 @@ def export_mtar(context: bpy.types.Context,
     motion_point_actions_by_gani_index: Dict[int, ExportActionData] = {}
 
     if motion_points_armature:
-        # Build MotionPointsList from armature bones (but do not write header count yet - it is computed at write time)
-        motion_points_wrapper = build_motion_points_list_from_armature(motion_points_armature)
-        motion_points_list = motion_points_wrapper.to_motion_point_list2()
+        # Detach the auxiliary motion points armature so its export is not influenced
+        # by any parenting/transform offsets from the main armature.
+        parent = detach_armature_for_export(motion_points_armature)
+        try:
+            # Build MotionPointsList from armature bones (but do not write header count yet - it is computed at write time)
+            motion_points_wrapper = build_motion_points_list_from_armature(motion_points_armature)
+            motion_points_list = motion_points_wrapper.to_motion_point_list2()
 
-        # Collect motion point actions
-        motion_point_actions_data = collect_motion_point_actions(
-            motion_points_armature, use_nla, export_clean_threshold
-        )
+            # Collect motion point actions
+            motion_point_actions_data = collect_motion_point_actions(
+                motion_points_armature, use_nla, export_clean_threshold
+            )
 
-        if motion_point_actions_data:
-            Debug.log(f"Found {len(motion_point_actions_data)} motion point action(s)")
-            # Build lookup map for motion-point actions by GANI index
-            motion_point_actions_by_gani_index = build_motion_point_action_maps(motion_point_actions_data)
-        else:
-            Debug.log("No motion point actions found (motion points list will be exported without animations)")
+            if motion_point_actions_data:
+                Debug.log(f"Found {len(motion_point_actions_data)} motion point action(s)")
+                # Build lookup map for motion-point actions by GANI index
+                motion_point_actions_by_gani_index = build_motion_point_action_maps(motion_point_actions_data)
+            else:
+                Debug.log("No motion point actions found (motion points list will be exported without animations)")
+        finally:
+            restore_armature_after_export(motion_points_armature, parent)
     else:
         Debug.log("Motion points will not be exported")
     
@@ -1900,65 +1908,71 @@ def export_mtar(context: bpy.types.Context,
         shader_nodes_data = None
         shader_node_action_data = None
         if shader_nodes_actions_data:
-            shader_node_action_data: Optional[ExportActionData] = find_shader_action_for_gani(
-                gani_name, shader_nodes_actions_by_gani_index
-            )
-
-            if shader_node_action_data:
-                Debug.log(
-                    f"\n  Exporting shader nodes for GANI '{gani_name}': "
-                    f"{shader_node_action_data.action.name}"
+            # Detach the auxiliary shader nodes armature so its export is not influenced
+            # by any parenting/transform offsets from the main armature.
+            shader_node_parent = detach_armature_for_export(shader_nodes_armature)
+            try:
+                shader_node_action_data: Optional[ExportActionData] = find_shader_action_for_gani(
+                    gani_name, shader_nodes_actions_by_gani_index
                 )
 
-                shader_metadata_dict = build_shader_nodes_metadata_dict(
-                    shader_nodes_armature, shader_node_action_data.action
-                )
-                Debug.log(
-                    f"    Built metadata from {len(shader_metadata_dict)} "
-                    f"shader unit bone(s)"
-                )
-
-                flat_shader_tracks = export_gani_tracks_from_action(
-                    shader_nodes_armature,
-                    shader_node_action_data,
-                    None,
-                    shader_metadata_dict,
-                    force_highest_bit_encoding,
-                    discard_empty_tracks=True,
-                )
-
-                if flat_shader_tracks:
+                if shader_node_action_data:
                     Debug.log(
-                        f"    Exported {len(flat_shader_tracks)} shader unit track(s)"
+                        f"\n  Exporting shader nodes for GANI '{gani_name}': "
+                        f"{shader_node_action_data.action.name}"
                     )
-                    property_names, property_tracks = group_shader_tracks_by_property(
-                        flat_shader_tracks, shader_nodes_armature
+
+                    shader_metadata_dict = build_shader_nodes_metadata_dict(
+                        shader_nodes_armature, shader_node_action_data.action
                     )
-                    if property_names:
-                        property_headers = collect_shader_property_headers(
-                            shader_node_action_data.action, property_names
+                    Debug.log(
+                        f"    Built metadata from {len(shader_metadata_dict)} "
+                        f"shader unit bone(s)"
+                    )
+
+                    flat_shader_tracks = export_gani_tracks_from_action(
+                        shader_nodes_armature,
+                        shader_node_action_data,
+                        None,
+                        shader_metadata_dict,
+                        force_highest_bit_encoding,
+                        discard_empty_tracks=True,
+                    )
+
+                    if flat_shader_tracks:
+                        Debug.log(
+                            f"    Exported {len(flat_shader_tracks)} shader unit track(s)"
                         )
-                        shader_nodes_data = GaniExportShaderData(
-                            property_tracks=property_tracks,
-                            property_names=property_names,
-                            property_headers=property_headers,
-                            action=shader_node_action_data.action,
+                        property_names, property_tracks = group_shader_tracks_by_property(
+                            flat_shader_tracks, shader_nodes_armature
                         )
+                        if property_names:
+                            property_headers = collect_shader_property_headers(
+                                shader_node_action_data.action, property_names
+                            )
+                            shader_nodes_data = GaniExportShaderData(
+                                property_tracks=property_tracks,
+                                property_names=property_names,
+                                property_headers=property_headers,
+                                action=shader_node_action_data.action,
+                            )
+                        else:
+                            Debug.log_warning(
+                                f"    Warning: Shader unit tracks for GANI '{gani_name}' "
+                                f"could not be grouped by property — shader data will be skipped"
+                            )
                     else:
                         Debug.log_warning(
-                            f"    Warning: Shader unit tracks for GANI '{gani_name}' "
-                            f"could not be grouped by property — shader data will be skipped"
+                            f"    Warning: Shader node action '{shader_node_action_data.action.name}' "
+                            f"matched GANI '{gani_name}' but exported 0 shader unit tracks"
                         )
-                else:
-                    Debug.log_warning(
-                        f"    Warning: Shader node action '{shader_node_action_data.action.name}' "
-                        f"matched GANI '{gani_name}' but exported 0 shader unit tracks"
+                elif shader_nodes_actions_data:
+                    Debug.log(
+                        f"  Shader node actions exist but none matched GANI '{gani_name}' "
+                        f"- shader nodes will be skipped for this GANI"
                     )
-            elif shader_nodes_actions_data:
-                Debug.log(
-                    f"  Shader node actions exist but none matched GANI '{gani_name}' "
-                    f"- shader nodes will be skipped for this GANI"
-                )
+            finally:
+                restore_armature_after_export(shader_nodes_armature, shader_node_parent)
         else:
             Debug.log(f"    No shader node action for GANI '{gani_name}'")
 

@@ -359,7 +359,7 @@ class MTAR_PG_ExportProperties(PropertyGroup):
             "After baking Bezier fcurves to linear, remove redundant keyframes (0.0 = skip, higher = more aggressive). "
             "Fox Engine uses linear keyframe interpolation."
             ),
-        default=0.03,
+        default=0.01,
         min=0.0,
         max=1.0,
         precision=3

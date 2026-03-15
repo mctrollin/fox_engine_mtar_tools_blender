@@ -567,7 +567,7 @@ class TransformsCache:
             for name in bone_names:
                 self._data[name] = {}
 
-            # Track previous frame quaternions to ensure sign consistency
+            # Track previous frame quaternions to ensure sign consistency and avoid rotations to flip
             prev_local_rots: Dict[str, Quaternion] = {}
             prev_world_rots: Dict[str, Quaternion] = {}
             prev_obj_rot: Optional[Quaternion] = None
