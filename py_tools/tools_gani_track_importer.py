@@ -18,6 +18,7 @@ from ..py_utilities.utilities_transforms import (
     apply_rotation_transforms,
     fox_to_blender_vector,
     apply_rest_pose_correction_local,
+    make_blender_quaternion_compatible,
 )
 from ..py_utilities.utilities_blender_animation import (
     BLENDER_OBJECT_TRANSFORMS_GROUP_NAME,
@@ -114,6 +115,7 @@ def import_keyframes_track(
 
                 converted_locations = []
                 absolute_frame = 0
+                prev_quat: Optional[Quaternion] = None
                 for keyframe in keyframes_track.data_blob.keyframes:
                     absolute_frame += keyframe.frame_count
                     quat = apply_rotation_transforms(
@@ -127,6 +129,10 @@ def import_keyframes_track(
                         pass
                     elif keyframes_track.map_r_rest_pose:
                         quat = apply_rest_pose_correction_local(quat, keyframes_track.map_r_rest_pose)
+
+                    # Ensure quaternion stays in same hemisphere as previous keyframe
+                    quat = make_blender_quaternion_compatible(quat, prev_quat)
+                    prev_quat = quat
 
                     bone_base_location = Vector((0.0, 0.0, 0.0))
                     target_location = calculate_directional_location(
@@ -167,6 +173,7 @@ def import_keyframes_track(
             # Normal rotation with transforms
             converted_quaternions = []
             absolute_frame = 0
+            prev_quat: Optional[Quaternion] = None
             for keyframe in keyframes_track.data_blob.keyframes:
                 absolute_frame += keyframe.frame_count
                 quat = apply_rotation_transforms(
@@ -187,6 +194,10 @@ def import_keyframes_track(
                         f"    Applied local space rest pose correction: "
                         f"({euler[0]}, {euler[1]}, {euler[2]})"
                     )
+
+                # Ensure quaternion stays in same hemisphere as previous keyframe
+                quat = make_blender_quaternion_compatible(quat, prev_quat)
+                prev_quat = quat
 
                 converted_quaternions.append((absolute_frame, quat))
                 max_frame = max(max_frame, absolute_frame)

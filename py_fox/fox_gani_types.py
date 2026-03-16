@@ -28,6 +28,7 @@ from ..py_utilities.utilities_binary_write import (
     align_bytearray,
 )
 from ..py_utilities.utilities_logging import Debug
+from ..py_utilities.utilities_transforms import make_quaternion_list_compatible
 
 
 from .fox_misc_types import StrCode32
@@ -116,6 +117,11 @@ class AnimKeyframe:
                     elif frame_delta > 255:
                         Debug.log_warning(f"Import: frame_delta {frame_delta} exceeds 8-bit range at accumulated frame {accumulated_frame} (segment={segment_type})")
                     quat, bit_pos = read_unaligned_quaternion(file_data, bit_pos, component_bit_size)
+                    
+                    # Ensure quaternion stays in same hemisphere as previous keyframe
+                    prev_quat = keyframes[-1].data.value if keyframes else None
+                    quat = make_quaternion_list_compatible(quat, prev_quat)
+                    
                     keyframes.append(AnimKeyframe(frame=frame_delta, value=quat))  # Store delta directly
         
         # 3D Vectors (Positions, etc.)

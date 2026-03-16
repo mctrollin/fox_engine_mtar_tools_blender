@@ -753,13 +753,14 @@ def _get_rotation_transform_fn(bone_params: BoneParameters,
                                blender_bone_name: str, 
                                space_bone: Optional[str],
                                rig_unit_type: Optional[RigUnitType],
-                               transform_cache: Optional[TransformsCache] = None
+                               transform_cache: Optional[TransformsCache] = None,
+                               use_object_level: bool = False
                                ):
     """Return a callable that produces rotation quaternion for a given frame.
-    
-    This helper eliminates code duplication between as_ik_up and normal rotation paths.
-    The returned function captures the context needed to compute rotation at any frame.
-    
+
+    This helper eliminates code duplication between object-level root motion
+    tracks, as_ik_up conversion, and normal bone rotation paths.
+
     Args:
         bone_params: Bone parameters (contains as_ik_up data if applicable)
         armature: Armature object
@@ -767,10 +768,28 @@ def _get_rotation_transform_fn(bone_params: BoneParameters,
         space_bone: Custom space bone name (or None for default space)
         rig_unit_type: Rig unit type (determines local vs world space for normal tracks)
         transform_cache: Optional pre-computed transform cache
-        
+        use_object_level: If True, read rotation from the armature object instead of a pose bone
+
     Returns:
         Callable that takes (frame: int) and returns Quaternion
     """
+    if use_object_level:
+        # Object-level rotation (root motion) is stored on the armature object
+        # rather than a pose bone.
+        def get_rotation_object_level(frame: int) -> Quaternion:
+            if transform_cache:
+                rot = transform_cache.get_object_rotation(frame)
+                if rot is not None:
+                    return rot
+                Debug.log_warning(
+                    f"Export rotation: TransformCache missing armature object rotation for frame {frame}; "
+                    f"falling back to armature.matrix_world"
+                )
+            bpy.context.scene.frame_set(frame)
+            return armature.matrix_world.to_quaternion()
+
+        return get_rotation_object_level
+
     if bone_params.as_ik_up:
         # as_ik_up path: convert directional location to rotation
         as_ik_up_data = bone_params.as_ik_up
@@ -832,19 +851,6 @@ def export_rotation_segment(armature: bpy.types.Object,
         space_bone = None
         space_r_value = None
         map_r_dict = None
-
-        def get_rotation(frame: int) -> Quaternion:
-            # Simply read object-level rotation from FCurves or armature transform
-            if transform_cache:
-                rot = transform_cache.get_object_rotation(frame)
-                if rot is not None:
-                    return rot
-                Debug.log_warning(
-                    f"Export rotation: TransformCache missing armature object rotation for frame {frame}; "
-                    f"falling back to armature.matrix_world"
-                )
-            bpy.context.scene.frame_set(frame)
-            return armature.matrix_world.to_quaternion()
     else:
         # For as_ik_up bones, use space_ik instead of space_r for the space bone
         # This is because space_ik defines the transformation constraint space for IK targets
@@ -854,13 +860,16 @@ def export_rotation_segment(armature: bpy.types.Object,
             space_bone = TrackMetaData.extract_space_bone(bone_params.space_r)
         
         # Extract rest pose correction parameters
-        map_r_dict = bone_params.map_r
         space_r_value = bone_params.space_r
-        
-        # Get rotation transform function (varies by as_ik_up and space type)
-        get_rotation = _get_rotation_transform_fn(bone_params, armature, blender_bone_name, space_bone, rig_unit_type, transform_cache)
-    
-    # Unified frame loop for both as_ik_up and normal rotation
+        map_r_dict = bone_params.map_r
+
+    # Get rotation transform function (varies by mode / space type)
+    get_rotation = _get_rotation_transform_fn(
+        bone_params, armature, blender_bone_name, space_bone,
+        rig_unit_type, transform_cache, use_object_level=use_object_level
+    )
+
+    # Unified frame loop for both as_ik_up, normal rotation, and object-level rotation
     prev_frame = frame_start  # Track previous frame for relative delta computation
     prev_blender_quat_transformed: Quaternion = None
     for frame in export_frames:
@@ -868,7 +877,7 @@ def export_rotation_segment(armature: bpy.types.Object,
         if not transform_cache:
             bpy.context.scene.frame_set(frame)
         
-        # Get rotation using appropriate method (as_ik_up or normal)
+        # Get rotation using appropriate method (as_ik_up, normal, or object-level)
         blender_quat: Quaternion = get_rotation(frame)
 
         # Apply reverse rest pose corrections (must happen BEFORE axis mapping and offsets)

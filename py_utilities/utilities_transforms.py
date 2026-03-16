@@ -18,6 +18,72 @@ class TransformsCacheError(RuntimeError):
     """Raised when a required transform cannot be retrieved from the cache."""
 
 
+# Quaternion sign compatibility ########################################################################
+
+def make_quaternion_list_compatible(
+    quat: Union[List[float], tuple],
+    prev_quat: Optional[Union[List[float], tuple]] = None
+) -> Union[List[float], tuple]:
+    """Ensure a quaternion list/tuple stays in the same hemisphere as the previous.
+    
+    Quaternions q and -q represent the same 3D rotation. This function ensures that
+    consecutive quaternions in a keyframe sequence remain in the same hemisphere by
+    negating the current quaternion if its dot product with the previous is negative.
+    
+    Args:
+        quat: Quaternion as [x, y, z, w] or (x, y, z, w)
+        prev_quat: Previous quaternion in the sequence (or None for first keyframe)
+        
+    Returns:
+        quat or -quat, same type as input, with hemisphere adjusted for continuity
+    """
+    if prev_quat is None:
+        return quat
+    
+    # Compute dot product: q1·q2 = x1*x2 + y1*y2 + z1*z2 + w1*w2
+    dot = quat[0]*prev_quat[0] + quat[1]*prev_quat[1] + \
+          quat[2]*prev_quat[2] + quat[3]*prev_quat[3]
+    
+    if dot < 0:
+        # Negate all components to flip to opposite hemisphere
+        if isinstance(quat, tuple):
+            return (-quat[0], -quat[1], -quat[2], -quat[3])
+        else:
+            return [-quat[0], -quat[1], -quat[2], -quat[3]]
+    
+    return quat
+
+
+def make_blender_quaternion_compatible(
+    quat: Quaternion,
+    prev_quat: Optional[Quaternion] = None
+) -> Quaternion:
+    """Ensure a Blender Quaternion stays in the same hemisphere as the previous.
+    
+    This is a wrapper around make_quaternion_list_compatible for Blender Quaternion objects.
+    It converts to list format, applies compatibility check, and converts back.
+    
+    Args:
+        quat: Blender Quaternion object
+        prev_quat: Previous Quaternion in the sequence (or None for first keyframe)
+        
+    Returns:
+        Modified Quaternion with hemisphere adjusted for continuity
+    """
+    if prev_quat is None:
+        return quat
+    
+    # Convert Blender Quaternion (w, x, y, z) to list [x, y, z, w]
+    quat_list = [quat.x, quat.y, quat.z, quat.w]
+    prev_list = [prev_quat.x, prev_quat.y, prev_quat.z, prev_quat.w]
+    
+    # Apply compatibility check
+    compatible_list = make_quaternion_list_compatible(quat_list, prev_list)
+    
+    # Convert back to Blender Quaternion (w, x, y, z)
+    return Quaternion((compatible_list[3], compatible_list[0], compatible_list[1], compatible_list[2]))
+
+
 # Directional location (for IK up vector) #############################################################
 
 def calculate_directional_location(bone_location: Vector, bone_rotation_quat: Quaternion, axis: str, distance: float) -> Vector:
@@ -686,7 +752,8 @@ class TransformsCache:
 
         # If we get here, the bone is missing or cannot be evaluated.
         raise TransformsCacheError(
-            f"TransformsCache missing local transform for bone='{bone_name}' frame={frame}"
+            f"TransformsCache missing local transform for bone='{bone_name}' frame={frame}. "
+            "Make sure you are using a correct mapping file."
         )
 
     def get_world(self, bone_name: str, frame: int, space_bone: Optional[str] = None):
@@ -695,7 +762,8 @@ class TransformsCache:
         if not bone_frame_data:
             if not self._compute_and_cache_frame(bone_name, frame):
                 raise TransformsCacheError(
-                    f"TransformsCache missing world transform for bone='{bone_name}' frame={frame}"
+                    f"TransformsCache missing world transform for bone='{bone_name}' frame={frame}. "
+                    "Make sure you are using a correct mapping file."
                 )
             bone_frame_data = self._data.get(bone_name, {}).get(frame)
 
@@ -706,7 +774,8 @@ class TransformsCache:
         if not space_frame_data:
             if not self._compute_and_cache_frame(space_bone, frame):
                 raise TransformsCacheError(
-                    f"TransformsCache missing world transform for space_bone='{space_bone}' frame={frame}"
+                    f"TransformsCache missing world transform for space_bone='{space_bone}' frame={frame}. "
+                    "Make sure you are using a correct mapping file."
                 )
             space_frame_data = self._data.get(space_bone, {}).get(frame)
 
