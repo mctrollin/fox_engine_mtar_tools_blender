@@ -7,13 +7,16 @@ import bpy
 from bpy.types import Context, UILayout
 
 from .py_foxwrap.foxwrap_mtar_reader import MtarReader
-from .py_utilities.utilities_parsing import parse_index_selection
-
 from .blender_operators_import import (
     MTAR_OT_GenerateTrackMappingTemplateFile,
     MTAR_OT_ImportAnimationFromMTAR
 )
-from .blender_panel_shared import draw_bool_prop_checkbox_icon, draw_estimated_operation_time, draw_progress_bar
+from .blender_panel_shared import (
+    draw_bool_prop_checkbox_icon,
+    draw_estimated_operation_time,
+    draw_progress_bar,
+    draw_gani_index_filter,
+)
 
 
 def draw_import_page(layout: UILayout, context: Context) -> None:
@@ -74,32 +77,10 @@ def draw_import_page(layout: UILayout, context: Context) -> None:
     row.prop(props, "mapping_filepath", text="", icon='TEXT')
     row.operator("mtar.generate_track_mapping_template_file", text="", icon='FILE_NEW')
 
-    box = box_gani
-    box.prop(import_props, "gani_indices_str", text="", icon='FILTER')
-
-    # Compute filtered selection once and show the selection count below the GANI filter (if header info is available)
-    selected_count = None
-    parse_error_msg = None
-    selected_indices = None
-    if header_info:
-        if import_props.gani_indices_str.strip():
-            try:
-                selected_indices = parse_index_selection(import_props.gani_indices_str, header_info.file_count)
-                selected_count = len(selected_indices)
-            except ValueError as e:
-                parse_error_msg = str(e)
-                selected_count = 0
-        else:
-            selected_count = header_info.file_count
-
-        if parse_error_msg:
-            err_row = box.row()
-            err_row.alert = True
-            err_row.label(text=f"{parse_error_msg}", icon='ERROR')
-        else:
-            label_text = f"{selected_count} of {header_info.file_count} animation{'s' if selected_count != 1 else ''}"
-            row = box.row()
-            row.label(text=label_text, icon='CHECKMARK')
+    # Optional GANI selection filter (similar to export UI)
+    selected_count, _, _ = draw_gani_index_filter(
+        layout, import_props, "gani_indices_str", header_info.file_count if header_info else None
+    )
 
             
     

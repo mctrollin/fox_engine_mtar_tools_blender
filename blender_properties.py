@@ -305,6 +305,21 @@ class MTAR_PG_ExportProperties(PropertyGroup):
         default=True
     )
 
+    gani_indices_str: StringProperty(
+        name="GANI Selection",
+        description=(
+            "Select which GANI indices to export. Leave empty to export all.\n"
+            "Syntax:\n"
+            "  • Ranges: 0-2 (indices 0,1,2)\n"
+            "  • Individual: 30,40\n"
+            "  • Exclusion: !300 (exclude index 300)\n"
+            "  • Exclusion ranges: !400-500\n"
+            "  • Combined: 0-2,30,40,!300,!400-500"
+        ),
+        default="",
+        maxlen=256,
+    )
+
     treat_hashes_as_names: BoolProperty(
         name="Treat Hashes as Names",
         description=(

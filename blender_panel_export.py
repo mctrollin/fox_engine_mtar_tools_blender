@@ -9,7 +9,12 @@ from .py_utilities.utilities_blender_animation import is_relevant_strip, try_fin
 from .py_foxwrap.foxwrap_metadata import read_mtar_properties_from_action, read_mtar_properties_from_any_action
 from .py_fox import fox_mtar_constants as mtar_const
 
-from .blender_panel_shared import draw_bool_prop_checkbox_icon, draw_estimated_operation_time, draw_progress_bar
+from .blender_panel_shared import (
+    draw_bool_prop_checkbox_icon,
+    draw_estimated_operation_time,
+    draw_progress_bar,
+    draw_gani_index_filter,
+)
 
 
 def draw_export_page(layout: UILayout, context: Context) -> None:
@@ -119,6 +124,11 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
         box = box_export.box()
         box.prop(props, "mapping_filepath", text="", icon='TEXT')
 
+        # Optional GANI selection filter (similar to import UI)
+        selected_count, _, _ = draw_gani_index_filter(
+            layout, export_props, "gani_indices_str", export_count
+        )
+
         if settings_props.show_advanced_settings:
             adv_box = box_export.box()
             adv_box.alert = True
@@ -164,10 +174,11 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
         draw_progress_bar(box_button, props)
 
         # Show an estimated export duration based on GANI count
-        if export_count is not None and export_count > 0:
+        display_count = selected_count if selected_count is not None else export_count
+        if display_count is not None and display_count > 0:
             warn_box = box_button.box()
-            warn_box.label(text=f"Exporting {export_count} animations.")
-            draw_estimated_operation_time(warn_box, export_count, 1.5)
+            warn_box.label(text=f"Exporting {display_count} animations.")
+            draw_estimated_operation_time(warn_box, display_count, 1.5)
 
         if not export_props.armature:
             warn_box.alert = True

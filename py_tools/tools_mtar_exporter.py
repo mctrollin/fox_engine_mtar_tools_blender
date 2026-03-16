@@ -28,6 +28,7 @@ from ..py_utilities.utilities_blender_animation import (
     build_data_path_for_bone, assign_action_to_datablock, MTAR_ARMATURE_SLOT_NAME,
     find_action_fcurve,
 )
+from ..py_utilities.utilities_parsing import parse_index_selection
 
 from ..py_utilities.utilities_blender_armature import (
     auto_detect_motion_points_armature,
@@ -1718,7 +1719,23 @@ def export_mtar(context: bpy.types.Context,
         use_nla=use_nla,
         export_clean_threshold=export_clean_threshold
     )
-    
+
+    # Apply GANI index filter if requested
+    gani_selection_str = export_props.gani_indices_str.strip()
+    if gani_selection_str and actions_to_export:
+        total_actions = len(actions_to_export)
+        try:
+            selected_indices = parse_index_selection(gani_selection_str, total_actions)
+            # Keep actions in original order; filter by selected indices
+            actions_to_export = [action for idx, action in enumerate(actions_to_export) if idx in selected_indices]
+            Debug.log(f"Filtered GANI export selection: {len(actions_to_export)} of {total_actions} actions selected")
+            if not actions_to_export:
+                Debug.log_error("No actions selected for export after applying GANI index filter")
+                return {'CANCELLED': 'No GANI indices selected'}
+        except ValueError as e:
+            Debug.log_error(f"Invalid GANI selection string: {e}")
+            return {'CANCELLED': f'Invalid GANI selection: {e}'}
+
     if layout_action:
         # GANI2 / new-format: Parse metadata from layout track action
         Debug.log("\nParsing layout track metadata (GANI2/new-format)...")

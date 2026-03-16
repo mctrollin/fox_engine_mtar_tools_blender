@@ -10,8 +10,9 @@ common helpers.
 from typing import Optional
 
 import math
-import bpy
 from bpy.types import UILayout
+
+from .py_utilities.utilities_parsing import parse_index_selection
 
 
 def draw_bool_prop_checkbox_icon(layout: UILayout, props, property_name: str,
@@ -104,3 +105,56 @@ def draw_estimated_operation_time(
         warn_row.label(text="View console to track progress.", icon='INFO')
         # Quick toggle for Blender's system console (Windows) / terminal (macOS/Linux)
         warn_row.operator("wm.console_toggle", text="", icon="CONSOLE")
+
+
+def draw_gani_index_filter(
+    layout: UILayout,
+    props,
+    prop_name: str,
+    total_count: int | None,
+) -> tuple[int | None, list[int] | None, Optional[str]]:
+    """Draw a GANI index selector and display selection status or parse errors.
+
+    Args:
+        layout: UI layout to draw into.
+        props: PropertyGroup containing the selection string property.
+        prop_name: Name of the selection property (e.g. "gani_indices_str").
+        total_count: Total number of available GANIs, used for validating selection.
+            If None, only the input field is shown but no count/error message is displayed.
+
+    Returns:
+        Tuple of (selected_count, selected_indices, error_message).
+    """
+
+    box = layout.box()
+    box.prop(props, prop_name, text="", icon='FILTER')
+
+    if total_count is None:
+        return None, None, None
+
+    selection_str = getattr(props, prop_name, "").strip()
+
+    selected_indices: list[int] | None = None
+    selected_count: int | None = None
+    parse_error_msg: Optional[str] = None
+
+    if selection_str:
+        try:
+            selected_indices = parse_index_selection(selection_str, total_count)
+            selected_count = len(selected_indices)
+        except ValueError as e:
+            parse_error_msg = str(e)
+            selected_count = 0
+    else:
+        selected_count = total_count
+
+    if parse_error_msg:
+        err_row = box.row()
+        err_row.alert = True
+        err_row.label(text=f"{parse_error_msg}", icon='ERROR')
+    else:
+        label_text = f"{selected_count} of {total_count} animation{'s' if selected_count != 1 else ''}"
+        row = box.row()
+        row.label(text=label_text, icon='CHECKMARK')
+
+    return selected_count, selected_indices, parse_error_msg
