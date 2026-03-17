@@ -5,7 +5,7 @@ This module provides functions to optimize fcurves for import/export workflows:
 - Import: Decimate dense linear keyframes → sparse bezier curves
 - Export: Bake and clean non-linear fcurves → optimized linear keyframes
 """
-from typing import List, Set, Optional, Dict, Any
+from typing import List, Set, Optional, Dict, Any, Tuple
 
 import bpy  # type: ignore[import]
 from mathutils import Quaternion  # type: ignore[import]
@@ -482,9 +482,12 @@ def decimate_import_fcurves_to_bezier(armature: bpy.types.Object,
     }
 
 
+MAX_KEYFRAME_GAP = 255
+
+
 def _check_fcurves_for_large_gaps(action: bpy.types.Action,
                                    fcurve_filter: Set[tuple],
-                                   max_gap: int = 255) -> List[tuple]:
+                                   max_gap: int = MAX_KEYFRAME_GAP) -> List[tuple]:
     """Check fcurves for keyframe gaps larger than max_gap frames.
 
     The GANI binary format stores inter-keyframe frame deltas as 8-bit unsigned
@@ -514,6 +517,89 @@ def _check_fcurves_for_large_gaps(action: bpy.types.Action,
         if max_gap_found > max_gap:
             violations.append((fcurve.data_path, fcurve.array_index, max_gap_found))
     return violations
+
+
+def insert_intermediate_frames(frames: List[int], max_gap: int = MAX_KEYFRAME_GAP) -> Tuple[List[int], int]:
+    """Return a new frame list with intermediate frames inserted to respect max_gap.
+
+    Args:
+        frames: Sorted list of frame numbers.
+        max_gap: Maximum allowed gap between consecutive frames.
+
+    Returns:
+        A tuple of (new_frames, inserted_count).
+    """
+    if not frames:
+        return frames, 0
+
+    fixed_frames: List[int] = [frames[0]]
+    inserted = 0
+    for i in range(1, len(frames)):
+        prev = fixed_frames[-1]
+        target = frames[i]
+        gap = target - prev
+        if gap > max_gap:
+            current = prev
+            while current + max_gap < target:
+                current += max_gap
+                fixed_frames.append(current)
+                inserted += 1
+        fixed_frames.append(target)
+
+    return fixed_frames, inserted
+
+
+def _fix_fcurve_keyframe_gaps(fcurve: bpy.types.FCurve, max_gap: int = MAX_KEYFRAME_GAP) -> int:
+    """Insert keyframes into an FCurve so no consecutive gap exceeds max_gap.
+
+    Returns:
+        Number of inserted keyframes.
+    """
+    if len(fcurve.keyframe_points) < 2:
+        return 0
+
+    # Ensure keyframes are processed in sorted order.
+    keyframes = sorted(fcurve.keyframe_points, key=lambda kp: kp.co[0])
+    inserted = 0
+
+    for i in range(1, len(keyframes)):
+        start_frame = int(keyframes[i - 1].co[0])
+        end_frame = int(keyframes[i].co[0])
+        gap = end_frame - start_frame
+        if gap <= max_gap:
+            continue
+
+        current = start_frame
+        while current + max_gap < end_frame:
+            current += max_gap
+            value = fcurve.evaluate(current)
+            fcurve.keyframe_points.insert(current, value, options={'FAST'})
+            inserted += 1
+
+        # Update sorted list for subsequent iterations.
+        keyframes = sorted(fcurve.keyframe_points, key=lambda kp: kp.co[0])
+
+    return inserted
+
+
+def fix_fcurves_with_large_gaps(action: bpy.types.Action,
+                                fcurve_filter: Set[tuple],
+                                max_gap: int = MAX_KEYFRAME_GAP) -> int:
+    """Fix keyframe gaps larger than max_gap on selected FCurves.
+
+    Inserts intermediate keyframes as needed to ensure the resulting keyframe
+deltas can be encoded in the Fox binary format.
+
+    Returns:
+        Total number of keyframes inserted.
+    """
+    total_inserted = 0
+    for fcurve in iter_action_fcurves(action):
+        key = (fcurve.data_path, fcurve.array_index)
+        if fcurve_filter and key not in fcurve_filter:
+            continue
+        total_inserted += _fix_fcurve_keyframe_gaps(fcurve, max_gap=max_gap)
+    return total_inserted
 
 
 def bake_and_clean_export_fcurves(armature: bpy.types.Object,
@@ -609,20 +695,13 @@ def bake_and_clean_export_fcurves(armature: bpy.types.Object,
     if fcurve_clean_threshold > 0.0:
         fcurves_cleaned = clean_fcurves(processed_action, fcurve_clean_threshold, fcurve_filter=baked_fcurve_keys, obj=armature)
 
-        # Validate: warn if cleaned fcurves have keyframe gaps > 255 frames.
-        # The GANI binary format stores inter-keyframe deltas as ubyte (1-255).
-        # A gap larger than 255 cannot be encoded and the exporter clamps it to
-        # 255, which shifts all subsequent keyframe timings and corrupts the track.
-        if  fcurves_cleaned > 0:
-            gap_violations = _check_fcurves_for_large_gaps(processed_action, baked_fcurve_keys)
-            if gap_violations:
-                Debug.log_error(
-                    f"Export: {len(gap_violations)} FCurve(s) have keyframe gaps exceeding the "
-                    f"255-frame binary format limit after baking and cleaning "
-                    f"(fcurve_clean_threshold={fcurve_clean_threshold}). The exported MTAR will be INVALID. "
-                    f"Reduce the export clean threshold to fix this. "
-                    f"First affected: '{gap_violations[0][0]}[{gap_violations[0][1]}]', "
-                    f"gap={gap_violations[0][2]} frames."
+        # Fix gaps that exceed the 255-frame binary limit by inserting intermediate keyframes.
+        if fcurves_cleaned > 0:
+            inserted = fix_fcurves_with_large_gaps(processed_action, baked_fcurve_keys)
+            if inserted:
+                Debug.log(
+                    f"    Inserted {inserted} intermediate keyframe(s) to ensure no inter-keyframe gap exceeds "
+                    f"{MAX_KEYFRAME_GAP} frames after baking/cleaning (fcurve_clean_threshold={fcurve_clean_threshold})."
                 )
 
     # Stabilize quaternion hemisphere in FCurve values after clean/decimate.

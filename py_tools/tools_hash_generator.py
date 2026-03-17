@@ -257,8 +257,6 @@ def hash_filename_all_modes(input_string: str, modes: tuple = None) -> Tuple[boo
     if modes is None:
         modes = ('filename', 'extension', 'with_extension', 'legacy')
     
-    Debug.log(f"Hashing with pure Python CityHash: {input_string} (modes: {', '.join(modes)})")
-    
     # Initialize results with all possible keys
     results = {
         'filename': '',

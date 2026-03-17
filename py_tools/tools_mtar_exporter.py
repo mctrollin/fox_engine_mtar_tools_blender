@@ -36,7 +36,10 @@ from ..py_utilities.utilities_blender_armature import (
     detach_armature_for_export,
     restore_armature_after_export,
 )
-from ..py_utilities.utilities_fcurve_processing import bake_and_clean_export_fcurves
+from ..py_utilities.utilities_fcurve_processing import (
+    bake_and_clean_export_fcurves,
+    insert_intermediate_frames,
+)
 
 from ..blender_properties import get_effective_export_fcurve_clean_threshold
 
@@ -666,23 +669,12 @@ def export_keyframes_track(armature: bpy.types.Object,
                 export_frames = sorted(set(export_frames))
 
         # 2. Fill gaps > 255 with intermediate frames (8-bit delta limit)
-        fixed_frames = [export_frames[0]]
-        for i in range(1, len(export_frames)):
-            gap = export_frames[i] - export_frames[i - 1]
-            if gap > 255:
-                current = export_frames[i - 1]
-                while current + 255 < export_frames[i]:
-                    current += 255
-                    fixed_frames.append(current)
-            fixed_frames.append(export_frames[i])
-
-        if len(fixed_frames) != len(export_frames):
-            Debug.log_warning(
+        export_frames, inserted = insert_intermediate_frames(export_frames)
+        if inserted:
+            Debug.log(
                 f"Non-static track '{blender_bone_name}' ({segment_type.name}): "
-                f"inserted {len(fixed_frames) - len(export_frames)} intermediate frame(s) "
-                f"to keep frame deltas within the 255-frame binary limit."
+                f"inserted {inserted} intermediate frame(s) to keep frame deltas within the 255-frame binary limit."
             )
-            export_frames = fixed_frames
     # ────────────────────────────────────────────────────────────────────────
 
     Debug.log(f"    Collected keyed frames {len(export_frames)}")
@@ -837,7 +829,7 @@ def export_rotation_segment(armature: bpy.types.Object,
                             ) -> List['AnimKeyframe']:
     """Export rotation segment keyframes."""
     keyframes = []
-    Debug.start_timer("export_rotation_segment")
+    # Debug.start_timer("export_rotation_segment")
     
     # POINT 4 OPTIMIZATION: Extract loop-invariant setup and use pluggable transform function
     # These are constant across all frames, so extract once to avoid redundant lookups
@@ -918,7 +910,7 @@ def export_rotation_segment(armature: bpy.types.Object,
         keyframe = AnimKeyframe(frame=frame_delta, value=fox_quat_final)
         keyframes.append(keyframe)
     
-    Debug.stop_timer("export_rotation_segment")
+    # Debug.stop_timer("export_rotation_segment")
     return keyframes
 
 def export_location_segment(armature: bpy.types.Object, 
@@ -950,7 +942,7 @@ def export_location_segment(armature: bpy.types.Object,
     X and Y again. This does NOT apply when no_coordinate_transform=True.
     """
     keyframes = []
-    Debug.start_timer("export_location_segment")
+    # Debug.start_timer("export_location_segment")
 
     if use_object_level:
         # Track maps to the armature object via [armature] mapping target.
@@ -1041,7 +1033,7 @@ def export_location_segment(armature: bpy.types.Object,
         keyframe = AnimKeyframe(frame=frame_delta, value=fox_location)
         keyframes.append(keyframe)
     
-    Debug.stop_timer("export_location_segment")
+    # Debug.stop_timer("export_location_segment")
     return keyframes
 
 
@@ -1180,7 +1172,7 @@ def export_gani_track_from_action(armature: bpy.types.Object,
             unit_flags=[TrackUnitFlags.NONE]
         )
     
-    Debug.start_timer(f"export_gani_track_from_action(track={track_idx})")
+    # Debug.start_timer(f"export_gani_track_from_action(track={track_idx})")
 
     # Merge per-action overrides into layout metadata (if any)
     action_meta = None
@@ -1257,7 +1249,7 @@ def export_gani_track_from_action(armature: bpy.types.Object,
         # segment_bone_name == ARMATURE_TARGET_NAME which is not a real pose bone —
         # allow it through so the object-level FCurve reader is reached.
         if segment_bone_name and (segment_bone_name in armature.pose.bones or use_object_level_for_track):
-            Debug.start_timer(f"export_keyframes_track(segment_bone_name={segment_bone_name})")
+            # Debug.start_timer(f"export_keyframes_track(segment_bone_name={segment_bone_name})")
             # Export keyframes for this segment
             keyframes = export_keyframes_track(
                 armature,
@@ -1272,7 +1264,7 @@ def export_gani_track_from_action(armature: bpy.types.Object,
                 transform_cache,
                 use_object_level=use_object_level_for_track,
             )
-            Debug.stop_timer(f"export_keyframes_track(segment_bone_name={segment_bone_name})")
+            # Debug.stop_timer(f"export_keyframes_track(segment_bone_name={segment_bone_name})")
 
             # Get component_bit_size from metadata if available, otherwise use a type-safe default
             component_bit_size = get_default_bit_size_for_segment(segment_type)
@@ -1334,7 +1326,7 @@ def export_gani_track_from_action(armature: bpy.types.Object,
             )
             keyframes_tracks.append(empty_keyframes_track)
     
-    Debug.stop_timer(f"export_gani_track_from_action(track={track_idx})")
+    # Debug.stop_timer(f"export_gani_track_from_action(track={track_idx})")
 
     # Create GaniTrack - use base track name for the track itself
     return TrackUnitWrapper(
@@ -2179,7 +2171,6 @@ def export_mtar(context: bpy.types.Context,
 
     # Write the info file with animation names
     Debug.log("\n6. Writing animation info file... ++++++++++++++++++++++++++++++++++++++++++++")
-    Debug.start_timer("6. Writing animation info file")
     
     # Only write the info file if the export setting is enabled
     if export_props.info_file:
@@ -2194,8 +2185,6 @@ def export_mtar(context: bpy.types.Context,
             Debug.log_error(f"  Error writing info file: {e}")
     else:
         Debug.log("  Skipping info file export (disabled in export settings)")
-    
-    Debug.stop_timer("6. Writing animation info file")
     
     # Restore armature's original animation state before returning
     if original_armature_action is not None:

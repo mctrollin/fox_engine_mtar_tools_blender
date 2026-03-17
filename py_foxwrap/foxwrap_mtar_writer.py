@@ -509,9 +509,6 @@ class MtarWriter:
         motion_point_end = buffer.tell()
         motion_point_tracks_data_size = motion_point_end - motion_point_start
         
-        Debug.log(f"      Motion Points offset: 0x{motion_point_start:08X} (relative: 0x{motion_point_offset_from_tracks:08X})")
-        Debug.log(f"      Motion Points size: {motion_point_tracks_data_size} bytes")
-        
         return motion_point_offset_from_tracks, motion_point_tracks_data_size
     
     def _build_file_table_entry(self, path_hash: int, gani_data: 'GaniExportData', 
@@ -599,7 +596,6 @@ class MtarWriter:
             # Compute tracks data size based on format
             gani_end = buffer.tell()
             gani_tracks_data_size = self._compute_gani_tracks_data_size(gani_bytes, gani_tracks_offset, gani_end)
-            Debug.log(f"      Track offset: 0x{gani_tracks_offset:08X}, Size: {gani_tracks_data_size} bytes")
             
             # Write Motion Points section (new format only; old format has them embedded in FoxData)
             motion_point_tracks_offset, motion_point_tracks_data_size = \

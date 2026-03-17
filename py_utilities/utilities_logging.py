@@ -133,11 +133,10 @@ _performance_timers: Dict[str, float] = {}
 # Stack to track timer nesting for hierarchical indentation in timer logs
 _performance_timer_stack: List[str] = []
 
-# Progress UI state (throttling & lifecycle)
+# Progress UI state (lifecycle)
 _progress_active: bool = False
 _last_redraw_time: float = 0.0
 _redraw_min_interval: float = 0.1  # seconds
-_last_console_log_time: float = 0.0  # seconds, throttle console progress prints
 _current_main_progress: float = 0.0  # Track main progress value (0-100) for secondary increments
 
 
@@ -197,21 +196,10 @@ def _stop_timer(block_name: str) -> float:
     return elapsed
 
 
-def _throttled_console_print(message: str, force: bool = False) -> None:
-    """Print to console at most once every _redraw_min_interval seconds.
-
-    If force=True, print regardless of throttle (used for completion messages).
-    Exceptions are swallowed to keep this best-effort in headless contexts.
-    """
-    global _last_console_log_time
+def _throttled_console_print(message: str) -> None:
+    """Print to console (best-effort)."""
     try:
-        now = time.time()
-        if force or (now - _last_console_log_time >= _redraw_min_interval):
-            try:
-                print(message)
-            except Exception:
-                pass
-            _last_console_log_time = now
+        print(message)
     except Exception:
         pass
 
@@ -324,9 +312,9 @@ def _update_progress(value: float, text: str = "") -> None:
         # Always log progress to the console (not affected by log level). Throttle to avoid flooding.
         try:
             if text:
-                _throttled_console_print(f"[PROGRESS] {display:.1f}% - {text}", force=(display >= 100.0))
+                _throttled_console_print(f"[PROGRESS] {display:.1f}% - {text}")
             else:
-                _throttled_console_print(f"[PROGRESS] {display:.1f}%", force=(display >= 100.0))
+                _throttled_console_print(f"[PROGRESS] {display:.1f}%")
         except Exception:
             pass
 
