@@ -26,7 +26,7 @@ from ..py_utilities.utilities_transforms import (
 from ..py_utilities.utilities_blender_animation import (
     FCurveCache, iter_action_fcurves, is_relevant_strip, remove_action_from_datablock, try_find_layout_track_action,
     build_data_path_for_bone, assign_action_to_datablock, MTAR_ARMATURE_SLOT_NAME,
-    find_action_fcurve,
+    find_action_fcurve, mute_nla_tracks,
 )
 from ..py_utilities.utilities_parsing import parse_index_selection
 
@@ -1521,21 +1521,23 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
             # assignment — the action's internal frame range already matches
             # frame_start in that case so no offset issue exists.
             nla_strip = _find_nla_strip_for_action(armature, action)
-            if nla_strip:
-                nla_strip.action = processed_action
-                remove_action_from_datablock(armature)  # ensure NLA evaluates, not a direct override
-                try:
-                    transform_cache.build()
-                finally:
-                    nla_strip.action = action
-            else:
-                assign_action_to_datablock(armature, processed_action, slot_name=MTAR_ARMATURE_SLOT_NAME)
-                try:
-                    transform_cache.build()
-                finally:
-                    remove_action_from_datablock(armature)
+            with mute_nla_tracks(armature, keep_strip=nla_strip):
+                if nla_strip:
+                    nla_strip.action = processed_action
+                    remove_action_from_datablock(armature)  # ensure NLA evaluates, not a direct override
+                    try:
+                        transform_cache.build()
+                    finally:
+                        nla_strip.action = action
+                else:
+                    assign_action_to_datablock(armature, processed_action, slot_name=MTAR_ARMATURE_SLOT_NAME)
+                    try:
+                        transform_cache.build()
+                    finally:
+                        remove_action_from_datablock(armature)
         else:
-            transform_cache.build()
+            with mute_nla_tracks(armature):
+                transform_cache.build()
 
         # Create Synthetic Mapping ------------------------------------------------------
         # If needed (when no mapping provided)

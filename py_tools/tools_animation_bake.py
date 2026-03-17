@@ -19,7 +19,8 @@ from ..py_utilities.utilities_blender_animation import (
     remove_action_fcurve,
     is_relevant_strip,
     is_pose_bone_data_path,
-    extract_bone_name_from_data_path
+    extract_bone_name_from_data_path,
+    mute_nla_tracks,
 )
 from ..py_utilities.utilities_fcurve_processing import decimate_import_fcurves_to_bezier
 
@@ -475,13 +476,6 @@ def bake_armature_constraints_to_keyframes(rig_armature: bpy.types.Object,
         Debug.log(f"  Assigned action '{action.name}' to source armature '{source_armature.name}' for constraint binding")
 
     
-    # Store original NLA track mute state if provided
-    original_track_mute_state = None
-    if nla_track:
-        original_track_mute_state = nla_track.mute
-        nla_track.mute = True
-        Debug.log(f"  Disabled NLA track '{nla_track.name}' during baking")
-    
     # Select only the armature
     bpy.ops.object.select_all(action='DESELECT')
     rig_armature.select_set(True)
@@ -502,12 +496,6 @@ def bake_armature_constraints_to_keyframes(rig_armature: bpy.types.Object,
     # If the whole action is in negative time (layout track etc.), skip baking it
     if frame_end <= 0:
         Debug.log(f"  Action '{action.name}' is in negative time range {frame_start} to {frame_end} (skipping)")
-        # Restore any modified state before returning
-        try:
-            if original_track_mute_state is not None and nla_track is not None:
-                nla_track.mute = original_track_mute_state
-        except Exception:
-            pass
         try:
             if source_armature and source_armature != rig_armature and original_source_action is not None:
                 assign_action_to_datablock(source_armature, original_source_action)
@@ -538,131 +526,124 @@ def bake_armature_constraints_to_keyframes(rig_armature: bpy.types.Object,
             select_status = getattr(pose_bone, "select", getattr(pose_bone.bone, "select", False))
             Debug.log(f"  Selecting bone for baking: {blender_bone_name} : {select_status}")
     
-    try:
-        Debug.log("  Starting bake operation...")
-
-        Debug.start_timer("bpy.ops.nla.bake()")
-        # Bake the action
-        # Note: bpy.ops.nla.bake requires specific parameters
-        bpy.ops.nla.bake(
-            frame_start=frame_start,
-            frame_end=frame_end,
-            step=1,  # We'll clean up non-keyframe frames afterward
-            only_selected=True,  # Only bake selected bones
-            visual_keying=True,  # Use visual transforms (post-constraint)
-            clear_constraints=False,  # We'll handle constraint removal manually
-            clear_parents=False,
-            use_current_action=True,  # Override existing action
-            clean_curves=False,  # We'll handle cleanup manually
-            bake_types={'POSE'},  # Only bake pose (not object transforms)
-            channel_types={'LOCATION', 'ROTATION'}
-        )
-        Debug.stop_timer("bpy.ops.nla.bake()")
-        
-        # Clean up: Remove keyframes on non-keyframe frames
-        # After baking, NLA creates keyframes on every frame in the range
-        # We only want keyframes on original keyframe frames per fcurve
-        Debug.log("  Cleaning up keyframes...")
-        keyframes_removed_count = cleanup_baked_keyframes(target_action, fcurve_keyframes)
-        
-        if keyframes_removed_count > 0:
-            Debug.log(f"  Removed {keyframes_removed_count} non-original keyframes")
-        
-        # Remove constraints if requested
-        constraints_removed = 0
-        if remove_constraints:
-            constraints_removed = remove_bone_constraints(rig_armature, bones_with_keyframes)
-            if constraints_removed > 0:
-                Debug.log(f"  Removed {constraints_removed} constraints")
-        
-        # Set manual frame range on target action
-        target_action.use_frame_range = True
-        target_action.frame_start = frame_start
-        target_action.frame_end = frame_end
-        Debug.log(f"  Set manual frame range on baked action: {frame_start} - {frame_end}")
-        
-        # Restore context
-        bpy.ops.object.mode_set(mode='OBJECT')
-        current_scene.frame_set(current_frame)
-
-        remove_action_from_datablock(rig_armature)
-        
-        # Restore source armature's action if it was changed
-        if source_armature and source_armature != rig_armature:
-            if original_source_action:
-                assign_action_to_datablock(source_armature, original_source_action)
-            else:
-                remove_action_from_datablock(source_armature)
-            Debug.log(f"  Restored source armature '{source_armature.name}' action state")
-        
-        # Restore NLA track mute state
-        if nla_track and original_track_mute_state is not None:
-            nla_track.mute = original_track_mute_state
-            Debug.log(f"  Re-enabled NLA track '{nla_track.name}'")
-        
-        Debug.log(f"Successfully baked action '{action.name}' -> '{target_action.name}'")
-        
-        # Set all baked keyframes to LINEAR interpolation
-        # (Decimation will convert to bezier later if enabled in import settings)
-        Debug.log("  Setting interpolation mode to LINEAR...")
-        
-        interpolation_count = 0
-        for fcurve in iter_action_fcurves(target_action):
-            fcurve_modified = False
-            
-            # Only process pose bone fcurves
-            if is_pose_bone_data_path(fcurve.data_path):
-                for keyframe in fcurve.keyframe_points:
-                    if keyframe.interpolation != 'LINEAR':
-                        keyframe.interpolation = 'LINEAR'
-                        fcurve_modified = True
-                        interpolation_count += 1
-            
-            if fcurve_modified:
-                fcurve.update()
-        
-        if interpolation_count > 0:
-            Debug.log(f"  Set interpolation on {interpolation_count} keyframes")
-        
-        # Reset transforms on baked bones to prevent accumulation issues in subsequent bakes
-        Debug.log("  Resetting transforms on baked bones...")
-        bones_reset = reset_baked_bone_transforms(rig_armature, bones_with_keyframes)
-        if bones_reset > 0:
-            Debug.log(f"  Reset complete for {bones_reset} bones")
-        
-        return {
-            'success': True,
-            'bones_baked': bones_with_keyframes,
-            'frames_baked': keyframe_frames,
-            'constraints_removed': constraints_removed,
-            'action': target_action,
-            'message': f'Successfully baked {len(bones_with_keyframes)} bone(s) on {len(keyframe_frames)} frame(s)'
-        }
-        
-    except Exception as e:
-        Debug.log_error(f"Failed to bake action '{action.name}'")
-        # Restore context on error
+    with mute_nla_tracks(rig_armature, keep_track=nla_track):
         try:
+            Debug.log("  Starting bake operation...")
+
+            Debug.start_timer("bpy.ops.nla.bake()")
+            # Bake the action
+            # Note: bpy.ops.nla.bake requires specific parameters
+            bpy.ops.nla.bake(
+                frame_start=frame_start,
+                frame_end=frame_end,
+                step=1,  # We'll clean up non-keyframe frames afterward
+                only_selected=True,  # Only bake selected bones
+                visual_keying=True,  # Use visual transforms (post-constraint)
+                clear_constraints=False,  # We'll handle constraint removal manually
+                clear_parents=False,
+                use_current_action=True,  # Override existing action
+                clean_curves=False,  # We'll handle cleanup manually
+                bake_types={'POSE'},  # Only bake pose (not object transforms)
+                channel_types={'LOCATION', 'ROTATION'}
+            )
+            Debug.stop_timer("bpy.ops.nla.bake()")
+
+            # Clean up: Remove keyframes on non-keyframe frames
+            # After baking, NLA creates keyframes on every frame in the range
+            # We only want keyframes on original keyframe frames per fcurve
+            Debug.log("  Cleaning up keyframes...")
+            keyframes_removed_count = cleanup_baked_keyframes(target_action, fcurve_keyframes)
+
+            if keyframes_removed_count > 0:
+                Debug.log(f"  Removed {keyframes_removed_count} non-original keyframes")
+
+            # Remove constraints if requested
+            constraints_removed = 0
+            if remove_constraints:
+                constraints_removed = remove_bone_constraints(rig_armature, bones_with_keyframes)
+                if constraints_removed > 0:
+                    Debug.log(f"  Removed {constraints_removed} constraints")
+
+            # Set manual frame range on target action
+            target_action.use_frame_range = True
+            target_action.frame_start = frame_start
+            target_action.frame_end = frame_end
+            Debug.log(f"  Set manual frame range on baked action: {frame_start} - {frame_end}")
+
+            # Restore context
             bpy.ops.object.mode_set(mode='OBJECT')
             current_scene.frame_set(current_frame)
+
             remove_action_from_datablock(rig_armature)
+
             # Restore source armature's action if it was changed
             if source_armature and source_armature != rig_armature:
                 if original_source_action:
                     assign_action_to_datablock(source_armature, original_source_action)
                 else:
                     remove_action_from_datablock(source_armature)
-            # Restore NLA track mute state
-            if nla_track and original_track_mute_state is not None:
-                nla_track.mute = original_track_mute_state
-            # Clean up new action if creation failed
-            if create_new_action and target_action and target_action.users == 0:
-                bpy.data.actions.remove(target_action)
-        except Exception:
-            # If restoration fails, swallow the error (main error is more important)
-            pass
-        
-        raise RuntimeError(f"Failed to bake armature action: {str(e)}") from e
+                Debug.log(f"  Restored source armature '{source_armature.name}' action state")
+
+            Debug.log(f"Successfully baked action '{action.name}' -> '{target_action.name}'")
+
+            # Set all baked keyframes to LINEAR interpolation
+            # (Decimation will convert to bezier later if enabled in import settings)
+            Debug.log("  Setting interpolation mode to LINEAR...")
+
+            interpolation_count = 0
+            for fcurve in iter_action_fcurves(target_action):
+                fcurve_modified = False
+
+                # Only process pose bone fcurves
+                if is_pose_bone_data_path(fcurve.data_path):
+                    for keyframe in fcurve.keyframe_points:
+                        if keyframe.interpolation != 'LINEAR':
+                            keyframe.interpolation = 'LINEAR'
+                            fcurve_modified = True
+                            interpolation_count += 1
+
+                if fcurve_modified:
+                    fcurve.update()
+
+            if interpolation_count > 0:
+                Debug.log(f"  Set interpolation on {interpolation_count} keyframes")
+
+            # Reset transforms on baked bones to prevent accumulation issues in subsequent bakes
+            Debug.log("  Resetting transforms on baked bones...")
+            bones_reset = reset_baked_bone_transforms(rig_armature, bones_with_keyframes)
+            if bones_reset > 0:
+                Debug.log(f"  Reset complete for {bones_reset} bones")
+
+            return {
+                'success': True,
+                'bones_baked': bones_with_keyframes,
+                'frames_baked': keyframe_frames,
+                'constraints_removed': constraints_removed,
+                'action': target_action,
+                'message': f'Successfully baked {len(bones_with_keyframes)} bone(s) on {len(keyframe_frames)} frame(s)'
+            }
+
+        except Exception as e:
+            Debug.log_error(f"Failed to bake action '{action.name}'")
+            # Restore context on error
+            try:
+                bpy.ops.object.mode_set(mode='OBJECT')
+                current_scene.frame_set(current_frame)
+                remove_action_from_datablock(rig_armature)
+                # Restore source armature's action if it was changed
+                if source_armature and source_armature != rig_armature:
+                    if original_source_action:
+                        assign_action_to_datablock(source_armature, original_source_action)
+                    else:
+                        remove_action_from_datablock(source_armature)
+                # Clean up new action if creation failed
+                if create_new_action and target_action and target_action.users == 0:
+                    bpy.data.actions.remove(target_action)
+            except Exception:
+                # If restoration fails, swallow the error (main error is more important)
+                pass
+
+            raise RuntimeError(f"Failed to bake armature action: {str(e)}") from e
 
 
 def bake_armature_nla_strips_to_keyframes(rig_armature: bpy.types.Object,

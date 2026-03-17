@@ -3,7 +3,8 @@
 This module contains helper functions for manipulating Blender actions,
 FCurves, keyframes, and other animation-related structures.
 """
-from typing import Optional, Dict, List, Iterator, Set, Tuple
+from contextlib import contextmanager
+from typing import Optional, Dict, Generator, List, Iterator, Set, Tuple
 
 import bpy
 
@@ -502,6 +503,126 @@ def remove_action_from_datablock(datablock: bpy.types.ID) -> None:
         Debug.log(f"Removed action from datablock '{getattr(datablock, 'name', '<unknown>')}' and cleared slot info")
     except Exception as e:
         Debug.log_warning(f"Failed to remove action from datablock '{getattr(datablock, 'name', '<unknown>')}': {e}")
+
+
+@contextmanager
+def mute_nla_tracks(armature: bpy.types.Object,
+                    keep_strip: Optional[bpy.types.NlaStrip] = None,
+                    keep_track: Optional[bpy.types.NlaTrack] = None
+                    ) -> Generator[None, None, None]:
+    """Temporarily mute all NLA tracks/strips on an armature.
+
+    This is useful when evaluating an armature for export or baking and you want
+    to ensure only a single NLA strip/track affects evaluation.
+
+    Args:
+        armature: Armature object whose NLA tracks should be muted.
+        keep_strip: Optional strip to keep unmuted (also keeps its parent track unmuted).
+        keep_track: Optional track to keep unmuted.
+
+    Yields:
+        None. Restores original mute states on exit.
+    """
+    if armature is None or not hasattr(armature, 'animation_data') or not armature.animation_data:
+        yield
+        return
+
+    # Use track/strip names for robust restoration (wrapper objects may be recreated).
+    # Fall back to id() mapping if names are missing or not unique.
+    original_track_mutes_by_name = {getattr(track, 'name', None): track.mute
+                                    for track in armature.animation_data.nla_tracks}
+    original_strip_mutes_by_name = {(getattr(track, 'name', None), getattr(strip, 'name', None)): getattr(strip, 'mute', False)
+                                   for track in armature.animation_data.nla_tracks
+                                   for strip in track.strips}
+
+    # Also keep id-based mapping for best-effort restoration when names are unstable
+    original_track_mutes_by_id = {id(track): track.mute for track in armature.animation_data.nla_tracks}
+    original_strip_mutes_by_id = {(id(track), id(strip)): getattr(strip, 'mute', False)
+                                 for track in armature.animation_data.nla_tracks
+                                 for strip in track.strips}
+
+    try:
+        # Mute everything by default
+        for track in armature.animation_data.nla_tracks:
+            track.mute = True
+            for strip in track.strips:
+                try:
+                    strip.mute = True
+                except Exception:
+                    # Some strips may not expose mute property; ignore
+                    pass
+
+        # Unmute requested track/strip
+        if keep_strip is not None:
+            parent_track = getattr(keep_strip, 'track', None)
+            if parent_track is not None:
+                parent_track.mute = False
+            try:
+                keep_strip.mute = False
+            except Exception:
+                pass
+        elif keep_track is not None:
+            try:
+                keep_track.mute = False
+            except Exception:
+                pass
+
+        yield
+    finally:
+        # Restore original mute states by name first (more resilient to wrapper re-creation)
+        for track in armature.animation_data.nla_tracks:
+            track_name = getattr(track, 'name', None)
+            if track_name in original_track_mutes_by_name:
+                try:
+                    track.mute = original_track_mutes_by_name[track_name]
+                except Exception:
+                    pass
+
+            for strip in track.strips:
+                strip_key = (track_name, getattr(strip, 'name', None))
+                if strip_key in original_strip_mutes_by_name:
+                    try:
+                        strip.mute = original_strip_mutes_by_name[strip_key]
+                    except Exception:
+                        pass
+
+        # Fallback (best effort) to id-based restoration
+        for track in armature.animation_data.nla_tracks:
+            if id(track) in original_track_mutes_by_id:
+                try:
+                    track.mute = original_track_mutes_by_id[id(track)]
+                except Exception:
+                    pass
+            for strip in track.strips:
+                key = (id(track), id(strip))
+                if key in original_strip_mutes_by_id:
+                    try:
+                        strip.mute = original_strip_mutes_by_id[key]
+                    except Exception:
+                        pass
+
+        # Ensure the intended strip/track remains unmuted
+        if keep_strip is not None:
+            try:
+                keep_strip.mute = False
+            except Exception:
+                pass
+            parent_track = getattr(keep_strip, 'track', None)
+            if parent_track is not None:
+                try:
+                    parent_track.mute = False
+                except Exception:
+                    pass
+        elif keep_track is not None:
+            try:
+                keep_track.mute = False
+            except Exception:
+                pass
+            for strip in getattr(keep_track, 'strips', []):
+                try:
+                    strip.mute = False
+                except Exception:
+                    pass
 
 
 def get_action_slot(action: bpy.types.Action, slot_name: Optional[str] = None) -> 'bpy.types.ActionSlot':
