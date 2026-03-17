@@ -140,13 +140,13 @@ def draw_import_page(layout: UILayout, context: Context) -> None:
     if not import_props.mtar_filepath:
         box_button.label(text="No import path set", icon='ERROR')
 
-    # Estimated import time (4 seconds per GANI)
-    est_time_per_gani = 0.15
+    # Estimated import time based on player2_resident
+    est_time_per_gani = 0.05
     if import_props.custom_rig:
         if import_props.import_bake_constraints:
-            est_time_per_gani += 1.2
+            est_time_per_gani += 4
             if import_props.import_bake_do_decimate:
-                est_time_per_gani += 0.75
+                est_time_per_gani += 1
 
     draw_estimated_operation_time(import_info_box, selected_count, est_time_per_gani)
 
