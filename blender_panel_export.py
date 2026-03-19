@@ -178,7 +178,7 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
         if display_count is not None and display_count > 0:
             warn_box = box_button.box()
             warn_box.label(text=f"Exporting {display_count} animations.")
-            draw_estimated_operation_time(warn_box, display_count, 7.5)
+            draw_estimated_operation_time(warn_box, display_count, 1.5)
 
         if not export_props.armature:
             warn_box.alert = True

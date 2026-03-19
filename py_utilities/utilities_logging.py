@@ -191,7 +191,7 @@ def _stop_timer(block_name: str) -> float:
 
     if _should_log_timers():
         indent = '  ' * depth
-        print(f"[TIMER] {indent}|_ {block_name}: {elapsed:.3f} seconds")
+        print(f"[TIMER] {indent}↓ {block_name}: {elapsed:.3f} seconds")
 
     return elapsed
 

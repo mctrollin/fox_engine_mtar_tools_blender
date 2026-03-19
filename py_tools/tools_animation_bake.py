@@ -20,7 +20,7 @@ from ..py_utilities.utilities_blender_animation import (
     is_relevant_strip,
     is_pose_bone_data_path,
     extract_bone_name_from_data_path,
-    mute_nla_tracks,
+    set_nla_solo,
 )
 from ..py_utilities.utilities_fcurve_processing import decimate_import_fcurves_to_bezier
 
@@ -526,7 +526,12 @@ def bake_armature_constraints_to_keyframes(rig_armature: bpy.types.Object,
             select_status = getattr(pose_bone, "select", getattr(pose_bone.bone, "select", False))
             Debug.log(f"  Selecting bone for baking: {blender_bone_name} : {select_status}")
     
-    with mute_nla_tracks(rig_armature, keep_track=nla_track):
+    # Ensure other armatures do not contribute NLA evaluation while baking.
+    keep_armatures = [rig_armature]
+    if source_armature and source_armature != rig_armature:
+        keep_armatures.append(source_armature)
+
+    with set_nla_solo(rig_armature, keep_track=nla_track, keep_armatures=keep_armatures):
         try:
             Debug.log("  Starting bake operation...")
 

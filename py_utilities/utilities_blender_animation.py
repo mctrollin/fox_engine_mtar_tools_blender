@@ -3,7 +3,8 @@
 This module contains helper functions for manipulating Blender actions,
 FCurves, keyframes, and other animation-related structures.
 """
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
+
 from typing import Optional, Dict, Generator, List, Iterator, Set, Tuple
 
 import bpy
@@ -505,141 +506,218 @@ def remove_action_from_datablock(datablock: bpy.types.ID) -> None:
         Debug.log_warning(f"Failed to remove action from datablock '{getattr(datablock, 'name', '<unknown>')}': {e}")
 
 
-@contextmanager
-def mute_nla_tracks(armature: bpy.types.Object,
-                    keep_strip: Optional[bpy.types.NlaStrip] = None,
-                    keep_track: Optional[bpy.types.NlaTrack] = None
-                    ) -> Generator[None, None, None]:
-    """Temporarily mute all NLA tracks/strips on an armature.
+def _create_temporary_export_track_with_strip(
+    armature: bpy.types.Object,
+    source_track: bpy.types.NlaTrack,
+    source_strip: Optional[bpy.types.NlaStrip] = None,
+    export_track_name: str = "__mtar_export__",
+) -> Tuple[
+    Optional[bpy.types.NlaTrack],
+    Optional[bpy.types.NlaStrip],
+    Optional[bpy.types.NlaTrack],
+    Optional[bpy.types.NlaStrip],
+]:
+    """Create a temporary export NLA track and duplicate a strip into it.
 
-    This is useful when evaluating an armature for export or baking and you want
-    to ensure only a single NLA strip/track affects evaluation.
+    This is used by :func:`set_nla_solo` to isolate NLA evaluation without
+    muting the original track directly.
+
+    Returns:
+        (export_track, export_strip, effective_keep_track, effective_keep_strip)
+    """
+    if armature is None or armature.animation_data is None:
+        return None, None, source_track, source_strip
+
+    nla_tracks = getattr(armature.animation_data, 'nla_tracks', None)
+    if not nla_tracks:
+        return None, None, source_track, source_strip
+
+    try:
+        # Remove any stale export track from prior runs
+        existing = next((t for t in nla_tracks if getattr(t, 'name', '') == export_track_name), None)
+        if existing is not None:
+            try:
+                nla_tracks.remove(existing)
+            except Exception:
+                pass
+
+        export_track = nla_tracks.new()
+        export_track.name = export_track_name
+
+        # Use the explicitly requested strip if provided, otherwise pick the first strip
+        if source_strip is None:
+            source_strip = next(iter(getattr(source_track, 'strips', [])), None)
+
+        if source_strip is None:
+            # Nothing to duplicate; clean up and bail.
+            try:
+                nla_tracks.remove(export_track)
+            except Exception:
+                pass
+            return None, None, source_track, source_strip
+
+        export_strip = export_track.strips.new(
+            name=getattr(source_strip, 'name', 'export_strip'),
+            start=int(source_strip.frame_start),
+            action=source_strip.action,
+        )
+
+        # Copy key timing/behavior properties
+        for attr in (
+            'frame_end',
+            'action_frame_start',
+            'action_frame_end',
+            'blend_in',
+            'blend_out',
+            'extrapolation',
+            'use_animated_influence',
+            'influence',
+            'use_animated_time',
+        ):
+            if hasattr(source_strip, attr) and hasattr(export_strip, attr):
+                try:
+                    setattr(export_strip, attr, getattr(source_strip, attr))
+                except Exception as e:
+                    Debug.log_warning(f"set_nla_solo: failed to copy '{attr}' from source strip: {e}")
+
+        export_strip.mute = False
+        return export_track, export_strip, export_track, export_strip
+    except Exception as e:
+        Debug.log_warning(f"set_nla_solo: failed to create/duplicate export track: {e}")
+        return None, None, source_track, source_strip
+
+
+@contextmanager
+def set_nla_solo(
+    main_armature: bpy.types.Object,
+    keep_track: Optional[bpy.types.NlaTrack] = None,
+    keep_strip: Optional[bpy.types.NlaStrip] = None,
+    keep_armatures: Optional[List[bpy.types.Object]] = None,
+) -> Generator[None, None, None]:
+    """Solo NLA evaluation for a specific armature.
+
+    This mutes NLA tracks on *all other* armatures, while allowing the given
+    main armature to keep a specific track/strip unmuted.
+
+    To isolate evaluation (and verify whether track muting is sufficient for
+    performance), this will also create a temporary export track and duplicate the
+    requested strip into it, then disable the original track.
 
     Args:
-        armature: Armature object whose NLA tracks should be muted.
-        keep_strip: Optional strip to keep unmuted.
-        keep_track: Optional track to keep unmuted.
-
-    Note:
-        The Blender API does not always expose a reliable ``strip.track`` reference.
-        For this reason, callers should prefer passing ``keep_track`` explicitly.
-        If only ``keep_strip`` is provided, this function will attempt to resolve
-        its parent track by searching the armature's NLA tracks.
+        main_armature: The armature currently being exported/baked.
+        keep_track: If set, that track is left unmuted on the main armature.
+        keep_strip: If set, that strip is left unmuted on the main armature.
+        keep_armatures: Additional armatures whose NLA should remain active.
+                        (E.g. when baking, both the imported armature and the
+                        custom rig should remain active.)
 
     Yields:
         None. Restores original mute states on exit.
     """
-    if armature is None or not hasattr(armature, 'animation_data') or not armature.animation_data:
-        yield
-        return
+    # yield
+    # return
+    if keep_armatures is None:
+        keep_armatures = []
 
-    # Resolve parent track for the requested strip if needed.
-    target_track = keep_track
-    if target_track is None and keep_strip is not None:
-        if armature.animation_data and armature.animation_data.nla_tracks:
-            for track in armature.animation_data.nla_tracks:
-                # Compare by object identity to avoid incorrect matches based on name.
-                if any(strip is keep_strip for strip in track.strips):
-                    target_track = track
-                    break
+    # Always keep the main armature active.
+    keep_armatures = [main_armature] + keep_armatures
+    # Use names rather than object IDs so this can restore state even if Blender
+    # swaps out the Python object for the same datablock during evaluation.
+    keep_names = {a.name for a in keep_armatures if a is not None}
 
-    # Use track/strip names for robust restoration (wrapper objects may be recreated).
-    # Fall back to id() mapping if names are missing or not unique.
-    original_track_mutes_by_name = {getattr(track, 'name', None): track.mute
-                                    for track in armature.animation_data.nla_tracks}
-    original_strip_mutes_by_name = {(getattr(track, 'name', None), getattr(strip, 'name', None)): getattr(strip, 'mute', False)
-                                   for track in armature.animation_data.nla_tracks
-                                   for strip in track.strips}
+    # Record original mute states for all relevant armatures (keyed by armature name)
+    original_mute_states: Dict[str, Dict[str, bool]] = {}
+    armatures_to_manage: List[bpy.types.Object] = []
 
-    # Also keep id-based mapping for best-effort restoration when names are unstable
-    original_track_mutes_by_id = {id(track): track.mute for track in armature.animation_data.nla_tracks}
-    original_strip_mutes_by_id = {(id(track), id(strip)): getattr(strip, 'mute', False)
-                                 for track in armature.animation_data.nla_tracks
-                                 for strip in track.strips}
+    for obj in bpy.data.objects:
+        if obj.type != 'ARMATURE':
+            continue
+        armatures_to_manage.append(obj)
+
+    # Ensure the main armature is included (even if it has no NLA tracks)
+    if main_armature and main_armature not in armatures_to_manage:
+        armatures_to_manage.append(main_armature)
+
+    for obj in armatures_to_manage:
+        track_states: Dict[str, bool] = {}
+        if obj.animation_data and getattr(obj.animation_data, 'nla_tracks', None):
+            for track in obj.animation_data.nla_tracks:
+                track_states[track.name] = bool(getattr(track, 'mute', False))
+        original_mute_states[obj.name] = track_states
+
+    export_track = None
+    original_keep_track = keep_track
 
     try:
-        # Mute everything by default
-        for track in armature.animation_data.nla_tracks:
-            track.mute = True
-            for strip in track.strips:
-                try:
-                    strip.mute = True
-                except Exception:
-                    # Some strips may not expose mute property; ignore
-                    pass
+        # Mute all armature tracks that are not in the keep list.
+        for obj in armatures_to_manage:
+            if obj.name in keep_names:
+                continue
+            if not obj.animation_data or not getattr(obj.animation_data, 'nla_tracks', None):
+                continue
+            for track in obj.animation_data.nla_tracks:
+                track.mute = True
 
-        # Unmute requested track/strip
-        if keep_strip is not None:
-            try:
-                keep_strip.mute = False
-            except Exception:
-                pass
+        # Now solo the main armature's NLA according to keep_track/keep_strip
+        if main_armature and main_armature.animation_data and getattr(main_armature.animation_data, 'nla_tracks', None):
+            # Resolve parent track if only a strip is provided
+            if keep_track is None and keep_strip is not None:
+                for track in main_armature.animation_data.nla_tracks:
+                    if any(strip is keep_strip for strip in track.strips):
+                        keep_track = track
+                        break
+                if keep_track is None:
+                    Debug.log_warning("set_nla_solo: keep_strip provided but could not resolve its parent track")
 
-        if target_track is not None:
-            try:
-                target_track.mute = False
-            except Exception:
-                pass
+            # If requested, create a dedicated export track and duplicate the strip.
+            # This helps verify whether muting (as opposed to completely isolating the
+            # NLA evaluation) is sufficient for performance.
+            if keep_track is not None:
+                export_track, _, keep_track, keep_strip = _create_temporary_export_track_with_strip(
+                    main_armature,
+                    keep_track,
+                    keep_strip,
+                )
+                if export_track is not None and original_keep_track is not None:
+                    # Prevent the original track from contributing to evaluation.
+                    original_keep_track.mute = True
 
-            # Also unmute all strips on the requested track
-            for strip in getattr(target_track, 'strips', []):
-                try:
-                    strip.mute = False
-                except Exception:
-                    pass
+            # Mute everything first (track-level only)
+            for track in main_armature.animation_data.nla_tracks:
+                track.mute = True
 
+            # Unmute the selected track
+            if keep_track is not None:
+                keep_track.mute = False
+
+        #raise RuntimeError("Mute NLA tracks test complete")
         yield
     finally:
-        # Restore original mute states by name first (more resilient to wrapper re-creation)
-        for track in armature.animation_data.nla_tracks:
-            track_name = getattr(track, 'name', None)
-            if track_name in original_track_mutes_by_name:
-                try:
-                    track.mute = original_track_mutes_by_name[track_name]
-                except Exception:
-                    pass
+        # raise RuntimeError("Mute NLA tracks test complete")
+        # Restore original mute states for all armatures we touched
+        for obj_name, state_map in original_mute_states.items():
+            # Objects may have been removed/renamed during the context.
+            # Use the stored object name to locate it for restoration.
+            obj = bpy.data.objects.get(obj_name)
+            if obj is None:
+                Debug.log_warning(f"set_nla_solo: object '{obj_name}' no longer exists (skipping restore)")
+                continue
 
-            for strip in track.strips:
-                strip_key = (track_name, getattr(strip, 'name', None))
-                if strip_key in original_strip_mutes_by_name:
-                    try:
-                        strip.mute = original_strip_mutes_by_name[strip_key]
-                    except Exception:
-                        pass
+            # Restore mute state if this object had NLA tracks
+            if obj.animation_data and getattr(obj.animation_data, 'nla_tracks', None):
+                for track in obj.animation_data.nla_tracks:
+                    # Preserve previous mute state exactly (no special-case tracks)
+                    if track.name in state_map:
+                        desired_mute = state_map[track.name]
+                        track.mute = desired_mute
 
-        # Fallback (best effort) to id-based restoration
-        for track in armature.animation_data.nla_tracks:
-            if id(track) in original_track_mutes_by_id:
-                try:
-                    track.mute = original_track_mutes_by_id[id(track)]
-                except Exception:
-                    pass
-            for strip in track.strips:
-                key = (id(track), id(strip))
-                if key in original_strip_mutes_by_id:
-                    try:
-                        strip.mute = original_strip_mutes_by_id[key]
-                    except Exception:
-                        pass
-
-        # Ensure the intended strip/track remains unmuted
-        if keep_strip is not None:
+        # Remove temporary export track if it was created
+        if export_track is not None and main_armature and main_armature.animation_data:
             try:
-                keep_strip.mute = False
-            except Exception:
-                pass
-
-        if target_track is not None:
-            try:
-                target_track.mute = False
-            except Exception:
-                pass
-            for strip in getattr(target_track, 'strips', []):
-                try:
-                    strip.mute = False
-                except Exception:
-                    pass
-
+                # Collection membership checks can be picky in Blender; just attempt removal.
+                main_armature.animation_data.nla_tracks.remove(export_track)
+            except Exception as e:
+                Debug.log_warning(f"set_nla_solo: failed to remove temporary export track: {e}")
 
 def get_action_slot(action: bpy.types.Action, slot_name: Optional[str] = None) -> 'bpy.types.ActionSlot':
     """Return or create an Action slot.

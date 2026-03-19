@@ -26,7 +26,7 @@ from ..py_utilities.utilities_transforms import (
 from ..py_utilities.utilities_blender_animation import (
     FCurveCache, iter_action_fcurves, is_relevant_strip, remove_action_from_datablock, try_find_layout_track_action,
     build_data_path_for_bone, assign_action_to_datablock, MTAR_ARMATURE_SLOT_NAME,
-    find_action_fcurve, mute_nla_tracks,
+    find_action_fcurve, set_nla_solo,
 )
 from ..py_utilities.utilities_parsing import parse_index_selection
 
@@ -1522,7 +1522,7 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
         # the transforms cache (to avoid flat/empty exports).
         nla_track, nla_strip = _find_nla_strip_and_track_for_action(armature, action)
 
-        with mute_nla_tracks(armature, keep_track=nla_track, keep_strip=nla_strip):
+        with set_nla_solo(armature, keep_track=nla_track, keep_strip=nla_strip):
             if processed_action is not action:
                 # If the action lives inside an NLA strip, temporarily swap the
                 # strip's action pointer so the evaluation uses the processed copy
