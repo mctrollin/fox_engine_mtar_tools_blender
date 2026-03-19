@@ -5,7 +5,7 @@ This module handles the export of Blender animation data to MTAR format.
 """
 
 import math
-from typing import Optional, Dict, List, Set
+from typing import Optional, Dict, List, Set, Tuple
 from pathlib import Path
 
 import bpy
@@ -1336,17 +1336,21 @@ def export_gani_track_from_action(armature: bpy.types.Object,
     )
 
 
-def _find_nla_strip_for_action(armature: bpy.types.Object,
-                               action: bpy.types.Action
-                               ) -> Optional['bpy.types.NlaStrip']:
-    """Return the first NLA strip on *armature* whose .action is *action*, or None."""
+def _find_nla_strip_and_track_for_action(armature: bpy.types.Object,
+                                           action: bpy.types.Action
+                                           ) -> Tuple[Optional['bpy.types.NlaTrack'], Optional['bpy.types.NlaStrip']]:
+    """Return the first NLA track and strip on *armature* whose strip.action is *action*.
+
+    Returns:
+        (track, strip) if found, otherwise (None, None).
+    """
     if not armature.animation_data or not armature.animation_data.nla_tracks:
-        return None
+        return (None, None)
     for track in armature.animation_data.nla_tracks:
         for strip in track.strips:
             if strip.action is action:
-                return strip
-    return None
+                return (track, strip)
+    return (None, None)
 
 
 def _collect_bones_for_transform_cache(track_segment_bone_mapping: TrackSegmentBoneMapping) -> Set[str]:
@@ -1512,31 +1516,33 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
             Debug.log("    TransformsCache bone filter: None (caching all bones)")
 
         transform_cache = TransformsCache(armature, frame_start, frame_end, bone_filter=relevant_bone_names)
-        if processed_action is not action:
-            # If the original action lives in an NLA strip, swap the strip's action
-            # pointer to the processed copy and evaluate through the NLA so the
-            # strip's timeline offset is applied automatically.  No keyframe data
-            # needs to be modified.
-            # If no strip is found (active-action export), fall back to direct
-            # assignment — the action's internal frame range already matches
-            # frame_start in that case so no offset issue exists.
-            nla_strip = _find_nla_strip_for_action(armature, action)
-            with mute_nla_tracks(armature, keep_strip=nla_strip):
+
+        # Always identify the NLA track/strip for this action (if it exists).
+        # This lets mute_nla_tracks() unmute the correct strip/track when building
+        # the transforms cache (to avoid flat/empty exports).
+        nla_track, nla_strip = _find_nla_strip_and_track_for_action(armature, action)
+
+        with mute_nla_tracks(armature, keep_track=nla_track, keep_strip=nla_strip):
+            if processed_action is not action:
+                # If the action lives inside an NLA strip, temporarily swap the
+                # strip's action pointer so the evaluation uses the processed copy
+                # (which is the one that has been baked/cleaned/fixed).
                 if nla_strip:
                     nla_strip.action = processed_action
-                    remove_action_from_datablock(armature)  # ensure NLA evaluates, not a direct override
+                    remove_action_from_datablock(armature)  # force NLA evaluation
                     try:
                         transform_cache.build()
                     finally:
                         nla_strip.action = action
                 else:
+                    # No strip found (active-action export): assign processed action
+                    # directly to the armature so the cache evaluates it correctly.
                     assign_action_to_datablock(armature, processed_action, slot_name=MTAR_ARMATURE_SLOT_NAME)
                     try:
                         transform_cache.build()
                     finally:
                         remove_action_from_datablock(armature)
-        else:
-            with mute_nla_tracks(armature):
+            else:
                 transform_cache.build()
 
         # Create Synthetic Mapping ------------------------------------------------------

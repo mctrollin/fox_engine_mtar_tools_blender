@@ -517,8 +517,14 @@ def mute_nla_tracks(armature: bpy.types.Object,
 
     Args:
         armature: Armature object whose NLA tracks should be muted.
-        keep_strip: Optional strip to keep unmuted (also keeps its parent track unmuted).
+        keep_strip: Optional strip to keep unmuted.
         keep_track: Optional track to keep unmuted.
+
+    Note:
+        The Blender API does not always expose a reliable ``strip.track`` reference.
+        For this reason, callers should prefer passing ``keep_track`` explicitly.
+        If only ``keep_strip`` is provided, this function will attempt to resolve
+        its parent track by searching the armature's NLA tracks.
 
     Yields:
         None. Restores original mute states on exit.
@@ -526,6 +532,16 @@ def mute_nla_tracks(armature: bpy.types.Object,
     if armature is None or not hasattr(armature, 'animation_data') or not armature.animation_data:
         yield
         return
+
+    # Resolve parent track for the requested strip if needed.
+    target_track = keep_track
+    if target_track is None and keep_strip is not None:
+        if armature.animation_data and armature.animation_data.nla_tracks:
+            for track in armature.animation_data.nla_tracks:
+                # Compare by object identity to avoid incorrect matches based on name.
+                if any(strip is keep_strip for strip in track.strips):
+                    target_track = track
+                    break
 
     # Use track/strip names for robust restoration (wrapper objects may be recreated).
     # Fall back to id() mapping if names are missing or not unique.
@@ -554,18 +570,23 @@ def mute_nla_tracks(armature: bpy.types.Object,
 
         # Unmute requested track/strip
         if keep_strip is not None:
-            parent_track = getattr(keep_strip, 'track', None)
-            if parent_track is not None:
-                parent_track.mute = False
             try:
                 keep_strip.mute = False
             except Exception:
                 pass
-        elif keep_track is not None:
+
+        if target_track is not None:
             try:
-                keep_track.mute = False
+                target_track.mute = False
             except Exception:
                 pass
+
+            # Also unmute all strips on the requested track
+            for strip in getattr(target_track, 'strips', []):
+                try:
+                    strip.mute = False
+                except Exception:
+                    pass
 
         yield
     finally:
@@ -607,18 +628,13 @@ def mute_nla_tracks(armature: bpy.types.Object,
                 keep_strip.mute = False
             except Exception:
                 pass
-            parent_track = getattr(keep_strip, 'track', None)
-            if parent_track is not None:
-                try:
-                    parent_track.mute = False
-                except Exception:
-                    pass
-        elif keep_track is not None:
+
+        if target_track is not None:
             try:
-                keep_track.mute = False
+                target_track.mute = False
             except Exception:
                 pass
-            for strip in getattr(keep_track, 'strips', []):
+            for strip in getattr(target_track, 'strips', []):
                 try:
                     strip.mute = False
                 except Exception:
