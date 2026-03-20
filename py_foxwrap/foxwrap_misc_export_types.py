@@ -1,3 +1,4 @@
+import copy
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Set, Tuple, Union
 
@@ -5,6 +6,8 @@ import io
 import bpy
 
 from ..py_core.core_logging import Debug
+
+from ..py_utilities.utilities_parsing import parse_segment_suffix
 
 from ..py_fox.fox_gani_types import TrackUnitFlags, EvpHeader
 

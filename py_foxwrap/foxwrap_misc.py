@@ -4,6 +4,9 @@ Shared fake types used by both import and export.
 import math
 from typing import List
 
+from ..py_core.core_logging import Debug
+from ..py_fox.fox_gani_enums import TrackUnitFlags
+
 from .foxwrap_mapping_types import BoneParameters
 from .foxwrap_misc_types import Tracks, TrackDataBlobWrapper, TrackUnitWrapper
 
@@ -60,25 +63,32 @@ def build_gani_tracks_from_tracks(tracks: Tracks) -> List[TrackUnitWrapper]:
     for track_unit in tracks.track_units:
         segments = []
         for segment_index, track_data in enumerate(track_unit.segments_data):
+            data_blob = getattr(track_data, 'data_blob', None)
+            if data_blob is None:
+                Debug.log_warning(f"build_gani_tracks_from_tracks: Track '{track_unit.name}' segment {segment_index} has data_blob=None")
             segments.append(TrackDataBlobWrapper(
                 name=track_unit.name,
                 segment_index=segment_index,
-                data_blob=getattr(track_data, 'data_blob', None),
+                data_blob=data_blob,
             ))
 
         # Convert integer unit_flags to list of TrackUnitFlags if possible.
         flags = []
         if isinstance(track_unit.unit_flags, int):
-            from ..py_fox.fox_gani_enums import TrackUnitFlags
             flags = TrackUnitFlags.int_to_track_unit_flags(track_unit.unit_flags)
         else:
             flags = track_unit.unit_flags
+
+        rig_unit_type_val = getattr(track_unit, 'rig_unit_type', None)
+        if rig_unit_type_val is not None:
+            Debug.log_warning(f"build_gani_tracks_from_tracks: Track '{track_unit.name}' has unexpected rig_unit_type={rig_unit_type_val}")
+            # NOTE: TrackUnit does not officialy define rig_unit_type; this should be investigated further.
 
         wrappers.append(TrackUnitWrapper(
             name=track_unit.name,
             segments_track_data=segments,
             unit_flags=flags,
-            rig_unit_type=getattr(track_unit, 'rig_unit_type', None),
+            rig_unit_type=rig_unit_type_val,
         ))
 
     return wrappers

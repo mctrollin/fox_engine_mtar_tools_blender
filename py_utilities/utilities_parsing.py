@@ -34,7 +34,6 @@ def format_float_for_metadata(value: float) -> str:
     return s
 
 
-
 def parse_index_selection(selection_str: str, max_index: int) -> List[int]:
     """Parse index selection string with ranges, individual indices, and exclusions.
     
@@ -100,7 +99,7 @@ def parse_index_selection(selection_str: str, max_index: int) -> List[int]:
                 indices = set(range(start, end + 1))
             except ValueError as e:
                 if "invalid literal" in str(e):
-                    raise ValueError(f"Invalid range format: '{part}' (expected format: START-END)")
+                    raise ValueError(f"Invalid range format: '{part}' (expected format: START-END)") from e
                 raise
         else:
             # Single index
@@ -111,7 +110,7 @@ def parse_index_selection(selection_str: str, max_index: int) -> List[int]:
                 indices = {index}
             except ValueError as e:
                 if "invalid literal" in str(e):
-                    raise ValueError(f"Invalid index: '{part}' (expected integer)")
+                    raise ValueError(f"Invalid index: '{part}' (expected integer)") from e
                 raise
         
         # Add to appropriate set
@@ -132,3 +131,23 @@ def parse_index_selection(selection_str: str, max_index: int) -> List[int]:
         return []
     
     return sorted(result)
+
+
+def parse_segment_suffix(fox_name: str) -> tuple[str, int]:
+    """Split a fox bone/track name into base and segment index.
+
+    Fox option-D multi-segment names append ``_N`` where N is non-negative.
+    The main track (no explicit suffix) uses segment index -1.
+
+    Args:
+        fox_name: FOX track or bone name, e.g. "Root_0" or "Head"
+
+    Returns:
+        Tuple of (base_name, segment_index)
+    """
+    if '_' in fox_name:
+        parts = fox_name.rsplit('_', 1)
+        if len(parts) == 2 and parts[1].isdigit():
+            return parts[0], int(parts[1])
+
+    return fox_name, -1

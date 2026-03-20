@@ -28,22 +28,6 @@ ARMATURE_TARGET_NAME: str = "[armature]"
 CONSTRAINT_TRANSFORM_SOURCE: str = "[constraint_transform]"
 
 
-def parse_segment_suffix(fox_name: str) -> tuple[str, int]:
-    """Utility for splitting Option-D track names.
-
-    Multi-segment tracks append ``_N`` where ``N`` is a non-negative
-    integer.  The base track (segment 0) usually has no suffix; in that
-    case we return ``index=-1`` to disambiguate from a literal ``_0``.
-
-    This function is used across export/import code to normalise fox
-    track names before looking them up in metadata dictionaries.
-    """
-    if '_' in fox_name:
-        parts = fox_name.rsplit('_', 1)
-        if len(parts) == 2 and parts[1].isdigit():
-            return parts[0], int(parts[1])
-    return fox_name, -1
-
 def parse_mapping_line(line: str, line_num: int) -> Optional[Tuple[str, dict]]:
     """Parse a single line from the mapping file.
     

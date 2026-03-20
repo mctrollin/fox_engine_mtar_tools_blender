@@ -771,8 +771,12 @@ class TrackDataBlob:
     # raw: bytes | None = None
     
     @classmethod
-    def from_keyframes(cls, segment_type: SegmentType, component_bit_size: int, 
-                       is_static: bool, keyframes: List[AnimKeyframe]) -> 'TrackDataBlob':
+    def from_keyframes(cls, 
+                       segment_type: SegmentType,
+                       component_bit_size: int,
+                       is_static: bool,
+                       keyframes: List[AnimKeyframe]
+                       ) -> 'TrackDataBlob':
         """Create a TrackDataBlob from keyframe data.
         
         Args:
@@ -792,8 +796,13 @@ class TrackDataBlob:
         )
 
     @staticmethod
-    def read(file_data: bytes, data_offset: int, segment_type: SegmentType, 
-             component_bit_size: int, unit_flags: int, frame_count: int) -> List[AnimKeyframe]:
+    def read_keyframes(file_data: bytes, 
+             data_offset: int, 
+             segment_type: SegmentType, 
+             component_bit_size: int, 
+             unit_flags: int, 
+             frame_count: int
+             ) -> List[AnimKeyframe]:
         """Read keyframe animation data from a TrackDataBlob.
         
         This delegates to AnimKeyframe.read_list_from_bytes().

@@ -60,11 +60,14 @@ def import_keyframes_track(
     """
     max_frame: int = 0
 
-    Debug.log(
-        f"  - Import Track '{keyframes_track.name}' "
-        f"({keyframes_track.data_blob.type.name}): "
-        f"{len(keyframes_track.data_blob.keyframes)} keyframe(s)"
-    )
+    try:
+        Debug.log(
+            f"  - Import Track '{keyframes_track.name}' "
+            f"({keyframes_track.data_blob.type.name}): "
+            f"{len(keyframes_track.data_blob.keyframes)} keyframe(s)"
+        )
+    except:
+        Debug.log("bla")
 
     # Always use LINEAR interpolation — decimation will create bezier curves later if enabled.
 

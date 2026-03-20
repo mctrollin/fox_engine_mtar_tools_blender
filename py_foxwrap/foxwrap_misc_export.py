@@ -1,9 +1,7 @@
 """
 Export-only fake types for MTAR exporter.
 """
-from dataclasses import dataclass
-import copy
-from typing import Optional, List, Dict, Tuple, Callable, Set
+from typing import Optional, List, Dict, Tuple, Callable
 
 import bpy
 
@@ -14,6 +12,7 @@ from ..py_utilities.utilities_blender_animation import (
     iter_action_fcurves,
     is_relevant_strip,
 )
+from ..py_utilities.utilities_parsing import parse_segment_suffix
 
 from ..py_fox.fox_gani_types import TrackUnitFlags, SegmentType
 from ..py_fox.fox_misc_types import StrCode32
@@ -29,7 +28,6 @@ from .foxwrap_metadata import (
 )
 from .foxwrap_misc_export_types import ExportActionData, TrackSegmentBoneMapping
 from .foxwrap_mapping_types import BoneParameters
-from .foxwrap_mapping import parse_segment_suffix
 
 
 def collect_armature_actions(

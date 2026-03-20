@@ -24,6 +24,7 @@ from ..py_utilities.utilities_blender_animation import (
     set_nla_solo,
 )
 from ..py_utilities.utilities_fcurve_processing import decimate_import_fcurves_to_bezier
+from ..py_foxwrap.foxwrap_metadata import build_blender_bone_decimation_skip_map
 
 
 def get_bones_with_keyframes(action: bpy.types.Action) -> Set[str]:
@@ -1005,12 +1006,21 @@ def bake_constraints_and_decimate_fcurves(
         Debug.start_timer("Decimation")
         Debug.update_progress_status("Decimating fcurves", secondary_progress=0.1)
         try:
+            # Build explicit skip map from layout_action metadata and skip types.
+            blender_bone_skip_map = build_blender_bone_decimation_skip_map(
+                all_blender_bone_names=set(rig_armature.data.bones.keys()) if rig_armature and rig_armature.data else set(),
+                layout_action=layout_action,
+                decimate_skip_types=decimate_skip_types,
+                blender_to_fox_map=blender_to_fox_map,
+                cache={},
+            )
             dec_res = decimate_import_fcurves_to_bezier(
                 armature=rig_armature,
                 bake_decimate_fcurve_error=bake_decimate_fcurve_error,
                 decimate_skip_types=decimate_skip_types,
                 layout_action=layout_action,
                 blender_to_fox_map=blender_to_fox_map,
+                blender_bone_skip_map=blender_bone_skip_map,
             )
             result['fcurves_decimated'] = dec_res.get('fcurves_decimated', 0)
         except Exception as e:

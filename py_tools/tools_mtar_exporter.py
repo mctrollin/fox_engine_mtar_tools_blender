@@ -57,7 +57,7 @@ from ..py_foxwrap.foxwrap_metadata import read_track_header_properties_from_acti
 from ..py_foxwrap.foxwrap_metadata import TrackMetaData, merge_track_metadata, get_all_track_metadata_from_action, build_track_metadata_from_action, build_track_metadata_from_fcurves, extract_space_bone_name
 from ..py_foxwrap.foxwrap_misc_import_types import GaniImportData
 from ..py_foxwrap.foxwrap_misc_types import TrackUnitWrapper, Tracks, TrackDataBlobWrapper
-from ..py_foxwrap.foxwrap_mapping import parse_segment_suffix
+from ..py_utilities.utilities_parsing import parse_segment_suffix
 from ..py_foxwrap.foxwrap_mtar_writer import MtarWriter
 from ..py_foxwrap.foxwrap_misc_export_types import (
     GaniExportData, 

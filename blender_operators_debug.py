@@ -22,6 +22,7 @@ from .py_core.core_logging import Debug
 from .py_utilities.utilities_debug import create_or_update_dummy_object
 from .py_utilities.utilities_blender_animation import assign_action_to_datablock, try_find_layout_track_action, remove_action_from_datablock
 from .py_utilities.utilities_fcurve_processing import decimate_import_fcurves_to_bezier, debug_setup_graph_context_for_manual_test
+from .py_foxwrap.foxwrap_metadata import build_blender_bone_decimation_skip_map
 from .py_utilities.utilities_hashing_cityhash import (
     hash_file_name,
     hash_file_name_legacy,
@@ -444,11 +445,19 @@ class MTAR_OT_DebugRunBake(Operator):
                                 # Decimate via decimate_import_fcurves_to_bezier (operates on armature level)
                                 if decimate_err > 0.0:
                                     layout_action = try_find_layout_track_action()
+                                    blender_bone_skip_map = build_blender_bone_decimation_skip_map(
+                                        all_blender_bone_names=set(target_armature.data.bones.keys()) if target_armature and target_armature.data else set(),
+                                        layout_action=layout_action,
+                                        decimate_skip_types=decimate_skip_types,
+                                        blender_to_fox_map=None,
+                                        cache={},
+                                    )
                                     dec_res = decimate_import_fcurves_to_bezier(
                                         armature=target_armature,
                                         bake_decimate_fcurve_error=decimate_err,
                                         decimate_skip_types=decimate_skip_types,
-                                        layout_action=layout_action
+                                        layout_action=layout_action,
+                                        blender_bone_skip_map=blender_bone_skip_map,
                                     )
                                     Debug.log(f"  Post-bake decimation: decimated={dec_res.get('fcurves_decimated', 0)}")
                             except Exception as opt_e:

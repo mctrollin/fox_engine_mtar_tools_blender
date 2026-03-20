@@ -22,6 +22,7 @@ from ..py_fox.fox_gani_types import (
     EvpHeader,
 )
 
+from .foxwrap_misc import build_gani_tracks_from_tracks
 from .foxwrap_misc_types import Tracks, TrackDataBlobWrapper, TrackUnitWrapper
 from .foxwrap_gani_helpers import read_evp_header, finalize_bone_tracks, finalize_motion_point_tracks
 
@@ -239,7 +240,7 @@ class Gani2Reader:
         # Read keyframes using TrackDataBlob
         # Use the per-track component_bit_size (from track_mini_header.segment_headers)
         # instead of the layout track's component_bit_size
-        keyframes = TrackDataBlob.read(
+        keyframes = TrackDataBlob.read_keyframes(
             file_data=file_data,
             data_offset=data_blob_offset,
             segment_type=segment_track_data.td_type,

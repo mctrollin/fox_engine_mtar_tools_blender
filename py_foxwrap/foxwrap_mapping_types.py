@@ -129,6 +129,10 @@ class TrackMappingData:
     def get_blender_bones_for_fox_base(self, fox_base_name: str) -> List[str]:
         return self.fox_base_to_blender_names.get(fox_base_name, [])
 
+    def __len__(self) -> int:
+        """Return count of active fox->blender bone mappings."""
+        return len(self.fox_to_blender)
+
     @staticmethod
     def _infer_property_type_from_fcurve(data_path: str) -> str:
         if 'rotation_quaternion' in data_path or 'rotation_euler' in data_path or 'rotation_axis_angle' in data_path:

@@ -993,9 +993,7 @@ def parse_track_type_from_metadata(metadata_str: str) -> Optional[RigUnitType]:
     return None
 
 
-def extract_fox_bone_to_rig_unit_type_mapping(layout_action: bpy.types.Action, 
-                                          cache: Optional[Dict[str, Dict[str, RigUnitType]]] = None
-                                          ) -> Dict[str, RigUnitType]:
+def extract_fox_bone_to_rig_unit_type_mapping(layout_action: bpy.types.Action, cache: Optional[Dict[str, Dict[str, RigUnitType]]] = None) -> Dict[str, RigUnitType]:
     """Extract fox bone name to RigUnitType mapping from layout action metadata.
     
     Parses track metadata stored in layout action custom properties (format: 'name=FoxBoneName ; type=ROOT ; bits=14')
@@ -1046,6 +1044,60 @@ def extract_fox_bone_to_rig_unit_type_mapping(layout_action: bpy.types.Action,
         cache[layout_action.name] = bone_to_type
     
     return bone_to_type
+
+
+def build_blender_bone_decimation_skip_map(
+    all_blender_bone_names: Set[str],
+    layout_action: Optional[bpy.types.Action],
+    decimate_skip_types: str,
+    blender_to_fox_map: Optional[Dict[str, str]] = None,
+    cache: Optional[Dict[str, Dict[str, RigUnitType]]] = None,
+) -> Dict[str, bool]:
+    """Build a map of blender bone names that should skip decimation.
+
+    This helper isolates Fox metadata/rig unit type logic from the decimation
+    algorithm and supports passing an explicit map to decimation entrypoints.
+
+    Args:
+        all_blender_bone_names: Set of bone names found in animation FCurves.
+        layout_action: Layout action containing track metadata for rig unit types.
+        decimate_skip_types: Comma-separated rig unit type names to skip.
+        blender_to_fox_map: Optional converter from Blender bone name to Fox bone name.
+        cache: Optional cache for parsed layout_action metadata.
+
+    Returns:
+        dict of {blender_bone_name: True} to skip decimation.
+    """
+    skip_map: Dict[str, bool] = {}
+
+    if not all_blender_bone_names or not layout_action or not decimate_skip_types:
+        return skip_map
+
+    # Parse decimate_skip_types filter
+    skip_type_set: Set[str] = set()
+    for type_str in decimate_skip_types.split(','):
+        type_str = type_str.strip().upper()
+        if type_str:
+            skip_type_set.add(type_str)
+
+    if not skip_type_set:
+        return skip_map
+
+    fox_bone_to_type = extract_fox_bone_to_rig_unit_type_mapping(layout_action, cache)
+    if not fox_bone_to_type:
+        return skip_map
+
+    for blender_bone_name in all_blender_bone_names:
+        fox_bone_name = (
+            blender_to_fox_map.get(blender_bone_name, blender_bone_name)
+            if blender_to_fox_map
+            else blender_bone_name
+        )
+        rig_type = fox_bone_to_type.get(fox_bone_name)
+        if rig_type and rig_type.name in skip_type_set:
+            skip_map[blender_bone_name] = True
+
+    return skip_map
 
 
 def parse_action_track_metadata(metadata_value: str) -> Optional[dict]:
