@@ -5,12 +5,10 @@ import io
 from typing import List, Optional, Tuple
 
 from ..py_utilities.utilities_logging import Debug
-from ..py_utilities.utilities_hashing import unhash_rig_type, unhash_param_name
+from ..py_utilities.utilities_hashing import unhash_param_name
 from ..py_utilities.utilities_binary_write import align_length
-from ..py_utilities.utilities_naming import apply_segment_suffixes
 
 from ..py_fox.fox_mtar_types import MtarTableList2
-from ..py_fox.fox_misc_types import StrCode32
 from ..py_fox.fox_gani_types import (
     SegmentType,
     TrackUnitFlags,
@@ -24,77 +22,8 @@ from ..py_fox.fox_gani_types import (
 )
 
 from .foxwrap_misc import Tracks, TrackDataBlobWrapper, TrackUnitWrapper
+from .foxwrap_gani_helpers import finalize_bone_tracks, finalize_motion_point_tracks
 
-
-def resolve_track_name(rig_hash: StrCode32, prefix: Optional[str] = None) -> str:
-    """Resolve a StrCode32 hash to a readable name.
-    
-    Args:
-        rig_hash: StrCode32 object containing the hash
-        prefix: Optional prefix to add if unhashing fails (e.g., "MotionPoint")
-        
-    Returns:
-        Resolved name string (unhashed name, or prefixed hex, or just hex)
-    """
-    # Try to unhash the name
-    bone_name = unhash_rig_type(rig_hash.to_int())
-    
-    if bone_name:
-        return bone_name
-    else:
-        # Use prefix + decimal format as fallback
-        hex_str = str(rig_hash)  # StrCode32.__str__() returns decimal (e.g. "4036034414")
-        if prefix:
-            return f"{prefix}_{hex_str}"
-        else:
-            return hex_str
-
-
-def apply_track_naming(gani_tracks: List[TrackUnitWrapper], prefix: Optional[str] = None, use_decimal_only: bool = False) -> List[TrackUnitWrapper]:
-    """Apply name resolution to a list of GaniTracks.
-    
-    Args:
-        gani_tracks: List of GaniTrack objects with StrCode32 names
-        prefix: Optional prefix for unresolved names (e.g., "MotionPoint")
-        use_decimal_only: If True, always use the decimal hash string as name without
-            trying to unhash. Use for motion point tracks to ensure names match
-            the decimal hash bone names used in the motion points armature.
-        
-    Returns:
-        List of GaniTrack objects with resolved string names
-    """
-    named_tracks = []
-    
-    for gani_track in gani_tracks:
-        # gani_track.name is a StrCode32 object
-        if use_decimal_only:
-            # Always use decimal hash string - do NOT unhash to readable names.
-            # Motion point bone names in the armature use str(hash_value) (decimal),
-            # so track names must match.
-            resolved_name = str(gani_track.name)
-        else:
-            resolved_name = resolve_track_name(gani_track.name, prefix)
-        
-        # Update keyframes_tracks with resolved names
-        named_keyframes_tracks = []
-        for keyframe_track in gani_track.segments_track_data:
-            named_track = TrackDataBlobWrapper(
-                name=resolved_name,
-                segment_index=keyframe_track.segment_index,
-                data_blob=keyframe_track.data_blob
-            )
-            named_keyframes_tracks.append(named_track)
-        
-        # Create new GaniTrack with resolved name
-        named_gani_track = TrackUnitWrapper(
-            name=resolved_name,
-            segments_track_data=named_keyframes_tracks,
-            unit_flags=gani_track.unit_flags,
-            rig_unit_type=gani_track.rig_unit_type
-        )
-        named_tracks.append(named_gani_track)
-    
-    return named_tracks
 
 class Gani2Reader:
     """Reader for GANI2 animation data."""
@@ -131,10 +60,8 @@ class Gani2Reader:
         motion_point_layout: Optional[Tracks] = None
         motion_point_track_header: Optional[TrackHeader] = None
         
-        # Apply naming resolution to bone tracks (no prefix - will use hex fallback)
-        named_gani_tracks = apply_track_naming(gani_tracks, prefix=None)
-        # Apply segment suffixes for multi-segment tracks
-        apply_segment_suffixes(named_gani_tracks)
+        # Apply naming resolution and suffixes to bone tracks
+        named_gani_tracks = finalize_bone_tracks(gani_tracks)
 
         motion_events: Optional[EvpHeader] = None
         if is_new_format:
@@ -159,12 +86,8 @@ class Gani2Reader:
                 motion_point_gani_tracks_raw = self.convert_tracks_to_gani_tracks(motion_point_layout)
                 Debug.log(f"      Read {len(motion_point_gani_tracks_raw)} motion point track(s)")
                 
-                # Apply naming resolution to motion point tracks.
-                # Always use decimal hash strings (not readable names) so that track names
-                # match the decimal hash bone names in the motion points armature.
-                motion_point_gani_tracks = apply_track_naming(motion_point_gani_tracks_raw, use_decimal_only=True)
-                # Apply segment suffixes for multi-segment motion point tracks
-                apply_segment_suffixes(motion_point_gani_tracks)
+                # Apply naming resolution and suffixes to motion point tracks
+                motion_point_gani_tracks = finalize_motion_point_tracks(motion_point_gani_tracks_raw)
 
             # MotionEvents: Handle motion events if present
             br = io.BytesIO(file_data)

@@ -43,7 +43,7 @@ from ..py_utilities.utilities_naming import (
 
 from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper, Tracks
 from ..py_foxwrap.foxwrap_misc_import import ShaderTrackWrapper
-from ..py_foxwrap.foxwrap_gani2_reader import apply_track_naming
+from ..py_foxwrap.foxwrap_gani_helpers import apply_track_naming
 from ..py_foxwrap.foxwrap_metadata import (
     TrackMetaData,
     store_track_metadata_on_action,

@@ -71,7 +71,7 @@ from .tools_motion_points_exporter import (
     build_motion_point_metadata_dict,
     collect_motion_point_actions,
 )
-from .tools_gani_shader_exporter import (
+from .tools_gani1_shader_exporter import (
     collect_shader_nodes_actions,
     build_shader_nodes_metadata_dict,
     group_shader_tracks_by_property,

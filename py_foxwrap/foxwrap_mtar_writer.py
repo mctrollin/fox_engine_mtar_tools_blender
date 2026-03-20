@@ -20,7 +20,7 @@ from ..py_fox.fox_gani_types import TrackHeader, TrackUnit, TrackData
 from ..py_fox.fox_misc_types import StrCode32
 
 from .foxwrap_gani2_writer import Gani2Writer
-from .foxwrap_gani_writer import GaniWriter
+from .foxwrap_gani1_writer import GaniWriter
 from .foxwrap_misc import Tracks, TrackUnitWrapper
 from .foxwrap_misc_export import GaniExportData
 from .foxwrap_metadata import (

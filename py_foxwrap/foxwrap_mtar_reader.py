@@ -13,7 +13,7 @@ from ..py_fox.fox_mtar_types import (
 from ..py_fox.fox_foxdata_types import FoxDataHeader
 
 from .foxwrap_gani2_reader import Gani2Reader
-from .foxwrap_gani_reader import GaniReader
+from .foxwrap_gani1_reader import GaniReader
 from .foxwrap_misc import Tracks
 from .foxwrap_misc_import import CommonInfo, GaniImportData
 
