@@ -192,7 +192,8 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
                         filepath=export_filepath_abs,
                         armature=export_props.armature,
                         track_segment_bone_mapping=track_segment_bone_mapping,
-                        use_nla=export_props.use_nla
+                        use_nla=export_props.use_nla,
+                        use_reference_mtar=export_props.use_reference_mtar
                     )
                     
                     Debug.log("\n========= Finished EXPORT MTAR OPERATION =========\n")

@@ -320,6 +320,16 @@ class MTAR_PG_ExportProperties(PropertyGroup):
         maxlen=256,
     )
 
+    use_reference_mtar: BoolProperty(
+        name="Use Reference MTAR",
+        description=(
+            "Use a reference MTAR file when exporting. "
+            "Only animations found by path hash in the reference will be written; "
+            "other export animations are skipped."
+        ),
+        default=False
+    )
+
     treat_hashes_as_names: BoolProperty(
         name="Treat Hashes as Names",
         description=(

@@ -115,7 +115,6 @@ class Gani2Reader:
         Debug.log("  Reading GANI data:")
         Debug.log(f"    Buffer size: {len(file_data)} bytes ({len(file_data) / 1024:.1f} KB)")
         Debug.log(f"    Track count: {track_count}")
-        Debug.log(f"    Tracks offset: 0x{file_header.tracks_offset:X}")
         Debug.log(f"    New format: {is_new_format}")
         
         # Tracks: Read track data
@@ -143,7 +142,6 @@ class Gani2Reader:
 
             # MotionPointTracks: Handle motion point tracks if present (new format only)
             if file_header.motion_point_tracks_offset != 0:
-                Debug.log(f"      Motion point tracks offset: 0x{file_header.motion_point_tracks_offset:X}")
                 motion_ptr = file_header.tracks_offset + file_header.motion_point_tracks_offset
                 br = io.BytesIO(file_data)
                 br.seek(motion_ptr)
@@ -171,7 +169,6 @@ class Gani2Reader:
             # MotionEvents: Handle motion events if present
             br = io.BytesIO(file_data)
             if file_header.motion_events_offset != 0:
-                Debug.log(f"      Motion events offset: 0x{file_header.motion_events_offset:X}")
                 br.seek(file_header.motion_events_offset)
                 motion_events = EvpHeader.read(br)
                 Debug.log(f"      Read motion events: {motion_events.count} event(s)")
@@ -186,7 +183,6 @@ class Gani2Reader:
         Returns a tuple of (gani_tracks_list, mini_header_object).
         """
         Debug.log("      Reading all tracks:")
-        Debug.log(f"        Track header ptr: 0x{track_header_ptr:X}")
         Debug.log(f"        Track count: {track_count}")
         Debug.log(f"        Segment count: {layout_track.header.segment_count}")
         

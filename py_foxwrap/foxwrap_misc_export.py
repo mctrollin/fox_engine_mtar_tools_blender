@@ -399,6 +399,7 @@ class GaniExportData:
     motion_events_data: Optional[GaniMotionEventsData] = None
     shader_nodes_data: Optional['GaniExportShaderData'] = None
     node_params: Optional[Dict[str, List[Tuple[int, Union[float, str, int]]]]] = None
+    path_hash: Optional[int] = None
 
     def count_segments(self) -> int:
         """Count the total number of segments across all tracks in this GANI file.
@@ -471,12 +472,20 @@ class GaniExportData:
                 for _ in range(segment_count):
                     segment_bit_sizes_per_file.append(0)
 
+        # Derive MOTION params: prefer node_params["MOTION"] if action is None (reference mode)
+        if self.tracks_data.action is not None:
+            motion_params = parse_gani_params_from_action(self.tracks_data.action)
+        elif self.node_params is not None:
+            motion_params = self.node_params.get("MOTION", [])
+        else:
+            motion_params = []
+
         # Write GANI data to buffer
         # Pass the action-derived unit_flags and segment bit sizes if present
         writer.write_gani_to_buffer(
             buffer, self.tracks_data.gani_tracks, layout_track,
             self.frame_count, self.frame_rate,
-            params=parse_gani_params_from_action(self.tracks_data.action),
+            params=motion_params,
             unit_flags_per_file=unit_flags_per_file,
             segment_bit_sizes_per_file=segment_bit_sizes_per_file
         )

@@ -5,6 +5,7 @@ This module handles the export of Blender animation data to MTAR format.
 """
 
 import math
+import os
 from typing import Optional, Dict, List, Set, Tuple
 from pathlib import Path
 
@@ -44,10 +45,12 @@ from ..py_utilities.utilities_fcurve_processing import (
 from ..blender_properties import get_effective_export_fcurve_clean_threshold
 
 from ..py_foxwrap.foxwrap_motionevent import read_motion_events_from_action
+from ..py_foxwrap.foxwrap_mtar_reader import MtarReader
 from ..py_foxwrap.foxwrap_metadata import read_track_header_properties_from_action, read_mtar_properties_from_any_action, iter_all_node_params_from_action
 from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_foxwrap.foxwrap_metadata import TrackMetaData, merge_track_metadata, get_all_track_metadata_from_action
+from ..py_foxwrap.foxwrap_misc_import import GaniImportData
 from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper, Tracks, TrackDataBlobWrapper
 from ..py_foxwrap.foxwrap_mapping import parse_segment_suffix
 from ..py_foxwrap.foxwrap_mtar_writer import MtarWriter
@@ -112,6 +115,73 @@ def get_default_bit_size_for_segment(segment_type: SegmentType) -> int:
         return 15
     return 16
 
+
+
+def _convert_import_gani_to_export_gani(
+    import_data: GaniImportData,
+    reference_path_hash: Optional[int] = None,
+) -> GaniExportData:
+    """Convert an imported GANI object to export data for writer re-export."""
+
+    frame_count = 0
+    frame_rate = 60
+
+    if import_data.track_mini_header is not None:
+        frame_count = import_data.track_mini_header.frame_count
+    elif import_data.layout_track is not None:
+        frame_count = import_data.layout_track.header.frame_count
+
+    if import_data.layout_track is not None and import_data.layout_track.header.frame_rate > 0:
+        frame_rate = import_data.layout_track.header.frame_rate
+    elif import_data.motion_point_track_header is not None:
+        frame_rate = import_data.motion_point_track_header.frame_rate
+
+    if frame_count == 0:
+        hash_str = f"0x{reference_path_hash:016X}" if reference_path_hash is not None else "unknown"
+        Debug.log_warning(f"Reference GANI (hash={hash_str}) has frame_count=0; this may indicate an empty GANI or format mismatch")
+
+    tracks_data = GaniExportTracksData(
+        gani_tracks=import_data.bone_tracks,
+        action=None,
+        source="reference"
+    )
+
+    motion_points_data = None
+    if import_data.mtp_tracks is not None:
+        motion_points_data = GaniExportMotionPointsData(
+            motion_point_tracks=import_data.mtp_tracks,
+            action=None
+        )
+
+    motion_events_data = None
+    if import_data.events is not None:
+        motion_events_data = GaniMotionEventsData(
+            motion_events=import_data.events,
+            action=None
+        )
+
+    shader_nodes_data = None
+    if import_data.shader_tracks:
+        shader_nodes_data = GaniExportShaderData(
+            property_tracks=[s.tracks for s in import_data.shader_tracks],
+            property_names=[s.property_name for s in import_data.shader_tracks],
+            action=None,
+            property_headers=[None] * len(import_data.shader_tracks)
+        )
+
+    return GaniExportData(
+        name=f"reference_{reference_path_hash:016X}" if reference_path_hash is not None else "reference",
+        frame_count=frame_count,
+        frame_rate=frame_rate,
+        frame_start=0,
+        frame_end=frame_count,
+        tracks_data=tracks_data,
+        motion_points_data=motion_points_data,
+        motion_events_data=motion_events_data,
+        shader_nodes_data=shader_nodes_data,
+        node_params=import_data.node_params,
+        path_hash=reference_path_hash,
+    )
 
 
 
@@ -1625,7 +1695,8 @@ def export_mtar(context: bpy.types.Context,
                 filepath: str,
                 armature: Optional[bpy.types.Object] = None,
                 track_segment_bone_mapping: Optional[TrackSegmentBoneMapping] = None,
-                use_nla: bool = True
+                use_nla: bool = True,
+                use_reference_mtar: bool = False
                 ) -> Dict[str, str]:
     """Export Blender animation data to MTAR format.
 
@@ -1672,6 +1743,33 @@ def export_mtar(context: bpy.types.Context,
     if armature.type != 'ARMATURE':
         Debug.log_error(f"  Error: Object '{armature.name}' is not an armature")
         return {'CANCELLED': 'Object is not an armature'}
+
+    reference_reader = None
+    if use_reference_mtar:
+        reference_filepath = bpy.path.abspath(props.import_props.mtar_filepath)
+        Debug.log(f"Using reference MTAR during export: {reference_filepath}")
+        if not reference_filepath:
+            Debug.log_error("  Error: Reference MTAR path is empty")
+            return {'CANCELLED': 'Reference MTAR path is empty'}
+        if not os.path.exists(reference_filepath):
+            Debug.log_error(f"  Error: Reference MTAR file not found: {reference_filepath}")
+            return {'CANCELLED': 'Reference MTAR file not found'}
+
+        # Validate reference file
+        reference_reader = MtarReader(reference_filepath)
+        valid, err = reference_reader.validate_header()
+        if not valid:
+            Debug.log_error(f"  Error: Invalid reference MTAR: {err}")
+            return {'CANCELLED': f'Invalid reference MTAR: {err}'}
+
+        # Read reference GANIs — also populates self.common_info, self.layout_track, etc.
+        ref_ganies = reference_reader.read_all_ganies()
+
+        if not reference_reader.common_info and not reference_reader.layout_track:
+            Debug.log_error("  Error: Could not read layout track from reference MTAR")
+            return {'CANCELLED': 'Invalid reference MTAR layout'}
+
+        Debug.log(f"Reference MTAR export active: {reference_filepath} ({len(ref_ganies)} GANIs)")
     
     Debug.log(f"Exporting armature: {armature.name}")
 
@@ -2140,7 +2238,67 @@ def export_mtar(context: bpy.types.Context,
             Debug.log(f"  Added GANI data: '{gani_name}' ({frame_count} frames) with {len(motion_point_tracks)} motion point track(s)")
         else:
             Debug.log(f"  Added GANI data: '{gani_name}' ({frame_count} frames)")
-    
+
+    # Reference mode: merge current export GANIs into the reference set (by path hash)
+    if use_reference_mtar and reference_reader:
+        Debug.log(f"  Reference mode: merging {len(writer.gani_data_list)} export GANI(s) into {len(ref_ganies)} reference entries...")
+        ref_gani_export_list: List[GaniExportData] = []
+        for gani_idx, ref_import in enumerate(ref_ganies):
+            if not ref_import.file_header:
+                Debug.log_warning(f"  Reference GANI #{gani_idx} has no file_header, skipping")
+                continue
+            ref_hash = ref_import.file_header.path
+            ref_gani_export_list.append(_convert_import_gani_to_export_gani(ref_import, reference_path_hash=ref_hash))
+
+        ref_map = {g.path_hash: idx for idx, g in enumerate(ref_gani_export_list) if g.path_hash is not None}
+        replaced_count = 0
+
+        for updated in writer.gani_data_list:
+            try:
+                gom_hash = writer.compute_gani_path_hash(updated)
+            except ValueError as e:
+                Debug.log_warning(f"Skipping export GANI due to missing path hash: {e}")
+                continue
+
+            if gom_hash in ref_map:
+                ref_gani_export_list[ref_map[gom_hash]] = updated
+                replaced_count += 1
+            else:
+                Debug.log_warning(f"GANI hash 0x{gom_hash:016X} not found in reference MTAR, skipping")
+
+        if replaced_count == 0:
+            Debug.log_error("No export animations matched reference MTAR hashes")
+            return {'CANCELLED': 'No matching animations in reference MTAR'}
+
+        skipped_count = len(writer.gani_data_list) - replaced_count
+        Debug.log(f"  Reference mode: replaced {replaced_count} of {len(ref_gani_export_list)} GANI(s); "
+                  f"{skipped_count} export GANI(s) had no match in reference and were skipped")
+        if skipped_count > 0:
+            Debug.log_warning(f"  {skipped_count} export GANI(s) were not written because their hash was not found in the reference MTAR")
+
+        writer.gani_data_list = ref_gani_export_list
+
+        # Override writer metadata with reference properties
+        if reference_reader.common_info and reference_reader.common_info.layout_track:
+            writer.set_layout_track(reference_reader.common_info.layout_track)
+        elif reference_reader.layout_track:
+            writer.set_layout_track(reference_reader.layout_track)
+
+        if reference_reader.common_info and reference_reader.common_info.motion_points:
+            writer.set_motion_points_list(reference_reader.common_info.motion_points.to_motion_point_list2())
+        else:
+            writer.set_motion_points_list(None)
+
+        # Warn if reference format differs from current export format
+        ref_is_new_format = bool(reference_reader.mtar_flags & 0x1000)
+        if ref_is_new_format != writer.is_new_format:
+            Debug.log_warning(
+                f"  Reference MTAR format ({'new/GANI2' if ref_is_new_format else 'old/FoxData'}) "
+                f"differs from export format ({'new/GANI2' if writer.is_new_format else 'old/FoxData'}). "
+                "Output MTAR may be structurally inconsistent."
+            )
+        writer.set_mtar_version(reference_reader.mtar_version, reference_reader.mtar_flags)
+
     Debug.stop_timer("4. Animations")
 
     # Set motion points data if available
@@ -2148,22 +2306,25 @@ def export_mtar(context: bpy.types.Context,
     # - Header count: max motion point units used across all GANIs (set via set_motion_point_header_count)
     # - CommonInfo count: total motion point bone definitions (in motion_points_list.count)
     # The header value is informational only during import; CommonInfo has the actual bone data.
-    if motion_points_list:
-        writer.set_motion_points_list(motion_points_list)
-        
-        # Compute max motion point units across all GANIs for the header
-        max_units_from_ganis = max(gani_motion_point_units) if gani_motion_point_units else 0
-        writer.set_motion_point_header_count(max_units_from_ganis)
-        
-        # Warn if header count exceeds available motion point entries
-        if max_units_from_ganis > len(motion_points_list.entries):
-            Debug.log_warning(f"Motion point header unit count ({max_units_from_ganis}) is larger than motion points list entries ({len(motion_points_list.entries)})")
-        
-        Debug.log(f"Motion points: {len(motion_points_list.entries)} bone definitions, {max_units_from_ganis} max units in MTAR header")
-    else:
-        # No motion points to export
-        writer.set_motion_points_list(None)
-        writer.set_motion_point_header_count(0)
+    if not use_reference_mtar:
+        # Reference mode already sets motion points from the reference in the merge block above.
+        # Normal mode: set motion points from the Blender armature.
+        if motion_points_list:
+            writer.set_motion_points_list(motion_points_list)
+            
+            # Compute max motion point units across all GANIs for the header
+            max_units_from_ganis = max(gani_motion_point_units) if gani_motion_point_units else 0
+            writer.set_motion_point_header_count(max_units_from_ganis)
+            
+            # Warn if header count exceeds available motion point entries
+            if max_units_from_ganis > len(motion_points_list.entries):
+                Debug.log_warning(f"Motion point header unit count ({max_units_from_ganis}) is larger than motion points list entries ({len(motion_points_list.entries)})")
+            
+            Debug.log(f"Motion points: {len(motion_points_list.entries)} bone definitions, {max_units_from_ganis} max units in MTAR header")
+        else:
+            # No motion points to export
+            writer.set_motion_points_list(None)
+            writer.set_motion_point_header_count(0)
 
     # Write the MTAR file
     Debug.log("\n5. Writing MTAR file... ++++++++++++++++++++++++++++++++++++++++++++")

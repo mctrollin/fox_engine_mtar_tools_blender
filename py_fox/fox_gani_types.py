@@ -1035,8 +1035,11 @@ class EvpData:
             event = EventUnitInfo.read(br)
             events.append(event)
 
+        # category_name is stored as uint32 in MTAR and must be converted to StrCode32.
+        category_name_code = StrCode32(category_name)
+
         return cls(
-            category_name=category_name,
+            category_name=category_name_code,
             unit_count=unit_count,
             cache_offset=cache_offset,
             unit_offsets=unit_offsets,
@@ -1048,8 +1051,9 @@ class EvpData:
         
         Note: unit_offsets should be calculated by EvpHeader._calculate_offsets() before calling this.
         """
-        # Write header (convert StrCode32 to int)
-        bw.write(struct.pack('<IHH', self.category_name.to_int(), self.unit_count, self.cache_offset))
+        # Write header: category_name must be StrCode32 (strict invariant)
+        category_name_int = self.category_name.to_int()
+        bw.write(struct.pack('<IHH', category_name_int, self.unit_count, self.cache_offset))
         
         # Write unit offsets
         if self.unit_count > 0:

@@ -23,7 +23,14 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
     export_props = props.export_props
     settings_props = props.settings_props
 
+    # Reference MTAR use option
+    ref_box = layout.box()
+    draw_bool_prop_checkbox_icon(ref_box, export_props, "use_reference_mtar")
+    if export_props.use_reference_mtar:
+        ref_box.prop(props.import_props, "mtar_filepath", text="", icon='FILE')
+
     box_export = layout.box()
+
     # Compute count of animations/strips that will be exported (None = unknown/no armature)
     export_count = None
 
@@ -121,8 +128,8 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
         animinfo_box.label(text=combined, icon=info_icon)
 
         # Mapping file (optional - shared with import)
-        box = box_export.box()
-        box.prop(props, "mapping_filepath", text="", icon='TEXT')
+        mtar_box = box_export.box()
+        mtar_box.prop(props, "mapping_filepath", text="", icon='TEXT')
 
         # Optional GANI selection filter (similar to import UI)
         selected_count, _, _ = draw_gani_index_filter(
@@ -158,8 +165,8 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
             draw_bool_prop_checkbox_icon(adv_box, export_props, "info_file")
 
         # Export file picker
-        box = layout.box()
-        box.prop(export_props, "filepath", text="", icon='CURRENT_FILE')
+        mtar_box = layout.box()
+        mtar_box.prop(export_props, "filepath", text="", icon='CURRENT_FILE')
 
         # Export button
         box_button = layout.box()
@@ -178,7 +185,7 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
         if display_count is not None and display_count > 0:
             warn_box = box_button.box()
             warn_box.label(text=f"Exporting {display_count} animations.")
-            draw_estimated_operation_time(warn_box, display_count, 1.5)
+            draw_estimated_operation_time(warn_box, display_count, 1)
 
         if not export_props.armature:
             warn_box.alert = True

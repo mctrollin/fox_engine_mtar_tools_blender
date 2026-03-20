@@ -164,7 +164,7 @@ class MtarWriter:
         return sorted(file_table_entries, key=lambda entry: entry.path)
     
     def _resolve_gani_path_string(self, gani_data: 'GaniExportData') -> str:
-        """Determine the canonical path string for a GANI, mirroring _compute_gani_path_hash logic.
+        """Determine the canonical path string for a GANI, mirroring compute_gani_path_hash logic.
 
         Returns paths with .gani extension for use in info files and path recording.
 
@@ -205,7 +205,7 @@ class MtarWriter:
     def get_animation_name_for_gani(self, gani_data: 'GaniExportData') -> str:
         """Extract the animation name string from GaniExportData for the info file.
 
-        Mirrors the path resolution logic of _compute_gani_path_hash:
+        Mirrors the path resolution logic of compute_gani_path_hash:
         - Valid asset path from gani_path → used directly.
         - Unresolved hash with custom_path_hashes → custom_path_base + hash_str.
         - NLA source (no gani_path) → [custom_path_base]track_name/strip_name.
@@ -219,10 +219,11 @@ class MtarWriter:
         """
         return self._resolve_gani_path_string(gani_data)
 
-    def _compute_gani_path_hash(self, gani_data: 'GaniExportData') -> int:
+    def compute_gani_path_hash(self, gani_data: 'GaniExportData') -> int:
         """Compute the path hash for a GANI file.
 
-        Reads the 'gani_path' custom property from the action:
+        Uses an explicit path hash if present (for reference-preserved entries),
+        otherwise reads the 'gani_path' custom property from the action:
         - Raw hash + treat_hashes_as_names=False → use hash directly.
         - Raw hash + treat_hashes_as_names=True  → combine with export_custom_path_base,
           hash via generator only (no dict fallback for constructed paths).
@@ -239,6 +240,10 @@ class MtarWriter:
         Raises:
             ValueError: If the hash cannot be determined.
         """
+        # Prefer explicit path_hash when available (reference mode)
+        if gani_data.path_hash is not None:
+            return gani_data.path_hash
+
         action = gani_data.tracks_data.action
 
         # TABL_PATH is required — abort if missing
@@ -602,7 +607,7 @@ class MtarWriter:
                 self._write_motion_points_section(buffer, gani_data, gani_tracks_offset)
             
             # Create file table entry
-            path_hash = self._compute_gani_path_hash(gani_data)
+            path_hash = self.compute_gani_path_hash(gani_data)
             entry = self._build_file_table_entry(
                 path_hash, gani_data,
                 gani_tracks_offset, gani_tracks_data_size,
@@ -667,6 +672,12 @@ class MtarWriter:
         # action during import; passing skeleton_list=[] tells the writer to suppress it.
         # MTP_LIST and MTP_PARENT_LIST are still stored as action properties.
         action = gani_data.tracks_data.action if gani_data.tracks_data else None
+        if action is None:
+            Debug.log_warning(
+                f"Old-format GANI '{gani_data.name}' has no Blender action (reference mode): "
+                "no_skl_list, mtp_list, and mtp_parent_list cannot be preserved — "
+                "SKL_LIST will be auto-derived from track names; MTP lists will be empty."
+            )
         no_skl_list = action and action.get(PROP_NO_SKL_LIST, 0)
         skeleton_list = [] if no_skl_list else None  # []: suppress; None: auto-derive
         motion_point_list = parse_foxdata_stringlist_from_action(action, PROP_MTP_LIST) if action else None

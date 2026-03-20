@@ -47,7 +47,7 @@ def store_motion_events_on_action(action: 'bpy.types.Action', motion_events: Opt
     event_index = 0
 
     for category_data in motion_events.data:
-        category_name = str(category_data.category_name)
+        category_name = str(category_data.category_name.to_int())
         Debug.log(f"  Category '{category_name}': {category_data.unit_count} event(s)")
 
         for event in category_data.events:
