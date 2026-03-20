@@ -1,330 +1,90 @@
 ﻿"""
 Shared fake types used by both import and export.
 """
-from dataclasses import dataclass
-from typing import BinaryIO, List, Optional
+import math
+from typing import List
 
-from ..py_utilities.utilities_binary_write import write_padding, align_length
+from .foxwrap_mapping_types import BoneParameters
+from .foxwrap_misc_types import Tracks, TrackDataBlobWrapper, TrackUnitWrapper
 
-from ..py_fox.fox_gani_types import TrackHeader, TrackUnit, TrackUnitFlags, TrackData, TrackDataBlob, AnimKeyframe
-from ..py_fox.fox_frig_types import RigUnitType
-from ..py_fox.fox_gani_enums import SegmentType
+_DIFF_SEGMENT_TYPES = frozenset(() )
 
 
-@dataclass
-class Tracks:
-    """Track layout structure containing header and track units."""
-    header : TrackHeader
-    track_units : list[TrackUnit]
+def get_rest_pose_dict_from_bone(bone) -> dict:
+    """Convert a bone's local rest rotation into Fox mapping rest-pose structure."""
+    euler = bone.matrix_local.to_euler('XYZ')
+    euler_deg = [
+        math.degrees(euler.x),
+        math.degrees(euler.y),
+        math.degrees(euler.z),
+    ]
+    return {'euler': euler_deg, 'order': 'XYZ'}
 
-    @classmethod
-    def read(cls, br: BinaryIO, file_data: Optional[bytes] = None, read_data_blobs: bool = False, endian: str = '<') -> "Tracks":
-        """Read Tracks structure (TrackHeader + TrackUnits).
-        
-        Args:
-            br: Binary stream positioned at the start of the TrackHeader
-            file_data: Optional full file buffer (required if read_data_blobs=True)
-            read_data_blobs: If True, read TrackDataBlob keyframes into TrackData.data_blob
-                            If False, TrackData.data_blob remains None (for layout tracks)
-            endian: Endianness marker ('<' for LE, '>' for BE)
-        
-        Returns:
-            Tracks object with header and track units
-        """
-        read_start: int = br.tell()
-        header = TrackHeader.read(br, endian)
 
-        track_units: List[TrackUnit] = []
-        for unit_index in range(header.unit_count):
-            br.seek(read_start + header.unit_offsets[unit_index])
-            track_unit = TrackUnit.read(br, endian)
-            
-            # Optionally read data blobs for this track unit
-            if read_data_blobs and file_data is not None:
-                cls._read_track_data_blobs(
-                    track_unit,
-                    file_data,
-                    read_start,
-                    header.unit_offsets[unit_index],
-                    header.frame_count
-                )
-            
-            track_units.append(track_unit)
+def apply_rest_pose_correction_to_track_blob(track_blob: TrackDataBlobWrapper, rest_pose_dict: dict) -> list:
+    euler_deg = rest_pose_dict.get('euler', [])
+    if track_blob.space_r:
+        if track_blob.rotation_offset is None:
+            track_blob.rotation_offset = []
+        track_blob.rotation_offset.append(rest_pose_dict)
+    else:
+        track_blob.map_r_rest_pose = rest_pose_dict
+    return euler_deg
 
-        return cls(
-            header=header,
-            track_units=track_units,
-        )
-    
-    @staticmethod
-    def _read_track_data_blobs(track_unit: TrackUnit, file_data: bytes, base_offset: int, 
-                               unit_offset: int, frame_count: int) -> None:
-        """Read TrackDataBlob keyframes for each segment in a TrackUnit.
-        
-        This method populates the data_blob field in each TrackData entry.
-        The data_offset in TrackData is relative to the TrackData entry's position in the file.
-        
-        Args:
-            track_unit: TrackUnit whose TrackData entries need blob data
-            file_data: Full file buffer
-            base_offset: Absolute position where TrackHeader starts
-            unit_offset: Offset from base_offset to this TrackUnit
-            frame_count: Number of frames (from TrackHeader)
-        """
-        
-        
-        # Calculate where this TrackUnit starts
-        track_unit_offset = base_offset + unit_offset
-        
-        # TrackUnit base: name(4) + segment_count(1) + unit_flags(1) + padding(2) = 8 bytes
-        track_data_start = track_unit_offset + 8
-        
-        # Read data blob for each segment
+
+def apply_rest_pose_correction_to_bone_parameters(bone_params: BoneParameters, rest_pose_dict: dict) -> list:
+    euler_deg = rest_pose_dict.get('euler', [])
+    if bone_params.space_r:
+        if bone_params.rotation_offset is None:
+            bone_params.rotation_offset = []
+        bone_params.rotation_offset.append(rest_pose_dict)
+    else:
+        bone_params.map_r = rest_pose_dict
+    return euler_deg
+
+
+def apply_rest_pose_correction_to_target(target, rest_pose_dict) -> list:
+    if isinstance(target, TrackDataBlobWrapper):
+        return apply_rest_pose_correction_to_track_blob(target, rest_pose_dict)
+    if isinstance(target, BoneParameters):
+        return apply_rest_pose_correction_to_bone_parameters(target, rest_pose_dict)
+    raise TypeError('target must be TrackDataBlobWrapper or BoneParameters')
+
+
+def build_gani_tracks_from_tracks(tracks: Tracks) -> List[TrackUnitWrapper]:
+    """Convert a Tracks object to a list of TrackUnitWrapper instances."""
+    if tracks is None:
+        return []
+
+    wrappers: List[TrackUnitWrapper] = []
+    for track_unit in tracks.track_units:
+        segments = []
         for segment_index, track_data in enumerate(track_unit.segments_data):
-            if track_data.data_offset == 0:
-                continue  # No data for this segment
-            
-            # Calculate absolute position of this TrackData entry
-            track_data_entry_offset = track_data_start + (segment_index * TrackData.ENTRY_SIZE)
-            
-            # Calculate absolute offset to the blob: TrackData position + relative offset
-            absolute_data_offset = track_data_entry_offset + track_data.data_offset
-            
-            # Use TrackDataBlob.read() to get keyframes
-            keyframes = TrackDataBlob.read(
-                file_data=file_data,
-                data_offset=absolute_data_offset,
-                segment_type=track_data.td_type,
-                component_bit_size=track_data.component_bit_size,
-                unit_flags=track_unit.unit_flags,
-                frame_count=frame_count
-            )
-            
-            # Store the keyframes in the TrackData
-            track_data.data_blob = keyframes
-    
-    def write(self, bw: BinaryIO, write_data_blobs: bool = False) -> None:
-        """Write Tracks structure to binary stream.
-        
-        This writes the complete track structure including header and all track units.
-        Optionally writes the actual keyframe data blobs if write_data_blobs=True.
-        
-        Args:
-            bw: Binary stream to write to
-            write_data_blobs: If True, write keyframe data blobs and calculate data_offset values.
-                            If False (default), only write structure (for layout tracks).
-        """
-
-        write_start = bw.tell()
-        
-        # PASS 1: Collect all data blobs and calculate their sizes (if writing blobs)
-        blob_sizes = []
-        blob_data = []
-        if write_data_blobs:
-            for track_unit in self.track_units:
-                for track_data in track_unit.segments_data:
-                    if track_data.data_blob is not None and len(track_data.data_blob) > 0:
-                        # Write keyframes to bytes using AnimKeyframe.write_list_to_bytes
-                        keyframes_bytes = AnimKeyframe.write_list_to_bytes(
-                            keyframes=track_data.data_blob,
-                            track_type=track_data.td_type,
-                            component_bit_size=track_data.component_bit_size,
-                            unit_flags=track_unit.unit_flags
-                        )
-                        blob_sizes.append(len(keyframes_bytes))
-                        blob_data.append(keyframes_bytes)
-                    else:
-                        blob_sizes.append(0)
-                        blob_data.append(b'')
-        
-        # Calculate header size (needed for offset calculations)
-        # Header: BASE_SIZE + unit_offsets array + 12 bytes padding + align to 8
-        header_and_offsets = TrackHeader.BASE_SIZE + (self.header.unit_count * 4)
-        after_padding = header_and_offsets + 12
-        # Align to 8 bytes: round up to next multiple of 8
-        header_size = align_length(after_padding, 8)
-        
-        # Calculate unit offsets if not already set
-        if not self.header.unit_offsets or len(self.header.unit_offsets) != len(self.track_units):
-            # Calculate offsets for each track unit
-            current_offset = header_size
-            unit_offsets = []
-            
-            for track_unit in self.track_units:
-                unit_offsets.append(current_offset)
-                # Each TrackUnit: base (8 bytes) + track_data entries (8 bytes each)
-                unit_size = TrackUnit.BASE_SIZE + (track_unit.segment_count * 8)
-                current_offset += unit_size
-            
-            self.header.unit_offsets = unit_offsets
-        
-        # PASS 2: Calculate data_offset values for each TrackData entry (if writing blobs)
-        if write_data_blobs:
-            # Calculate where data blobs will start (after all structure)
-            blobs_start_offset = header_size
-            for track_unit in self.track_units:
-                blobs_start_offset += TrackUnit.BASE_SIZE + (track_unit.segment_count * TrackData.ENTRY_SIZE)
-            
-            # Update data_offset in each TrackData entry
-            blob_idx = 0
-            current_blob_offset = blobs_start_offset
-            for track_unit in self.track_units:
-                for track_data in track_unit.segments_data:
-                    if blob_sizes[blob_idx] > 0:
-                        # Calculate offset relative to this TrackData entry's position
-                        # Find this TrackData entry's absolute offset
-                        track_unit_idx = self.track_units.index(track_unit)
-                        track_data_idx = track_unit.segments_data.index(track_data)
-                        track_data_entry_offset = self.header.unit_offsets[track_unit_idx] + TrackUnit.BASE_SIZE + (track_data_idx * TrackData.ENTRY_SIZE)
-                        
-                        # data_offset is relative to the TrackData entry
-                        track_data.data_offset = current_blob_offset - track_data_entry_offset
-                        current_blob_offset += blob_sizes[blob_idx]
-                    else:
-                        track_data.data_offset = 0
-                    blob_idx += 1
-        
-        # Write header
-        self.header.write(bw)
-        
-        # Write each track unit at its designated offset
-        for i, track_unit in enumerate(self.track_units):
-            expected_offset = write_start + self.header.unit_offsets[i]
-            current_pos = bw.tell()
-            
-            # Pad to expected offset if needed
-            if current_pos < expected_offset:
-                write_padding(bw, expected_offset - current_pos)
-            
-            track_unit.write(bw)
-        
-        # PASS 3: Write data blobs (if enabled)
-        if write_data_blobs:
-            for blob_bytes in blob_data:
-                if blob_bytes:
-                    bw.write(blob_bytes)
-
-    @staticmethod
-    def convert_to_gani_tracks(tracks: 'Tracks') -> 'List[TrackUnitWrapper]':
-        """Convert a Tracks structure (with populated data_blobs) to TrackUnitWrapper format.
-        
-        This method extracts the keyframe data from TrackData.data_blob and creates
-        the TrackUnitWrapper/TrackDataBlobWrapper structure expected by the importer.
-        
-        Args:
-            tracks: Tracks object with TrackData.data_blob populated
-            
-        Returns:
-            List of TrackUnitWrapper objects
-        """
-        if not tracks or not tracks.track_units:
-            return []
-        
-        
-        
-        gani_tracks: List['TrackUnitWrapper'] = []
-        
-        for track_unit in tracks.track_units:
-            keyframes_tracks: List['TrackDataBlobWrapper'] = []
-            
-            # Extract unit flags for this track
-            unit_flags_int = track_unit.unit_flags
-            unit_flags_list = TrackUnitFlags.int_to_track_unit_flags(unit_flags_int)
-            
-            # Convert each segment's data_blob to a TrackDataBlobWrapper
-            for segment_index, track_data in enumerate(track_unit.segments_data):
-                # Get keyframes from data_blob (may be None or empty for layout tracks)
-                keyframes = track_data.data_blob if track_data.data_blob is not None else []
-                
-                # Create TrackDataBlob
-                is_static = (unit_flags_int & TrackUnitFlags.IS_STATIC) != 0
-                data_blob = TrackDataBlob.from_keyframes(
-                    segment_type=SegmentType(track_data.td_type),
-                    component_bit_size=track_data.component_bit_size,
-                    is_static=is_static,
-                    keyframes=keyframes
-                )
-                
-                # Create TrackDataBlobWrapper for this segment
-                keyframes_track = TrackDataBlobWrapper(
-                    name=track_unit.name,  # Will be resolved to string later
-                    segment_index=segment_index,
-                    data_blob=data_blob
-                )
-                keyframes_tracks.append(keyframes_track)
-            
-            # Create GaniTrack containing all segments for this track
-            gani_track = TrackUnitWrapper(
+            segments.append(TrackDataBlobWrapper(
                 name=track_unit.name,
-                segments_track_data=keyframes_tracks,
-                unit_flags=unit_flags_list,
-                rig_unit_type=None  # Will be filled in later for bone tracks
-            )
-            
-            gani_tracks.append(gani_track)
-        
-        return gani_tracks
+                segment_index=segment_index,
+                data_blob=getattr(track_data, 'data_blob', None),
+            ))
 
+        # Convert integer unit_flags to list of TrackUnitFlags if possible.
+        flags = []
+        if isinstance(track_unit.unit_flags, int):
+            from ..py_fox.fox_gani_enums import TrackUnitFlags
+            flags = TrackUnitFlags.int_to_track_unit_flags(track_unit.unit_flags)
+        else:
+            flags = track_unit.unit_flags
 
-@dataclass
-class TrackDataBlobWrapper:
-    """A single track with keyframes for one segment type.
-    
-    Uses TrackDataBlob to store the actual keyframe data and segment type.
-    """
-    data_blob: TrackDataBlob
+        wrappers.append(TrackUnitWrapper(
+            name=track_unit.name,
+            segments_track_data=segments,
+            unit_flags=flags,
+            rig_unit_type=getattr(track_unit, 'rig_unit_type', None),
+        ))
 
-    name: str
-    segment_index: int
-    
-    rotation_offset: Optional[List[dict]] = None  # Optional list of rotation offsets from name mapping (offset_r parameter)
-    rotation_axis_map: Optional[list] = None  # Optional axis mapping from name mapping (map_r parameter)
-    map_r_rest_pose: Optional[dict] = None  # Optional rest pose for similarity transformation (from map_r parameter, local space only)
-    space_r: Optional[dict] = None  # Optional space indicator (world space tracks use offset_r differently)
-    as_ik_up: Optional[dict] = None  # Optional directional vector IK params: bone_base, axis
-
-
-@dataclass
-class TrackUnitWrapper:
-    """Represents a track that can contain multiple keyframes tracks (one per segment).
-    
-    Also stores the corresponding rig unit type from the FRIG file and unit flags.
-    """
-    name: str
-    segments_track_data: List[TrackDataBlobWrapper]  # One per segment (rotation, position, etc.)
-    unit_flags: List["TrackUnitFlags"]  # Track unit flags from GANI2 data
-    rig_unit_type: Optional[RigUnitType] = None  # From FRIG file, can be None if no FRIG loaded
-
-
-_DIFF_SEGMENT_TYPES = frozenset((SegmentType.QUAT_DIFF, SegmentType.VECTOR_DIFF))
+    return wrappers
 
 
 def is_root_motion_track(wrapper: TrackUnitWrapper) -> bool:
-    """Return whether *wrapper* looks like a root motion track.
-
-    Root motion tracks encode cumulative / differential motion and exclusively
-    use DIFF segment types (``QUAT_DIFF`` or ``VECTOR_DIFF``).
-
-    If the track has no segments (e.g. static tracks where seg_count=0 in the
-    binary), the check cannot be confirmed from segment types alone.  The
-    function returns ``True`` in that case — callers should treat it as
-    *unverified* and may log an additional note.
-
-    This helper is format-agnostic: it works for both old-format (FoxData)
-    and new-format (GANI2) tracks because both use :class:`TrackUnitWrapper`
-    with the same :class:`TrackDataBlobWrapper` structure.
-
-    Args:
-        wrapper: :class:`TrackUnitWrapper` to inspect.
-
-    Returns:
-        ``True`` if all segments use a DIFF type, or the track has no segments.
-        ``False`` if at least one segment uses a non-DIFF type.
-    """
     if not wrapper.segments_track_data:
-        # Static / empty track — cannot verify from segments.
         return True
-    return all(
-        seg.data_blob.type in _DIFF_SEGMENT_TYPES
-        for seg in wrapper.segments_track_data
-    )
+    return all(seg.data_blob.type in _DIFF_SEGMENT_TYPES for seg in wrapper.segments_track_data)

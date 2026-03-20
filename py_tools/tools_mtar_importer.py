@@ -1,10 +1,10 @@
 import os
-import math
 from typing import Optional, List, Dict, Tuple
 
 import bpy
 
-from ..py_utilities.utilities_logging import Debug
+from ..py_core.core_logging import Debug
+
 from ..py_utilities.utilities_blender_animation import (
     add_dummy_keyframes_to_action,
     configure_action,
@@ -15,26 +15,31 @@ from ..py_utilities.utilities_blender_animation import (
 from ..py_utilities.utilities_blender_armature import BoneSpec, create_track_armature
 from ..py_utilities.utilities_naming import format_action_name, format_strip_name, resolve_gani_name_segment
 
-from ..py_foxwrap.foxwrap_metadata import (
-    PROP_NO_SKL_LIST,
-    TrackMetaData,
-    store_track_header_properties_on_action,
-    store_track_metadata_on_action,
-    store_mtar_properties_on_action,
-    store_node_params_on_action,
-)
 from ..py_fox import fox_mtar_constants as mtar_const
-from ..py_foxwrap.foxwrap_misc import TrackDataBlobWrapper, Tracks
-from ..py_foxwrap.foxwrap_misc_import import GaniImportData
-from ..py_foxwrap.foxwrap_motionevent import store_motion_events_on_action
-from ..py_foxwrap.foxwrap_mtar_reader import MtarReader
-from ..py_foxwrap.foxwrap_mapping import BoneParameters, ARMATURE_TARGET_NAME, TransformConstraintEntry
-
 from ..py_fox.fox_mtar_types import MtarTableList, MtarTableList2, MtarHeader
 from ..py_fox.fox_gani_types import SegmentType
 from ..py_fox.fox_frig_types import FrigFile
 
-from ..py_foxwrap.foxwrap_motionpoint import MotionPointWrapper, store_motion_point_stringlists_on_action
+from ..py_foxwrap.foxwrap_metadata import (
+    PROP_NO_SKL_LIST,
+    build_track_metadata_from_layout_track_units,
+    build_track_metadata_from_gani_tracks,
+    store_track_header_properties_on_action,
+    store_track_metadata_on_action,
+    store_mtar_properties_on_action,
+    store_node_params_on_action,
+    merge_node_params,
+)
+from ..py_foxwrap.foxwrap_misc import TrackDataBlobWrapper, Tracks
+from ..py_foxwrap import foxwrap_misc
+from ..py_foxwrap.foxwrap_misc_import import GaniImportData, iter_gani_tracks, iter_gani_bone_tracks
+from ..py_foxwrap.foxwrap_motionevent import store_motion_events_on_action
+from ..py_foxwrap.foxwrap_mtar_reader import MtarReader
+from ..py_foxwrap.foxwrap_mapping_types import BoneParameters, TransformConstraintEntry
+from ..py_foxwrap.foxwrap_mapping import ARMATURE_TARGET_NAME
+from ..py_foxwrap.foxwrap_motionpoint_types import MotionPointWrapper
+from ..py_foxwrap.foxwrap_motionpoint import store_motion_point_stringlists_on_action
+
 from .tools_gani_track_importer import import_gani_track
 from .tools_motion_points_importer import (
     create_nla_strips_for_actions,
@@ -46,7 +51,9 @@ from .tools_gani1_shader_importer import (
     create_and_setup_shader_nodes_armature,
 )
 
+
 FPS_59_94: float = 59.94
+
 
 # Layout and MetaData #############################################################
 
@@ -122,7 +129,7 @@ def validate_track_mapping_collisions(
     # iterate each GANI independently to avoid cross-file warnings
     for index, data in enumerate(all_gani_data):
         collision_map: Dict[Tuple[str, SegmentType], List[str]] = {}
-        for gani_track in data.bone_tracks:
+        for gani_track in iter_gani_bone_tracks([data]):
             for track_blob in gani_track.segments_track_data:
                 name = track_blob.name
                 if name not in track_mapping:
@@ -154,14 +161,12 @@ def apply_track_transformations(all_gani_data: List[GaniImportData], track_mappi
         Debug.log("Applying track mapping transformations...")
         validate_track_mapping_collisions(all_gani_data, track_mapping)
 
-        import itertools
-        for data in all_gani_data:
-            for gani_track in itertools.chain(data.bone_tracks, data.mtp_tracks):
-                for track_blob in gani_track.segments_track_data:
-                    if track_blob.name in track_mapping:
-                        old_name: str = track_blob.name
-                        mapping_data: BoneParameters = track_mapping[old_name]
-                        apply_track_mapping_transformation(track_blob, mapping_data, old_name)
+        for gani_track in iter_gani_tracks(all_gani_data, include_mtp=True):
+            for track_blob in gani_track.segments_track_data:
+                if track_blob.name in track_mapping:
+                    old_name: str = track_blob.name
+                    mapping_data: BoneParameters = track_mapping[old_name]
+                    apply_track_mapping_transformation(track_blob, mapping_data, old_name)
 
 def extract_rest_pose_from_custom_rig(all_gani_data: List[GaniImportData], custom_rig: Optional[bpy.types.Object]) -> None:
     """Extract rest pose rotations from custom rig and merge with existing transformations.
@@ -182,51 +187,39 @@ def extract_rest_pose_from_custom_rig(all_gani_data: List[GaniImportData], custo
     Debug.log("\n=== Extracting Rest Pose from custom rig ===")
     rest_pose_count = 0
     
-    for data in all_gani_data:
-        for gani_track in data.bone_tracks:
-            for track_blob in gani_track.segments_track_data:
-                # Only apply to rotation segments
-                if track_blob.data_blob.type not in [SegmentType.QUAT, SegmentType.QUAT_DIFF]:
-                    continue
-                
-                # Skip as_ik_up bones - they should not be affected by rest pose corrections
-                if track_blob.as_ik_up:
-                    continue
-                
-                # Check if bone exists in custom rig
-                if track_blob.name not in custom_rig.data.bones:
-                    continue
-                
-                # Extract rest pose rotation from custom rig
-                bone = custom_rig.data.bones[track_blob.name]
-                euler = bone.matrix_local.to_euler('XYZ')
-                euler_deg = [math.degrees(euler.x), math.degrees(euler.y), math.degrees(euler.z)]
-                
-                rest_pose_dict = {
-                    'euler': euler_deg,
-                    'order': 'XYZ'
-                }
-                
-                # Determine how to apply based on track space type
-                if track_blob.space_r:
-                    # WORLD space track - add to rotation_offset list
-                    if track_blob.rotation_offset is None:
-                        track_blob.rotation_offset = []
-                    track_blob.rotation_offset.append(rest_pose_dict)
-                    Debug.log(f"  {track_blob.name} [WORLD]: Added rest pose to offset_r: ({euler_deg[0]:.1f}, {euler_deg[1]:.1f}, {euler_deg[2]:.1f})")
+    for gani_track in iter_gani_bone_tracks(all_gani_data):
+        for track_blob in gani_track.segments_track_data:
+            # Only apply to rotation segments
+            if track_blob.data_blob.type not in [SegmentType.QUAT, SegmentType.QUAT_DIFF]:
+                continue
+
+            # Skip as_ik_up bones - they should not be affected by rest pose corrections
+            if track_blob.as_ik_up:
+                continue
+
+            # Check if bone exists in custom rig
+            if track_blob.name not in custom_rig.data.bones:
+                continue
+
+            # Extract rest pose rotation from custom rig
+            bone = custom_rig.data.bones[track_blob.name]
+            rest_pose_dict = foxwrap_misc.get_rest_pose_dict_from_bone(bone)
+
+            had_map_r_rest_pose = track_blob.map_r_rest_pose is not None
+            existing_euler = track_blob.map_r_rest_pose['euler'] if had_map_r_rest_pose else None
+
+            # Apply helper updates for both import/export semantics
+            euler_deg = foxwrap_misc.apply_rest_pose_correction_to_target(track_blob, rest_pose_dict)
+
+            if track_blob.space_r:
+                Debug.log(f"  {track_blob.name} [WORLD]: Added rest pose to offset_r: ({euler_deg[0]:.1f}, {euler_deg[1]:.1f}, {euler_deg[2]:.1f})")
+            else:
+                if not had_map_r_rest_pose:
+                    Debug.log(f"  {track_blob.name} [LS]: Set rest pose from rig: ({euler_deg[0]:.1f}, {euler_deg[1]:.1f}, {euler_deg[2]:.1f})")
                 else:
-                    # LOCAL space track - merge with existing map_r_rest_pose or set if missing
-                    if track_blob.map_r_rest_pose is None:
-                        track_blob.map_r_rest_pose = rest_pose_dict
-                        Debug.log(f"  {track_blob.name} [LS]: Set rest pose from rig: ({euler_deg[0]:.1f}, {euler_deg[1]:.1f}, {euler_deg[2]:.1f})")
-                    else:
-                        # Already has map_r from mapping file - combine them
-                        # For now, use custom rig (this could be additive in future)
-                        existing_euler = track_blob.map_r_rest_pose['euler']
-                        Debug.log(f"  {track_blob.name} [LS]: Mapping file has map_r=({existing_euler[0]:.1f}, {existing_euler[1]:.1f}, {existing_euler[2]:.1f}), using custom rig instead")
-                        track_blob.map_r_rest_pose = rest_pose_dict
-                
-                rest_pose_count += 1
+                    Debug.log(f"  {track_blob.name} [LS]: Mapping file has map_r=({existing_euler[0]:.1f}, {existing_euler[1]:.1f}, {existing_euler[2]:.1f}), using custom rig instead")
+
+            rest_pose_count += 1
     
     Debug.log(f"Extracted rest pose for {rest_pose_count} track(s) from custom rig")
 
@@ -278,8 +271,8 @@ def create_animation_actions(
         
         # Convert layout track to TrackMetaData and store metadata
         # Pass first gani_tracks (if available) to preserve rig_unit_type from FRIG
-        first_gani_tracks = all_gani_data[0].bone_tracks if all_gani_data else None
-        track_metadata_list = TrackMetaData.from_layout_track_units(layout_track.track_units, gani_tracks=first_gani_tracks)
+        first_gani_tracks = all_gani_data[0].gani_bone_tracks if all_gani_data else None
+        track_metadata_list = build_track_metadata_from_layout_track_units(layout_track.track_units, gani_tracks=first_gani_tracks)
         store_track_metadata_on_action(layout_action, track_metadata_list)
         
         # Store header properties separately
@@ -344,16 +337,16 @@ def create_animation_actions(
         # =============================
 
         # Store metadata from the actual animation data (GaniTracks) on this action
-        track_mini_header = data.track_mini_header
+        track_mini_header = data.gani_track_mini_header
         
         # For old-format: store full metadata (including segment types) from per-GANI layout
         # For GANI2: store only bits and flags (segments=False) since layout action has full info
-        if is_old_format and data.layout_track:
-            per_gani_layout = data.layout_track
+        if is_old_format and data.gani_layout_track:
+            per_gani_layout = data.gani_layout_track
             # Old-format: use per-GANI layout_track which has full segment information
-            track_metadata_list = TrackMetaData.from_layout_track_units(
+            track_metadata_list = build_track_metadata_from_layout_track_units(
                 per_gani_layout.track_units,
-                gani_tracks=data.bone_tracks)  # Pass gani_tracks to resolve rig_unit_type from FRIG
+                gani_tracks=data.gani_bone_tracks)  # Pass gani_tracks to resolve rig_unit_type from FRIG
             store_track_metadata_on_action(
                 action, track_metadata_list,
                 include_segments=True)  # Full segment types stored for old-format
@@ -362,13 +355,12 @@ def create_animation_actions(
             Debug.log(f"Stored full metadata on old-format GANI action (idx={gani_index}) from per-GANI layout")
         else:
             # GANI2 path or missing layout: metadata already on layout action; per-GANI only stores bits+flags
-            track_metadata_list = TrackMetaData.from_gani_tracks(data.bone_tracks, track_mini_header.segment_headers)
+            track_metadata_list = build_track_metadata_from_gani_tracks(data.gani_bone_tracks, track_mini_header.segment_headers)
             store_track_metadata_on_action(action, track_metadata_list, include_segments=False)
         # Store all non-SHADER node params from this GANI (MOTION, ROOT, etc.) for lossless round-trip
-        gani_node_params = data.node_params or {}
+        gani_node_params = merge_node_params(data.gani_node_params or {})
         for node_key, params in gani_node_params.items():
-            if not node_key.startswith("SHADER"):
-                store_node_params_on_action(action, node_key, params)
+            store_node_params_on_action(action, node_key, params)
         
         # Store mtar_const.TABL_PATH for re-export: full asset path if unhashed, raw decimal hash string otherwise
         if hasattr(file_header, 'path'):
@@ -397,7 +389,7 @@ def create_animation_actions(
         # Note: SKL_LIST names are applied directly to bone track names during import
         # (see foxwrap_gani_reader.py), so gfox_skl_list is no longer stored here.
         # Instead we store a flag indicating whether the original GANI had NO SKL_LIST node.
-        if data.skeleton_list is None:
+        if data.gani_skeleton_list is None:
             action[PROP_NO_SKL_LIST] = 1
             action.id_properties_ui(PROP_NO_SKL_LIST).update(
                 description="Original GANI had no SKL_LIST node — suppress on re-export"
@@ -405,23 +397,23 @@ def create_animation_actions(
             Debug.log(f"  Stored {PROP_NO_SKL_LIST}: 1 (original had no SKL_LIST)")
         store_motion_point_stringlists_on_action(
             action,
-            data.motion_point_list,
-            data.motion_point_parent_list,
+            data.gani1_motion_point_list,
+            data.gani1_motion_point_parent_list,
         )
 
         # Store motion events if present
-        if data.events:
-            store_motion_events_on_action(action, data.events)
+        if data.gani_events:
+            store_motion_events_on_action(action, data.gani_events)
 
         # =============================
 
         # Get frame count from TrackMiniHeader (imported from MTAR file)
-        track_mini_header = data.track_mini_header
+        track_mini_header = data.gani_track_mini_header
         gani_frame_count: int = track_mini_header.frame_count
 
         # Process each GaniTrack in this GANI file
-        Debug.log(f"Processing {len(data.bone_tracks)} GaniTrack(s)...")
-        for gani_track in data.bone_tracks:
+        Debug.log(f"Processing {len(data.gani_bone_tracks)} GaniTrack(s)...")
+        for gani_track in data.gani_bone_tracks:
             import_gani_track(context, action, gani_track)
 
         Debug.log(f"Track frame range: 0 - {gani_frame_count}")
@@ -805,15 +797,14 @@ def create_and_setup_armature(
 
     # Collect all unique bone names from all GANI files
     all_bone_names = []
-    for data in all_gani_data:
-        for gani_track in data.bone_tracks:
-            for keyframes_track in gani_track.segments_track_data:
-                bone_name_str = str(keyframes_track.name)
-                # Skip the special armature-object target — it is not a real bone.
-                if bone_name_str == ARMATURE_TARGET_NAME:
-                    continue
-                if bone_name_str not in all_bone_names:
-                    all_bone_names.append(bone_name_str)
+    for gani_track in iter_gani_bone_tracks(all_gani_data):
+        for keyframes_track in gani_track.segments_track_data:
+            bone_name_str = str(keyframes_track.name)
+            # Skip the special armature-object target — it is not a real bone.
+            if bone_name_str == ARMATURE_TARGET_NAME:
+                continue
+            if bone_name_str not in all_bone_names:
+                all_bone_names.append(bone_name_str)
 
     Debug.log(f"Found {len(all_bone_names)} unique handle(s)")
 
@@ -1051,8 +1042,8 @@ def import_mtar_data(
     # convenience list of headers for downstream routines that still expect it
     file_headers = [d.file_header for d in all_gani_data]
     # also build lists used by shader importer modules
-    all_shader_gani_tracks = [d.shader_tracks for d in all_gani_data]
-    all_node_params = [d.node_params for d in all_gani_data]
+    all_shader_gani_tracks = [d.gani1_shader_tracks for d in all_gani_data]
+    all_node_params = [d.gani_node_params for d in all_gani_data]
 
     # Get layout track for metadata storage
     # For new format, get from CommonInfo; for old format, get from reader.layout_track
@@ -1074,8 +1065,8 @@ def import_mtar_data(
             Debug.log(f"  MotionPoint {entry.hash_value}: name={entry.name}, parent={entry.parent_name}")
     else:
         # Old-format: synthesise MotionPointWrapper from per-GANI mtp_tracks & parent lists
-        all_mtp_tracks = [d.mtp_tracks for d in all_gani_data]
-        all_mtp_parent_lists = [d.motion_point_parent_list for d in all_gani_data]
+        all_mtp_tracks = [d.gani_mtp_tracks for d in all_gani_data]
+        all_mtp_parent_lists = [d.gani1_motion_point_parent_list for d in all_gani_data]
         if any(all_mtp_tracks):
             motion_points = MotionPointWrapper.from_old_format(
                 all_mtp_tracks,
@@ -1092,7 +1083,7 @@ def import_mtar_data(
         Debug.log("Mapping FRIG rig unit types to GaniTracks...")
         # rig units correspond to track index within each GANI file
         for data in all_gani_data:
-            for gani_track_index, gani_track in enumerate(data.bone_tracks):
+            for gani_track_index, gani_track in enumerate(data.gani_bone_tracks):
                 # Check if we have a corresponding rig unit def
                 if gani_track_index < len(frig.rig_def.unit_defs):
                     rig_unit_def = frig.rig_def.unit_defs[gani_track_index]
@@ -1172,9 +1163,9 @@ def import_mtar_data(
     # Create motion points animation actions (primary task for motion points)
     Debug.update_progress(60, "Creating Motion Points...")
     # build helper lists from unified data objects
-    all_motion_point_gani_tracks = [d.mtp_tracks for d in all_gani_data]
-    all_motion_point_layouts = [d.motion_point_layout for d in all_gani_data]
-    all_motion_point_track_headers = [d.motion_point_track_header for d in all_gani_data]
+    all_motion_point_gani_tracks = [gani_data.gani_mtp_tracks for gani_data in all_gani_data]
+    all_motion_point_layouts = [gani_data.gani_motion_point_layout for gani_data in all_gani_data]
+    all_motion_point_track_headers = [gani_data.gani_motion_point_track_header for gani_data in all_gani_data]
     motion_point_actions = create_motion_points_animation_actions(
         context,
         mtar_file_name,

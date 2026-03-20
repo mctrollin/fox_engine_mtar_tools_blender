@@ -7,19 +7,22 @@ This module provides functions to store motion events from MTAR files as:
 """
 from typing import List, Dict, Optional
 
-from ..py_utilities.utilities_logging import Debug
+import bpy
+
+from ..py_core.core_logging import Debug
+
 from ..py_utilities.utilities_hashing_cityhash import strcode32
 from ..py_utilities.utilities_hashing import unhash_event_name
 from ..py_utilities.utilities_parsing import format_float_for_metadata
-
-from .foxwrap_metadata import make_event_property_key, iter_event_properties
 
 from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox.fox_gani_types import EvpHeader, EvpData, EventUnitInfo, TimeSection
 from ..py_fox.fox_misc_types import StrCode32
 
+from .foxwrap_metadata import make_event_property_key, iter_event_properties
 
-def store_motion_events_on_action(action: 'bpy.types.Action', motion_events: Optional[EvpHeader]) -> None:
+
+def store_motion_events_on_action(action: bpy.types.Action, motion_events: Optional[EvpHeader]) -> None:
     """Store motion events as custom properties and NLA markers on an action.
 
     Creates two NLA markers per event (start and end) in the format:
@@ -127,7 +130,7 @@ def store_motion_events_on_action(action: 'bpy.types.Action', motion_events: Opt
     Debug.log(f"Stored {event_index} motion event(s) with markers on action '{action.name}'")
 
 
-def read_motion_events_from_action(action: 'bpy.types.Action') -> Optional[EvpHeader]:
+def read_motion_events_from_action(action: bpy.types.Action) -> Optional[EvpHeader]:
     """Read motion events from custom properties and NLA markers on an action.
 
     Reconstructs EvpHeader from stored custom properties and marker frames.

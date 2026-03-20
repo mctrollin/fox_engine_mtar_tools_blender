@@ -4,7 +4,6 @@ MTAR animation exporter for Metal Gear Solid V.
 This module handles the export of Blender animation data to MTAR format.
 """
 
-import math
 import os
 from typing import Optional, Dict, List, Set, Tuple
 from pathlib import Path
@@ -12,7 +11,10 @@ from pathlib import Path
 import bpy
 from mathutils import Quaternion, Vector
 
-from ..py_utilities.utilities_logging import Debug
+from ..py_core.core_logging import Debug
+
+from ..blender_properties import get_effective_export_fcurve_clean_threshold
+
 from ..py_utilities.utilities_transforms import (
     reverse_directional_location, 
     apply_reverse_transforms, 
@@ -42,30 +44,40 @@ from ..py_utilities.utilities_fcurve_processing import (
     insert_intermediate_frames,
 )
 
-from ..blender_properties import get_effective_export_fcurve_clean_threshold
-
-from ..py_foxwrap.foxwrap_motionevent import read_motion_events_from_action
-from ..py_foxwrap.foxwrap_mtar_reader import MtarReader
-from ..py_foxwrap.foxwrap_metadata import read_track_header_properties_from_action, read_mtar_properties_from_any_action, iter_all_node_params_from_action
 from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox import fox_mtar_constants as mtar_const
-from ..py_foxwrap.foxwrap_metadata import TrackMetaData, merge_track_metadata, get_all_track_metadata_from_action
-from ..py_foxwrap.foxwrap_misc_import import GaniImportData
-from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper, Tracks, TrackDataBlobWrapper
-from ..py_foxwrap.foxwrap_mapping import parse_segment_suffix
-from ..py_foxwrap.foxwrap_mtar_writer import MtarWriter
-from ..py_foxwrap.foxwrap_misc_export import (
-    GaniExportData, GaniExportTracksData, GaniExportMotionPointsData, GaniMotionEventsData,
-    GaniExportShaderData,
-    TrackSegmentBoneMapping, ExportActionData, create_synthetic_mapping, group_bones_by_segment,
-    build_motion_point_action_maps, find_motion_point_action_for_gani,
-    build_shader_action_maps, find_shader_action_for_gani
-)
-from ..py_foxwrap.foxwrap_mapping import BoneParameters, ARMATURE_TARGET_NAME
-
 from ..py_fox.fox_gani_types import AnimKeyframe, SegmentType, TrackUnitFlags, TrackHeader, TrackUnit, TrackData, TrackDataBlob
 from ..py_fox.fox_frig_types import RigUnitType
 from ..py_fox.fox_misc_types import StrCode32
+
+from ..py_foxwrap import foxwrap_misc
+from ..py_foxwrap.foxwrap_motionevent import read_motion_events_from_action
+from ..py_foxwrap.foxwrap_mtar_reader import MtarReader
+from ..py_foxwrap.foxwrap_metadata import read_track_header_properties_from_action, read_mtar_properties_from_any_action, iter_all_node_params_from_action, merge_node_params, resolve_gani_frame_info
+from ..py_foxwrap.foxwrap_metadata import TrackMetaData, merge_track_metadata, get_all_track_metadata_from_action, build_track_metadata_from_action, build_track_metadata_from_fcurves, extract_space_bone_name
+from ..py_foxwrap.foxwrap_misc_import_types import GaniImportData
+from ..py_foxwrap.foxwrap_misc_types import TrackUnitWrapper, Tracks, TrackDataBlobWrapper
+from ..py_foxwrap.foxwrap_mapping import parse_segment_suffix
+from ..py_foxwrap.foxwrap_mtar_writer import MtarWriter
+from ..py_foxwrap.foxwrap_misc_export_types import (
+    GaniExportData, 
+    GaniExportTracksData, 
+    GaniExportMotionPointsData, 
+    GaniMotionEventsData,
+    GaniExportShaderData,
+    TrackSegmentBoneMapping, 
+    ExportActionData, 
+)
+from ..py_foxwrap.foxwrap_misc_export import (
+    create_synthetic_mapping, 
+    group_bones_by_segment,
+    build_motion_point_action_maps, 
+    find_motion_point_action_for_gani,
+    build_shader_action_maps, 
+    find_shader_action_for_gani
+)
+from ..py_foxwrap.foxwrap_mapping import BoneParameters, ARMATURE_TARGET_NAME
+
 from .tools_motion_points_exporter import (
     build_motion_points_list_from_armature,
     build_motion_point_metadata_dict,
@@ -77,6 +89,7 @@ from .tools_gani1_shader_exporter import (
     group_shader_tracks_by_property,
     collect_shader_property_headers,
 )
+
 
 # Utility Functions ###############################################################
 
@@ -123,50 +136,43 @@ def _convert_import_gani_to_export_gani(
 ) -> GaniExportData:
     """Convert an imported GANI object to export data for writer re-export."""
 
-    frame_count = 0
-    frame_rate = 60
-
-    if import_data.track_mini_header is not None:
-        frame_count = import_data.track_mini_header.frame_count
-    elif import_data.layout_track is not None:
-        frame_count = import_data.layout_track.header.frame_count
-
-    if import_data.layout_track is not None and import_data.layout_track.header.frame_rate > 0:
-        frame_rate = import_data.layout_track.header.frame_rate
-    elif import_data.motion_point_track_header is not None:
-        frame_rate = import_data.motion_point_track_header.frame_rate
+    frame_count, frame_rate = resolve_gani_frame_info(
+        import_data.gani_layout_track,
+        import_data.gani_track_mini_header,
+        import_data.gani_motion_point_track_header,
+    )
 
     if frame_count == 0:
         hash_str = f"0x{reference_path_hash:016X}" if reference_path_hash is not None else "unknown"
         Debug.log_warning(f"Reference GANI (hash={hash_str}) has frame_count=0; this may indicate an empty GANI or format mismatch")
 
     tracks_data = GaniExportTracksData(
-        gani_tracks=import_data.bone_tracks,
+        gani_tracks=import_data.gani_bone_tracks,
         action=None,
         source="reference"
     )
 
     motion_points_data = None
-    if import_data.mtp_tracks is not None:
+    if import_data.gani_mtp_tracks is not None:
         motion_points_data = GaniExportMotionPointsData(
-            motion_point_tracks=import_data.mtp_tracks,
+            motion_point_tracks=import_data.gani_mtp_tracks,
             action=None
         )
 
     motion_events_data = None
-    if import_data.events is not None:
+    if import_data.gani_events is not None:
         motion_events_data = GaniMotionEventsData(
-            motion_events=import_data.events,
+            motion_events=import_data.gani_events,
             action=None
         )
 
     shader_nodes_data = None
-    if import_data.shader_tracks:
+    if import_data.gani1_shader_tracks:
         shader_nodes_data = GaniExportShaderData(
-            property_tracks=[s.tracks for s in import_data.shader_tracks],
-            property_names=[s.property_name for s in import_data.shader_tracks],
+            property_tracks=[s.tracks for s in import_data.gani1_shader_tracks],
+            property_names=[s.property_name for s in import_data.gani1_shader_tracks],
             action=None,
-            property_headers=[None] * len(import_data.shader_tracks)
+            property_headers=[None] * len(import_data.gani1_shader_tracks)
         )
 
     return GaniExportData(
@@ -179,7 +185,7 @@ def _convert_import_gani_to_export_gani(
         motion_points_data=motion_points_data,
         motion_events_data=motion_events_data,
         shader_nodes_data=shader_nodes_data,
-        node_params=import_data.node_params,
+        node_params=import_data.gani_node_params,
         path_hash=reference_path_hash,
     )
 
@@ -446,33 +452,23 @@ def extract_rest_pose_correction_mapping_from_armature(track_segment_bone_mappin
             
             # Extract rest pose rotation from armature
             bone = armature.data.bones[blender_bone_name]
-            euler = bone.matrix_local.to_euler('XYZ')
-            euler_deg = [math.degrees(euler.x), math.degrees(euler.y), math.degrees(euler.z)]
-            
-            rest_pose_dict = {
-                'euler': euler_deg,
-                'order': 'XYZ'
-            }
-            
-            # Determine how to apply based on track space type
+            rest_pose_dict = foxwrap_misc.get_rest_pose_dict_from_bone(bone)
+
+            had_map_r = bone_params.map_r is not None
+            existing_euler = bone_params.map_r['euler'] if had_map_r else None
+
+            # Apply helper updates for both import/export semantics
+            euler_deg = foxwrap_misc.apply_rest_pose_correction_to_target(bone_params, rest_pose_dict)
+
             if bone_params.space_r:
-                # WORLD space track - add to rotation_offset list
-                if bone_params.rotation_offset is None:
-                    bone_params.rotation_offset = []
-                bone_params.rotation_offset.append(rest_pose_dict)
                 Debug.log(f"  {blender_bone_name} [WORLD]: Added rest pose to offset_r: ({euler_deg[0]:.1f}, {euler_deg[1]:.1f}, {euler_deg[2]:.1f})")
             else:
-                # LOCAL space track - merge with existing map_r or set if missing
-                if bone_params.map_r is None:
-                    # No map_r from mapping file - use rest pose from armature
-                    bone_params.map_r = rest_pose_dict
+                if not had_map_r:
                     Debug.log(f"  {blender_bone_name} [LS]: Set rest pose from armature: ({euler_deg[0]:.1f}, {euler_deg[1]:.1f}, {euler_deg[2]:.1f})")
                 else:
-                    # Already has map_r from mapping file - use armature instead
-                    existing_euler = bone_params.map_r['euler']
                     Debug.log(f"  {blender_bone_name} [LS]: Mapping file has map_r=({existing_euler[0]:.1f}, {existing_euler[1]:.1f}, {existing_euler[2]:.1f}), using armature instead")
-                    bone_params.map_r = rest_pose_dict
-            
+
+            rest_pose_count += 1            
             rest_pose_count += 1
     
     Debug.log(f"Extracted rest pose for {rest_pose_count} bone(s) from armature")
@@ -917,9 +913,9 @@ def export_rotation_segment(armature: bpy.types.Object,
         # For as_ik_up bones, use space_ik instead of space_r for the space bone
         # This is because space_ik defines the transformation constraint space for IK targets
         if bone_params.as_ik_up:
-            space_bone = TrackMetaData.extract_space_bone(bone_params.space_ik)
+            space_bone = extract_space_bone_name(bone_params.space_ik)
         else:
-            space_bone = TrackMetaData.extract_space_bone(bone_params.space_r)
+            space_bone = extract_space_bone_name(bone_params.space_r)
         
         # Extract rest pose correction parameters
         space_r_value = bone_params.space_r
@@ -1024,7 +1020,7 @@ def export_location_segment(armature: bpy.types.Object,
     else:
         # Get custom space if specified (constant across all frames)
         # Use the same extraction logic as rotation export for consistency
-        space_bone = TrackMetaData.extract_space_bone(bone_params.space_l)
+        space_bone = extract_space_bone_name(bone_params.space_l)
 
         # For FLOAT/VECTOR2 (no_coordinate_transform=True): raw channel, always local
         # space, no axis-swap, no custom-space or invert-XY correction.
@@ -1248,7 +1244,7 @@ def export_gani_track_from_action(armature: bpy.types.Object,
     action_meta = None
     merged_metadata = layout_metadata
     if action:
-        action_meta = TrackMetaData.from_action(action, base_fox_track_name)
+        action_meta = build_track_metadata_from_action(action, base_fox_track_name)
         if action_meta:
             Debug.log(f"      Applying action-level overrides for track '{base_fox_track_name}' from action '{action.name}'")
             merged_metadata = merge_track_metadata(layout_metadata, action_meta)
@@ -1443,7 +1439,7 @@ def _collect_bones_for_transform_cache(track_segment_bone_mapping: TrackSegmentB
         # Space bones (custom coordinate spaces used by mapping params)
         for space_attr in (bone_params.space_r, bone_params.space_l, bone_params.space_ik):
             if space_attr:
-                space_bone = TrackMetaData.extract_space_bone(space_attr)
+                space_bone = extract_space_bone_name(space_attr)
                 if space_bone:
                     bones.add(space_bone)
 
@@ -1648,7 +1644,7 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
                 elif action:
                     # Fallback: layout action exists but has no matching entry for this bone.
                     # Derive minimal metadata from FCurves so export can proceed.
-                    layout_metadata = TrackMetaData.from_fcurves(
+                    layout_metadata = build_track_metadata_from_fcurves(
                         bone_name=_blender_bone_name, action=processed_action
                     )
                     if layout_metadata:
@@ -2222,14 +2218,10 @@ def export_mtar(context: bpy.types.Context,
         )
 
         # Merge node_params from tracks and shader actions for lossless round-trip
-        node_params = {
-            k: v for k, v in iter_all_node_params_from_action(gani_action).items()
-            if not k.startswith("SHADER")
-        }
-        if shader_node_action_data:
-            for k, v in iter_all_node_params_from_action(shader_node_action_data.action).items():
-                if k.startswith("SHADER"):
-                    node_params[k] = v
+        node_params = merge_node_params(
+            iter_all_node_params_from_action(gani_action),
+            iter_all_node_params_from_action(shader_node_action_data.action) if shader_node_action_data else None,
+        )
         gani_data.node_params = node_params or None
 
         # Add to writer

@@ -7,7 +7,7 @@ from bpy.props import BoolProperty
 # from bpy_extras.io_utils import ImportHelper
 # from bpy.types import Context
 
-from .py_utilities.utilities_logging import Debug
+from .py_core.core_logging import Debug
 
 # from .py_tools.tools_mtar_importer import import_mtar
 from . import blender_panel_import

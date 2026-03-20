@@ -9,11 +9,12 @@ from collections import defaultdict
 import bpy
 from bpy.types import Operator, Context
 
-from .py_utilities.utilities_logging import Debug
+from .py_core.core_logging import Debug
+
 from .py_utilities.utilities_blender_state import nla_tweak_guard
 from .py_utilities.utilities_blender_armature import auto_detect_aux_armatures
 
-from .py_foxwrap.foxwrap_misc_export import TrackSegmentBoneMapping
+from .py_foxwrap.foxwrap_misc_export_types import TrackSegmentBoneMapping
 from .py_foxwrap.foxwrap_mapping import parse_segment_suffix, parse_track_mapping_file, ARMATURE_TARGET_NAME
 from .py_foxwrap.foxwrap_metadata import iter_track_properties
 

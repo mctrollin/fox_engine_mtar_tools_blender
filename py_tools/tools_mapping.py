@@ -13,17 +13,17 @@ is now independent of Blender context or UI.
 """
 
 from __future__ import annotations
-
 import os
 from typing import Optional, List, Any
 
-from ..py_fox.fox_frig_types import FrigFile, RigUnitDef
-from ..py_foxwrap.foxwrap_mtar_reader import MtarReader
+from ..py_core.core_logging import Debug
 
-from ..py_foxwrap.foxwrap_metadata import get_segments_for_track_type
-
-from ..py_utilities.utilities_logging import Debug
 from ..py_utilities.utilities_hashing import unhash_rig_type
+
+from ..py_fox.fox_frig_types import FrigFile, RigUnitDef
+
+from ..py_foxwrap.foxwrap_mtar_reader import MtarReader
+from ..py_foxwrap.foxwrap_metadata import get_segments_for_track_type
 
 
 def generate_mapping_template(frig_filepath: Optional[str], mtar_filepath: Optional[str]) -> str:

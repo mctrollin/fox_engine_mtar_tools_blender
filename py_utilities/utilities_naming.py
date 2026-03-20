@@ -3,11 +3,11 @@ Naming utilities for MTAR action and NLA strip naming.
 
 Provides consistent naming format across import/export workflows.
 """
-from typing import Optional, Dict, Tuple, List
+from typing import Optional, Dict, Tuple
+
+from ..py_fox.fox_mtar_types import MtarTableList2
 
 from .utilities_hashing import unhash_gani_path
-from ..py_fox.fox_mtar_types import MtarTableList2
-from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper
 
 
 def extract_gani_name_from_path(path_str: str) -> str:
@@ -168,36 +168,3 @@ def format_strip_name(
         - Shader nodes: "player2.walk_idle.0.shadernodes.strip"
     """
     return _format_gani_name(base_name, running_idx, h_idx, d_idx, verbose, is_motion_points, is_layout, gani_name, "strip", is_shader_nodes)
-
-
-def apply_segment_suffixes(gani_tracks: 'List[TrackUnitWrapper]') -> 'List[TrackUnitWrapper]':
-    """Apply _N suffix to TrackDataBlobWrapper names for multi-segment tracks.
-
-    For any TrackUnitWrapper that contains more than one segment, appends
-    '_{segment_index}' to each segment's TrackDataBlobWrapper.name for segment_index > 0.
-    The first segment (index 0) is left unchanged, and single-segment tracks are also unchanged.
-
-    This convention ensures cross-GANI consistency: a track is always `bone_XYZ` for segment 0,
-    `bone_XYZ_1` for segment 1, etc., regardless of whether a GANI defines the track with 1
-    or multiple segments.
-
-    Must be called AFTER apply_track_naming() and _apply_stringlist_names() so
-    that base names are fully resolved strings before the suffix is appended.
-
-    This enables correct multi-segment track naming without requiring a FRIG file
-    or rig unit type information, making segment names correct at read time.
-
-    Args:
-        gani_tracks: List of TrackUnitWrapper objects with fully resolved names
-
-    Returns:
-        The same list (mutated in-place)
-    """
-    for gani_track in gani_tracks:
-        if len(gani_track.segments_track_data) <= 1:
-            continue  # Single-segment or empty: no suffix needed
-        for segment_blob in gani_track.segments_track_data:
-            # Only apply suffix for segment index > 0; segment 0 is the base name
-            if segment_blob.segment_index > 0:
-                segment_blob.name = f"{segment_blob.name}_{segment_blob.segment_index}"
-    return gani_tracks

@@ -13,7 +13,6 @@ from bpy.props import PointerProperty, StringProperty
 
 from .blender_properties import _file_path_kwargs
 from . import blender_panel_debug_map_r
-
 from .blender_operators_debug import (
     # Transform
     MTAR_OT_InspectWorldSpaceTransform,

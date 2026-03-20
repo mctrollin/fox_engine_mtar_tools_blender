@@ -20,7 +20,8 @@ from typing import Optional
 
 import bpy
 
-from .utilities_logging import Debug
+from ..py_core.core_logging import Debug
+
 from .utilities_blender_animation import (
     assign_action_to_datablock,
     remove_action_from_datablock,

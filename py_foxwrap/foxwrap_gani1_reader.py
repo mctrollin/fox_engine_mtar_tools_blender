@@ -10,7 +10,8 @@ import io
 import struct
 from typing import Optional, List, BinaryIO, Tuple, Union, Dict
 
-from ..py_utilities.utilities_logging import Debug
+from ..py_core.core_logging import Debug
+
 from ..py_utilities.utilities_hashing import (
     unhash_gani_node,
     unhash_shader_prop,
@@ -25,9 +26,9 @@ from ..py_fox.fox_gani_constants import (
     FOXDATA_HASH_SKL_LIST, FOXDATA_HASH_MTP_LIST, FOXDATA_HASH_MTP_PARENT_LIST,
 )
 
-from .foxwrap_misc import Tracks, TrackUnitWrapper
+from .foxwrap_misc import Tracks, TrackUnitWrapper, build_gani_tracks_from_tracks
 from .foxwrap_misc_import import GaniImportData, ShaderTrackWrapper
-from .foxwrap_gani_helpers import finalize_bone_tracks, finalize_motion_point_tracks
+from .foxwrap_gani_helpers import finalize_bone_tracks, finalize_motion_point_tracks, read_evp_header
 
 
 class GaniReader:
@@ -168,8 +169,7 @@ class GaniReader:
                         if mtp_params:
                             node_params["MOTION/MTP"] = mtp_params
                 elif child_hash == FOXDATA_HASH_EVP:
-                    br.seek(child_node.payload_abs_offset(child_pos))
-                    events = EvpHeader.read(br, endian)
+                    events = read_evp_header(file_data, child_node.payload_abs_offset(child_pos), endian)
                     # Store EVP node parameters
                     if child_node.parameters_offset != 0:
                         evp_params = self._read_node_parameters(file_data, child_pos, child_node.parameters_offset, endian)
@@ -212,7 +212,7 @@ class GaniReader:
         
         # --- Convert UNIT tracks to TrackUnitWrapper list ---
         bone_tracks = finalize_bone_tracks(
-            Tracks.convert_to_gani_tracks(unit_tracks),
+            build_gani_tracks_from_tracks(unit_tracks),
             skeleton_list=skeleton_list,
             label=f"Read gani @ (0x{gani_start:X})"
         )
@@ -225,7 +225,7 @@ class GaniReader:
             # Always use decimal hash strings for motion point track names (no prefix, no unhashing).
             # This ensures FCurve bone paths match the decimal hash bone names in the motion points armature.
             # SKL_LIST/MTP_LIST name overrides are intentionally skipped here.
-            mtp_tracks = finalize_motion_point_tracks(Tracks.convert_to_gani_tracks(mtp_raw_tracks))
+            mtp_tracks = finalize_motion_point_tracks(build_gani_tracks_from_tracks(mtp_raw_tracks))
             motion_point_layout = mtp_raw_tracks
             motion_point_track_header = mtp_raw_tracks.header
         
@@ -245,19 +245,19 @@ class GaniReader:
                   f"events={'yes' if events else 'no'}, "
                   f"skeleton_list={len(skeleton_list) if skeleton_list else 0} entries")
         
-        return GaniImportData(
-            bone_tracks=bone_tracks,
-            mtp_tracks=mtp_tracks,
-            events=events,
-            layout_track=unit_tracks,
-            track_mini_header=track_mini_header,
-            motion_point_layout=motion_point_layout,
-            motion_point_track_header=motion_point_track_header,
-            shader_tracks=shader_tracks,
-            skeleton_list=skeleton_list,
-            motion_point_list=motion_point_list,
-            motion_point_parent_list=motion_point_parent_list,
-            node_params=node_params,
+        return GaniImportData.from_gani1(
+            gani_bone_tracks=bone_tracks,
+            gani_mtp_tracks=mtp_tracks,
+            gani_events=events,
+            gani_layout_track=unit_tracks,
+            gani_track_mini_header=track_mini_header,
+            gani_motion_point_layout=motion_point_layout,
+            gani_motion_point_track_header=motion_point_track_header,
+            gani1_shader_tracks=shader_tracks,
+            gani_skeleton_list=skeleton_list,
+            gani1_motion_point_list=motion_point_list,
+            gani1_motion_point_parent_list=motion_point_parent_list,
+            gani_node_params=node_params,
         )
     
     def _find_node_by_hash(

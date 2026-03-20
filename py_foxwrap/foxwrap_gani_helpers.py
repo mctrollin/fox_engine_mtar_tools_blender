@@ -1,15 +1,18 @@
 """
 Shared GANI track naming helpers used by both GANI1 and GANI2 readers.
 """
+import io
 from typing import List, Optional
+
+from ..py_core.core_logging import Debug
 
 from ..py_utilities.utilities_hashing import hash_or_parse_name, is_hash_string, unhash_rig_type
 from ..py_utilities.utilities_hashing_cityhash import strcode32
-from ..py_utilities.utilities_naming import apply_segment_suffixes
-from ..py_utilities.utilities_logging import Debug
+
+from ..py_fox.fox_misc_types import StrCode32
+from ..py_fox.fox_gani_types import EvpHeader
 
 from .foxwrap_misc import TrackUnitWrapper, TrackDataBlobWrapper
-from ..py_fox.fox_misc_types import StrCode32
 
 
 def resolve_track_name(rig_hash: StrCode32, prefix: Optional[str] = None) -> str:
@@ -88,6 +91,17 @@ def _apply_stringlist_names(
             )
 
 
+def apply_segment_suffixes(gani_tracks: List[TrackUnitWrapper]) -> List[TrackUnitWrapper]:
+    """Apply _N suffix to TrackDataBlobWrapper names for multi-segment tracks."""
+    for gani_track in gani_tracks:
+        if len(gani_track.segments_track_data) <= 1:
+            continue
+        for segment_blob in gani_track.segments_track_data:
+            if segment_blob.segment_index > 0:
+                segment_blob.name = f"{segment_blob.name}_{segment_blob.segment_index}"
+    return gani_tracks
+
+
 def finalize_bone_tracks(
     tracks: List[TrackUnitWrapper],
     skeleton_list: Optional[List[str]] = None,
@@ -106,3 +120,13 @@ def finalize_motion_point_tracks(tracks: List[TrackUnitWrapper]) -> List[TrackUn
     named = apply_track_naming(tracks, use_decimal_only=True)
     apply_segment_suffixes(named)
     return named
+
+
+def read_evp_header(file_data: bytes, offset: int, endian: str = '<') -> Optional[EvpHeader]:
+    """Read optional EVP data if an offset is present."""
+    if not offset:
+        return None
+
+    br = io.BytesIO(file_data)
+    br.seek(offset)
+    return EvpHeader.read(br, endian)

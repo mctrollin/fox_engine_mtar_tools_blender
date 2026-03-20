@@ -6,9 +6,8 @@ from typing import List, Tuple, Optional, Dict
 import bpy
 from mathutils import Euler, Matrix
 
-from ..py_foxwrap.foxwrap_misc_import import GaniImportData
 
-from .utilities_logging import Debug
+from ..py_core.core_logging import Debug
 
 
 # Shared armature creation ####################################################
@@ -29,7 +28,7 @@ def create_track_armature(
     context: 'bpy.types.Context',
     armature_name: str,
     bone_specs: List[BoneSpec],
-) -> 'bpy.types.Object':
+) -> bpy.types.Object:
     """Create a Blender armature from a list of :class:`BoneSpec` objects.
 
     All bones are created as flat stubs (head at origin, tail at +Y 0.1).
@@ -77,32 +76,32 @@ def create_track_armature(
 
 # Rest Pose Utilities #############################################################
 
-def gather_known_bone_names_from_tracks(all_gani_tracks: List[List] | List[GaniImportData]) -> set:
-    """Gather all bone names that exist in track data.
+# def gather_known_bone_names_from_tracks(all_gani_tracks: List[List] | List[GaniImportData]) -> set:
+#     """Gather all bone names that exist in track data.
     
-    The input may be either the legacy ``List[List[TrackUnitWrapper]]`` or a
-    list of :class:`GaniImportData` objects.  If ``GaniImportData`` objects are
-    provided, their ``bone_tracks`` lists are used internally.
+#     The input may be either the legacy ``List[List[TrackUnitWrapper]]`` or a
+#     list of :class:`GaniImportData` objects.  If ``GaniImportData`` objects are
+#     provided, their ``bone_tracks`` lists are used internally.
     
-    Args:
-        all_gani_tracks: Either raw track lists or a list of GaniImportData objects.
+#     Args:
+#         all_gani_tracks: Either raw track lists or a list of GaniImportData objects.
         
-    Returns:
-        Set of bone names found in the track data
-    """
-    # normalize to list-of-lists
-    if all_gani_tracks and isinstance(all_gani_tracks[0], GaniImportData):
-        track_lists = [d.bone_tracks for d in all_gani_tracks]
-    else:
-        track_lists = all_gani_tracks  # type: ignore
+#     Returns:
+#         Set of bone names found in the track data
+#     """
+#     # normalize to list-of-lists
+#     if all_gani_tracks and isinstance(all_gani_tracks[0], GaniImportData):
+#         track_lists = [d.gani_bone_tracks for d in all_gani_tracks]
+#     else:
+#         track_lists = all_gani_tracks  # type: ignore
 
-    known_bone_names = set()
-    for gani_tracks in track_lists:
-        for track_unit in gani_tracks:
-            for track_blob in track_unit.segments_track_data:
-                if track_blob.name:
-                    known_bone_names.add(track_blob.name)
-    return known_bone_names
+#     known_bone_names = set()
+#     for gani_tracks in track_lists:
+#         for track_unit in gani_tracks:
+#             for track_blob in track_unit.segments_track_data:
+#                 if track_blob.name:
+#                     known_bone_names.add(track_blob.name)
+#     return known_bone_names
 
 
 def gather_known_bone_names_from_mapping(track_segment_bone_mapping) -> set:
@@ -126,7 +125,7 @@ def gather_known_bone_names_from_mapping(track_segment_bone_mapping) -> set:
     return known_bone_names
 
 
-def find_known_parent_bone(bone: 'bpy.types.Bone', known_bone_names: set) -> Tuple[Optional['bpy.types.Bone'], List[str]]:
+def find_known_parent_bone(bone: bpy.types.Bone, known_bone_names: set) -> Tuple[Optional[bpy.types.Bone], List[str]]:
     """Walk up parent chain to find the nearest parent bone that exists in the known bone set.
     
     This is used to skip Blender utility/helper bones (like Rigify control bones) when
@@ -154,7 +153,7 @@ def find_known_parent_bone(bone: 'bpy.types.Bone', known_bone_names: set) -> Tup
     return None, skipped_bones
 
 
-def extract_rest_pose_rotation(bone: 'bpy.types.Bone', is_world_space: bool, known_bone_names: set) -> Tuple[Euler, str]:
+def extract_rest_pose_rotation(bone: bpy.types.Bone, is_world_space: bool, known_bone_names: set) -> Tuple[Euler, str]:
     """Extract rest pose rotation from a bone in either world space or local space.
     
     For world space bones (ORIENTATION, TWO_BONE, ARM), returns the bone's rotation
@@ -201,7 +200,7 @@ def extract_rest_pose_rotation(bone: 'bpy.types.Bone', is_world_space: bool, kno
 
 # Auxiliary Armature Detection Helpers #############################################################
 
-def auto_detect_motion_points_armature(main_armature: 'bpy.types.Object') -> Optional['bpy.types.Object']:
+def auto_detect_motion_points_armature(main_armature: bpy.types.Object) -> Optional[bpy.types.Object]:
     """Return a motion-points armature associated with *main_armature*.
 
     Detection order:
@@ -231,7 +230,7 @@ def auto_detect_motion_points_armature(main_armature: 'bpy.types.Object') -> Opt
     return None
 
 
-def auto_detect_shader_nodes_armature(main_armature: 'bpy.types.Object') -> Optional['bpy.types.Object']:
+def auto_detect_shader_nodes_armature(main_armature: bpy.types.Object) -> Optional[bpy.types.Object]:
     """Return a shader-nodes armature associated with *main_armature*.
 
     The same rules as :func:`auto_detect_motion_points_armature` apply but with
@@ -255,7 +254,7 @@ def auto_detect_shader_nodes_armature(main_armature: 'bpy.types.Object') -> Opti
     return None
 
 
-def auto_detect_aux_armatures(main_armature: 'bpy.types.Object') -> tuple[Optional['bpy.types.Object'], Optional['bpy.types.Object']]:
+def auto_detect_aux_armatures(main_armature: bpy.types.Object) -> tuple[Optional[bpy.types.Object], Optional[bpy.types.Object]]:
     """Shortcut that returns ``(motion_points, shader_nodes)`` armatures.
 
     This is mostly for callers that need to look up both objects at once.
@@ -274,7 +273,7 @@ def auto_detect_aux_armatures(main_armature: 'bpy.types.Object') -> tuple[Option
 # They are attached for auto-detection purposes only.
 # The main export armature is never detached and should not be attached to anything.
 
-def detach_armature_for_export(armature: 'bpy.types.Object') -> Optional[bpy.types.Object]:
+def detach_armature_for_export(armature: bpy.types.Object) -> Optional[bpy.types.Object]:
     """Detach an armature from its parent and clear its transforms.
 
     This ensures auxiliary armatures export with an identity world transform regardless
@@ -294,7 +293,7 @@ def detach_armature_for_export(armature: 'bpy.types.Object') -> Optional[bpy.typ
     return parent
 
 
-def restore_armature_after_export(armature: 'bpy.types.Object', parent: Optional[bpy.types.Object]) -> None:
+def restore_armature_after_export(armature: bpy.types.Object, parent: Optional[bpy.types.Object]) -> None:
     """Restore an armature's parent and clear transforms.
 
     The armature will remain at identity transform after restore (as intended for
@@ -308,7 +307,7 @@ def restore_armature_after_export(armature: 'bpy.types.Object', parent: Optional
 
 # Pose Bone Utilities #########################################################
 
-def clear_rest_pose_from_bone(pose_bone: 'bpy.types.PoseBone') -> None:
+def clear_rest_pose_from_bone(pose_bone: bpy.types.PoseBone) -> None:
     """Place the given pose bone at the armature origin by setting its matrix to identity.
 
     This makes the bone's world transform match its parent armature's world transform.

@@ -17,7 +17,8 @@ from typing import Optional, List, Dict, Tuple
 
 import bpy
 
-from ..py_utilities.utilities_logging import Debug
+from ..py_core.core_logging import Debug
+
 from ..py_utilities.utilities_hashing import is_gani_path_a_hash
 from ..py_utilities.utilities_blender_animation import (
     configure_action,
@@ -31,19 +32,20 @@ from ..py_utilities.utilities_naming import (
     extract_gani_name_from_path,
 )
 
-from ..py_foxwrap.foxwrap_metadata import (
-    TrackMetaData,
-    store_track_header_properties_on_action,
-    store_track_metadata_on_action,
-)
-from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper, Tracks
-from ..py_foxwrap.foxwrap_motionpoint import MotionPointWrapper
-
 from ..py_fox.fox_gani_types import TrackHeader
 from ..py_fox.fox_mtar_types import MtarTableList2
 from ..py_fox import fox_mtar_constants as mtar_const
 
+from ..py_foxwrap.foxwrap_metadata import (
+    build_track_metadata_from_layout_track_units,
+    store_track_header_properties_on_action,
+    store_track_metadata_on_action,
+)
+from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper, Tracks
+from ..py_foxwrap.foxwrap_motionpoint_types import MotionPointWrapper
+
 from .tools_gani_track_importer import import_gani_track
+
 
 
 # ---------------------------------------------------------------------------
@@ -256,7 +258,7 @@ def create_motion_points_animation_actions(
         # Store track metadata
         motion_point_layout = all_motion_point_layouts[gani_index]
         if motion_point_layout is not None:
-            track_metadata_list = TrackMetaData.from_layout_track_units(
+            track_metadata_list = build_track_metadata_from_layout_track_units(
                 motion_point_layout.track_units,
                 track_name_prefix="MotionPoint",
             )

@@ -11,7 +11,8 @@ from typing import Optional, List, Dict, Union
 import bpy
 from mathutils import Quaternion, Vector
 
-from ..py_utilities.utilities_logging import Debug
+from ..py_core.core_logging import Debug
+
 from ..py_utilities.utilities_transforms import (
     calculate_directional_location,
     prepare_rotation_offset_quats,
@@ -26,8 +27,10 @@ from ..py_utilities.utilities_blender_animation import (
     ensure_action_fcurve,
     build_data_path_for_bone,
 )
-from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper, TrackDataBlobWrapper
+
 from ..py_fox.fox_gani_types import SegmentType
+
+from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper, TrackDataBlobWrapper
 from ..py_foxwrap.foxwrap_mapping import ARMATURE_TARGET_NAME
 
 

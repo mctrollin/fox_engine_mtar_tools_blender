@@ -8,7 +8,8 @@ import traceback
 import bpy
 from bpy.types import Operator, Context
 
-from .py_utilities.utilities_logging import Debug
+from .py_core.core_logging import Debug
+
 from .py_utilities.utilities_blender_state import nla_tweak_guard
 from .py_utilities.utilities_parsing import parse_index_selection
 from .py_utilities.utilities_blender_animation import try_find_layout_track_action

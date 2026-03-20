@@ -18,7 +18,7 @@ from bpy.types import Operator, Context
 from bpy.props import StringProperty
 
 from .py_utilities.utilities_transforms import get_world_space_transform, get_local_space_transform
-from .py_utilities.utilities_logging import Debug
+from .py_core.core_logging import Debug
 from .py_utilities.utilities_debug import create_or_update_dummy_object
 from .py_utilities.utilities_blender_animation import assign_action_to_datablock, try_find_layout_track_action, remove_action_from_datablock
 from .py_utilities.utilities_fcurve_processing import decimate_import_fcurves_to_bezier, debug_setup_graph_context_for_manual_test

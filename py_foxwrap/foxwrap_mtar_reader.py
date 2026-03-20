@@ -5,6 +5,8 @@ import io
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
+from ..py_core.core_logging import Debug
+
 from ..py_fox.fox_mtar_types import (
     MtarHeader,
     MtarTableList2,
@@ -16,8 +18,6 @@ from .foxwrap_gani2_reader import Gani2Reader
 from .foxwrap_gani1_reader import GaniReader
 from .foxwrap_misc import Tracks
 from .foxwrap_misc_import import CommonInfo, GaniImportData
-
-from ..py_utilities.utilities_logging import Debug
 
 
 @dataclass
@@ -262,17 +262,19 @@ class MtarReader:
                     layout_track=self.common_info.layout_track,
                     file_header=file_header,
                     track_count=header.track_count,
-                    is_new_format=True
+                    is_new_format=True,
+                    skeleton_list=self.common_info.skeleton_list if self.common_info else None,
                 )
-                import_data = GaniImportData(
-                    bone_tracks=gani_tracks,
-                    mtp_tracks=motion_point_gani_tracks,
-                    events=motion_events,
-                    layout_track=self.common_info.layout_track,  # Reference to shared layout
-                    track_mini_header=track_mini_header,
-                    motion_point_layout=motion_point_layout,
-                    motion_point_track_header=motion_point_track_header,
+                import_data = GaniImportData.from_gani2(
+                    gani_bone_tracks=gani_tracks,
+                    gani_mtp_tracks=motion_point_gani_tracks,
+                    gani_events=motion_events,
+                    gani_layout_track=self.common_info.layout_track,
+                    gani_track_mini_header=track_mini_header,
+                    gani_motion_point_layout=motion_point_layout,
+                    gani_motion_point_track_header=motion_point_track_header,
                     file_header=file_header,
+                    gani_skeleton_list=self.common_info.skeleton_list if self.common_info else None,
                 )
             else:
                 # Old format: use GaniReader with embedded FoxData layout
@@ -290,7 +292,7 @@ class MtarReader:
                 # possible segment types; the FCurve-presence check in the exporter
                 # will then correctly filter out segments absent from individual GANIs.
                 # ALWAYS append (even None) to maintain 1:1 index correspondence with GANI indices
-                candidate = import_data.layout_track
+                candidate = import_data.gani_layout_track
                 self.all_gani_layout_tracks.append(candidate)  # Preserve all per-GANI layouts (including None)
                 if candidate is not None:
                     if (self.layout_track is None or

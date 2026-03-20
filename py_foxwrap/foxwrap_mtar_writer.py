@@ -10,7 +10,8 @@ import io
 
 import bpy
 
-from ..py_utilities.utilities_logging import Debug
+from ..py_core.core_logging import Debug
+
 from ..py_utilities.utilities_binary_write import align_buffer, write_padding
 from ..py_utilities.utilities_hashing import is_gani_path_a_hash, parse_gani_hash_str
 
@@ -18,11 +19,12 @@ from ..py_fox.fox_mtar_types import MtarHeader, MtarTableList2, MtarTableList, M
 from ..py_fox.fox_gani_enums import CommonInfoNodeType, TrackUnitFlags
 from ..py_fox.fox_gani_types import TrackHeader, TrackUnit, TrackData
 from ..py_fox.fox_misc_types import StrCode32
+from ..py_fox import fox_gani_constants as gani_const
+from ..py_fox import fox_mtar_constants as mtar_const
 
 from .foxwrap_gani2_writer import Gani2Writer
 from .foxwrap_gani1_writer import GaniWriter
 from .foxwrap_misc import Tracks, TrackUnitWrapper
-from .foxwrap_misc_export import GaniExportData
 from .foxwrap_metadata import (
     read_track_header_properties_from_action,
     parse_foxdata_stringlist_from_action,
@@ -31,8 +33,6 @@ from .foxwrap_metadata import (
     PROP_MTP_PARENT_LIST,
     PROP_NO_SKL_LIST,
 )
-from ..py_fox import fox_gani_constants as gani_const
-from ..py_fox import fox_mtar_constants as mtar_const
 
 from ..py_tools.tools_hash_generator import hash_animation_name_from_blender_context
 

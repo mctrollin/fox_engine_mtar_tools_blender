@@ -4,7 +4,8 @@ GANI2 animation data import functionality for Metal Gear Solid V files.
 import io
 from typing import List, Optional, Tuple
 
-from ..py_utilities.utilities_logging import Debug
+from ..py_core.core_logging import Debug
+
 from ..py_utilities.utilities_hashing import unhash_param_name
 from ..py_utilities.utilities_binary_write import align_length
 
@@ -21,14 +22,14 @@ from ..py_fox.fox_gani_types import (
     EvpHeader,
 )
 
-from .foxwrap_misc import Tracks, TrackDataBlobWrapper, TrackUnitWrapper
-from .foxwrap_gani_helpers import finalize_bone_tracks, finalize_motion_point_tracks
+from .foxwrap_misc_types import Tracks, TrackDataBlobWrapper, TrackUnitWrapper
+from .foxwrap_gani_helpers import read_evp_header, finalize_bone_tracks, finalize_motion_point_tracks
 
 
 class Gani2Reader:
     """Reader for GANI2 animation data."""
 
-    def read_gani(self, file_data: bytes, layout_track: Tracks, file_header: MtarTableList2, track_count: int, is_new_format: bool) -> Tuple[List[TrackUnitWrapper], List[TrackUnitWrapper], Optional[EvpHeader], TrackMiniHeader, Optional[Tracks], Optional[TrackHeader]]:
+    def read_gani(self, file_data: bytes, layout_track: Tracks, file_header: MtarTableList2, track_count: int, is_new_format: bool, skeleton_list: Optional[List[str]] = None) -> Tuple[List[TrackUnitWrapper], List[TrackUnitWrapper], Optional[EvpHeader], TrackMiniHeader, Optional[Tracks], Optional[TrackHeader]]:
         """Read GANI data from a byte buffer.
         
         Args:
@@ -37,6 +38,7 @@ class Gani2Reader:
             file_header: MTAR file header with offsets
             track_count: Number of tracks to read
             is_new_format: Whether this is new MTAR format
+            skeleton_list: Optional skeleton names list for bone name resolution
             
         Returns:
             Tuple of (gani_tracks, motion_point_tracks, motion_events, track_mini_header, motion_point_layout, motion_point_track_header)
@@ -61,7 +63,7 @@ class Gani2Reader:
         motion_point_track_header: Optional[TrackHeader] = None
         
         # Apply naming resolution and suffixes to bone tracks
-        named_gani_tracks = finalize_bone_tracks(gani_tracks)
+        named_gani_tracks = finalize_bone_tracks(gani_tracks, skeleton_list=skeleton_list)
 
         motion_events: Optional[EvpHeader] = None
         if is_new_format:
@@ -83,17 +85,15 @@ class Gani2Reader:
                 motion_point_track_header = motion_point_layout.header
                 
                 # Convert TrackUnits with data_blobs to GaniTrack format
-                motion_point_gani_tracks_raw = self.convert_tracks_to_gani_tracks(motion_point_layout)
+                motion_point_gani_tracks_raw = build_gani_tracks_from_tracks(motion_point_layout)
                 Debug.log(f"      Read {len(motion_point_gani_tracks_raw)} motion point track(s)")
                 
                 # Apply naming resolution and suffixes to motion point tracks
                 motion_point_gani_tracks = finalize_motion_point_tracks(motion_point_gani_tracks_raw)
 
             # MotionEvents: Handle motion events if present
-            br = io.BytesIO(file_data)
-            if file_header.motion_events_offset != 0:
-                br.seek(file_header.motion_events_offset)
-                motion_events = EvpHeader.read(br)
+            motion_events = read_evp_header(file_data, file_header.motion_events_offset)
+            if motion_events is not None:
                 Debug.log(f"      Read motion events: {motion_events.count} event(s)")
 
         Debug.log(f"    GANI read complete: {len(named_gani_tracks)} named track(s)")
@@ -268,11 +268,11 @@ class Gani2Reader:
 
     def convert_tracks_to_gani_tracks(self, tracks: Tracks) -> List[TrackUnitWrapper]:
         """Convert a Tracks structure (with populated data_blobs) to TrackUnitWrapper format.
-        
-        DEPRECATED: Use Tracks.convert_to_gani_tracks() (static method) instead.
+
+        DEPRECATED: Use build_gani_tracks_from_tracks() instead.
         This method is kept for backward compatibility only.
         """
-        return Tracks.convert_to_gani_tracks(tracks)
+        return build_gani_tracks_from_tracks(tracks)
 
     def read_all_motion_tracks(self, file_data: bytes, motion_tracks_ptr: int) -> List[TrackUnit]:
         """Read motion point tracks block and return a list of TrackUnit objects.
@@ -291,5 +291,4 @@ class Gani2Reader:
             units.append(TrackUnit.read(br))
 
         return units
-
 

@@ -28,7 +28,8 @@ from typing import Optional, List, Dict, Tuple
 
 import bpy
 
-from ..py_utilities.utilities_logging import Debug
+from ..py_core.core_logging import Debug
+
 from ..py_utilities.utilities_blender_animation import (
     configure_action,
     assign_action_to_datablock,
@@ -38,10 +39,14 @@ from ..py_utilities.utilities_blender_armature import BoneSpec, create_track_arm
 from ..py_utilities.utilities_naming import (
     format_action_name,
     resolve_gani_name_segment,
-    apply_segment_suffixes,
 )
+from ..py_foxwrap.foxwrap_gani_helpers import apply_segment_suffixes
 
-from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper, Tracks
+from ..py_fox.fox_mtar_types import MtarTableList2
+from ..py_fox import fox_mtar_constants as mtar_const
+from ..py_fox import fox_gani_constants as gani_const
+
+from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper, build_gani_tracks_from_tracks
 from ..py_foxwrap.foxwrap_misc_import import ShaderTrackWrapper
 from ..py_foxwrap.foxwrap_gani_helpers import apply_track_naming
 from ..py_foxwrap.foxwrap_metadata import (
@@ -49,10 +54,6 @@ from ..py_foxwrap.foxwrap_metadata import (
     store_track_metadata_on_action,
     store_node_params_on_action,
 )
-
-from ..py_fox.fox_mtar_types import MtarTableList2
-from ..py_fox import fox_mtar_constants as mtar_const
-from ..py_fox import fox_gani_constants as gani_const
 
 from .tools_gani_track_importer import import_gani_track
 from .tools_motion_points_importer import create_nla_strips_for_actions
@@ -112,7 +113,7 @@ def _convert_shader_track_to_unit_wrappers(
     # the unit hashes are not in the rig/gani dictionaries and decimal preserves
     # the original StrCode32 value needed for export round-trip).
     gani_tracks: List[TrackUnitWrapper] = apply_track_naming(
-        Tracks.convert_to_gani_tracks(shader_track.tracks),
+        build_gani_tracks_from_tracks(shader_track.tracks),
         use_decimal_only=True,
     )
     apply_segment_suffixes(gani_tracks)

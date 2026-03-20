@@ -10,7 +10,8 @@ from typing import List, Set, Optional, Dict, Any, Tuple
 import bpy  # type: ignore[import]
 from mathutils import Quaternion  # type: ignore[import]
 
-from .utilities_logging import Debug
+from ..py_core.core_logging import Debug
+
 from .utilities_blender_animation import (
     iter_action_fcurves,
     action_has_fcurves,
@@ -22,8 +23,6 @@ from .utilities_blender_animation import (
     MTAR_ARMATURE_SLOT_NAME,
     )
 from .utilities_blender_state import switch_context
-
-from ..py_foxwrap.foxwrap_metadata import extract_fox_bone_to_rig_unit_type_mapping
 
 
 

@@ -38,7 +38,8 @@ import io
 import struct
 from typing import Optional, List, Tuple, Union, Dict
 
-from ..py_utilities.utilities_logging import Debug
+from ..py_core.core_logging import Debug
+
 from ..py_utilities.utilities_binary_write import align_buffer
 from ..py_utilities.utilities_hashing import is_hash_string, hash_or_parse_name
 from ..py_utilities.utilities_hashing_cityhash import strcode32
@@ -61,6 +62,7 @@ from ..py_fox.fox_gani_constants import (
 )
 
 from .foxwrap_misc import TrackUnitWrapper, Tracks, is_root_motion_track
+
 
 # FoxDataHeader.flags bit 0: set when no SKL_LIST node is written
 _GANI_HEADER_FLAGS_NO_SKEL_LIST: int = 1

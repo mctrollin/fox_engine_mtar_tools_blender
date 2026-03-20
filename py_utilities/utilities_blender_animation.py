@@ -3,13 +3,13 @@
 This module contains helper functions for manipulating Blender actions,
 FCurves, keyframes, and other animation-related structures.
 """
-from contextlib import ExitStack, contextmanager
-
+from contextlib import contextmanager
 from typing import Optional, Dict, Generator, List, Iterator, Set, Tuple
 
 import bpy
 
-from .utilities_logging import Debug
+from ..py_core.core_logging import Debug
+
 
 # Global constants
 MTAR_ARMATURE_SLOT_NAME = 'mtar_import_armature'

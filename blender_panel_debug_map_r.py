@@ -6,7 +6,8 @@ from math import radians
 import bpy
 from mathutils import Quaternion, Euler
 
-from .py_utilities.utilities_logging import Debug
+from .py_core.core_logging import Debug
+
 from .py_utilities.utilities_blender_armature import extract_rest_pose_rotation
 
 

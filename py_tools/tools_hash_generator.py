@@ -11,7 +11,8 @@ from pathlib import Path
 
 import bpy
 
-from ..py_utilities.utilities_logging import Debug
+from ..py_core.core_logging import Debug
+
 from ..py_utilities.utilities_hashing_cityhash import (hash_file_name_with_ext,
                                                        hash_file_name,
                                                        hash_file_extension,

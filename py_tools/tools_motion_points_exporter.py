@@ -17,7 +17,8 @@ from typing import List, Dict
 
 import bpy
 
-from ..py_utilities.utilities_logging import Debug
+from ..py_core.core_logging import Debug
+
 from ..py_utilities.utilities_blender_animation import (
     iter_action_fcurves,
     is_relevant_strip,
@@ -25,8 +26,9 @@ from ..py_utilities.utilities_blender_animation import (
 )
 
 from ..py_foxwrap.foxwrap_metadata import TrackMetaData
-from ..py_foxwrap.foxwrap_misc_export import ExportActionData, collect_armature_actions, build_track_metadata_dict_from_fcurves
-from ..py_foxwrap.foxwrap_motionpoint import MotionPointWrapper, MotionPointEntryWrapper
+from ..py_foxwrap.foxwrap_misc_export_types import ExportActionData
+from ..py_foxwrap.foxwrap_misc_export import collect_armature_actions, build_track_metadata_dict_from_fcurves
+from ..py_foxwrap.foxwrap_motionpoint_types import MotionPointWrapper, MotionPointEntryWrapper
 
 
 def build_motion_points_list_from_armature(

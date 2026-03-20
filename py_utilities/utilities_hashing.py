@@ -5,7 +5,9 @@ import os
 from typing import Optional, Dict, Set
 
 from .utilities_hashing_cityhash import strcode32
-from .utilities_logging import Debug
+
+from ..py_core.core_logging import Debug
+
 
 # Unified StrCode32 cache: hash value → name string
 _strcode32_cache: Dict[int, str] = {}

@@ -27,7 +27,7 @@ from ..py_utilities.utilities_binary_write import (
     align_buffer,
     align_bytearray,
 )
-from ..py_utilities.utilities_logging import Debug
+from ..py_core.core_logging import Debug
 from ..py_utilities.utilities_transforms import make_quaternion_list_compatible
 
 

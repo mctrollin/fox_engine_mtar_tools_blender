@@ -11,7 +11,7 @@ from typing import List, Optional, Tuple, Union, Dict, Set
 import bpy
 from mathutils import Vector, Quaternion, Euler
 
-from .utilities_logging import Debug
+from ..py_core.core_logging import Debug
 
 
 class TransformsCacheError(RuntimeError):
