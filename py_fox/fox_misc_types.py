@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import struct
 import ctypes
 
-from ..py_utilities.utilities_hashing_cityhash import strcode32
+from ..py_utilities import util_hashing_cityhash
 
 # Type aliases for clarity
 ubyte = ctypes.c_ubyte
@@ -43,7 +43,7 @@ class StrCode32:
             return cls(int(text))
         except ValueError:
             # Hash any string using the StrCode32 algorithm
-            return cls(strcode32(text))
+            return cls(util_hashing_cityhash.strcode32(text))
     
     def to_int(self) -> int:
         """Get the integer value."""

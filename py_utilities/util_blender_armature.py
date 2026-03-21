@@ -1,6 +1,5 @@
 """Blender armature utility functions."""
 
-from dataclasses import dataclass
 from typing import List, Tuple, Optional, Dict
 
 import bpy
@@ -9,23 +8,14 @@ from mathutils import Euler, Matrix
 
 from ..py_core.core_logging import Debug
 
+from .util_blender_armature_types import BoneSpec
+
 
 # Shared armature creation ####################################################
 
-@dataclass
-class BoneSpec:
-    """Specification for a single bone to be created in an armature.
-
-    Attributes:
-        name:        Bone name.
-        parent_name: Name of the parent bone, or ``None`` for a root bone.
-    """
-    name: str
-    parent_name: Optional[str] = None
-
 
 def create_track_armature(
-    context: 'bpy.types.Context',
+    context: bpy.types.Context,
     armature_name: str,
     bone_specs: List[BoneSpec],
 ) -> bpy.types.Object:
@@ -76,6 +66,7 @@ def create_track_armature(
 
 # Rest Pose Utilities #############################################################
 
+# TODO check if we don't need this function anymore or why it was not used
 # def gather_known_bone_names_from_tracks(all_gani_tracks: List[List] | List[GaniImportData]) -> set:
 #     """Gather all bone names that exist in track data.
     

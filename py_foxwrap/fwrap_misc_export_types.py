@@ -7,15 +7,15 @@ import bpy
 
 from ..py_core.core_logging import Debug
 
-from ..py_utilities.utilities_parsing import parse_segment_suffix
+from ..py_utilities import util_parsing
 
 from ..py_fox.fox_gani_types import TrackUnitFlags, EvpHeader
 
-from .foxwrap_mapping_types import BoneParameters
-from .foxwrap_metadata_types import TrackMetaData
-from .foxwrap_metadata import parse_gani_params_from_action
-from .foxwrap_misc import TrackUnitWrapper, Tracks
-from .foxwrap_gani2_writer import Gani2Writer
+from .fwrap_mapping_types import BoneParameters
+from .fwrap_metadata_types import TrackMetaData
+from . import fwrap_metadata
+from .fwrap_misc_types import TrackUnitWrapper, Tracks
+from .fwrap_gani2_writer import Gani2Writer
 
 
 @dataclass
@@ -119,7 +119,7 @@ class GaniExportData:
                     segment_bit_sizes_per_file.append(0)
 
         if self.tracks_data.action is not None:
-            motion_params = parse_gani_params_from_action(self.tracks_data.action)
+            motion_params = fwrap_metadata.parse_gani_params_from_action(self.tracks_data.action)
         elif self.node_params is not None:
             motion_params = self.node_params.get("MOTION", [])
         else:
@@ -355,7 +355,7 @@ class TrackSegmentBoneMapping:
             fox_track_name = bone_parameters.fox_name
             
             # Strip multi-segment suffix if present
-            base_fox_track_name, _ = parse_segment_suffix(fox_track_name)
+            base_fox_track_name, _ = util_parsing.parse_segment_suffix(fox_track_name)
             
             # Look up expected segment count from layout metadata
             if base_fox_track_name in metadata_dict:

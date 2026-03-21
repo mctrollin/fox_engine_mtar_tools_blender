@@ -3,9 +3,9 @@ from typing import List, BinaryIO
 from enum import IntEnum
 import struct
 
-from .fox_misc_types import PathCode64, StrCode32
-
 from ..py_core.core_logging import Debug
+
+from .fox_misc_types import PathCode64, StrCode32
 
 
 class MtarFlags(IntEnum):

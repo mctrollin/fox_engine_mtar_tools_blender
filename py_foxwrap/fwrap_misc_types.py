@@ -1,7 +1,7 @@
 ﻿from dataclasses import dataclass
 from typing import BinaryIO, List, Optional
 
-from ..py_utilities.utilities_binary_write import write_padding, align_length
+from ..py_utilities import util_binary_write
 
 from ..py_fox.fox_gani_types import TrackHeader, TrackUnit, TrackUnitFlags, TrackData, TrackDataBlob, AnimKeyframe
 from ..py_fox.fox_frig_types import RigUnitType
@@ -147,7 +147,7 @@ class Tracks:
         header_and_offsets = TrackHeader.BASE_SIZE + (self.header.unit_count * 4)
         after_padding = header_and_offsets + 12
         # Align to 8 bytes: round up to next multiple of 8
-        header_size = align_length(after_padding, 8)
+        header_size = util_binary_write.align_length(after_padding, 8)
         
         # Calculate unit offsets if not already set
         if not self.header.unit_offsets or len(self.header.unit_offsets) != len(self.track_units):
@@ -199,7 +199,7 @@ class Tracks:
             
             # Pad to expected offset if needed
             if current_pos < expected_offset:
-                write_padding(bw, expected_offset - current_pos)
+                util_binary_write.write_padding(bw, expected_offset - current_pos)
             
             track_unit.write(bw)
         

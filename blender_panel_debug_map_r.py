@@ -8,7 +8,7 @@ from mathutils import Quaternion, Euler
 
 from .py_core.core_logging import Debug
 
-from .py_utilities.utilities_blender_armature import extract_rest_pose_rotation
+from .py_utilities import util_blender_armature
 
 
 class MTAR_PT_DebugMapRPanel(bpy.types.Panel):
@@ -253,7 +253,7 @@ class MTAR_OT_DebugAnalyzeMapR(bpy.types.Operator):
             bone = armature.data.bones[bone_name]
             
             # Extract rest pose as Euler angles (world space)
-            rest_pose_euler, _ = extract_rest_pose_rotation(
+            rest_pose_euler, _ = util_blender_armature.extract_rest_pose_rotation(
                 bone=bone,
                 is_world_space=True,
                 known_bone_names=set()  # Empty set - not used when is_world_space=True
@@ -296,7 +296,7 @@ class MTAR_OT_DebugAnalyzeMapR(bpy.types.Operator):
             
             Debug.log(f"\nGenerated map_r parameter: {map_r_param}")
             
-            Debug.log(f"\nApplying map_r to test keyframe...")
+            Debug.log("\nApplying map_r to test keyframe...")
             
             # Input quaternion is already in Blender format (after import)
             # So we just need to apply the Euler rotation, not convert from Fox
@@ -546,14 +546,14 @@ class MTAR_OT_DebugApplyInvertedRestPose(bpy.types.Operator):
             # Apply as local rotation to the bone
             pose_bone.rotation_quaternion = inverted_quat
             
-            Debug.log(f"Applied inverted rotation to bone's local rotation")
+            Debug.log("Applied inverted rotation to bone's local rotation")
             Debug.log(f"After applying: bone local rotation = {pose_bone.rotation_quaternion}")
             Debug.log("Note: If rest pose extraction was correct, the bone should now have ~zero local rotation")
             Debug.log("(The combined world space = rest pose × inverted rest pose = identity)")
             Debug.log("=" * 60)
             
             Debug.report_and_log(self, 'INFO', f"Applied inverted rest pose to '{bone_name}'")
-            props.debug_log = f"✓ Applied inverted rest pose to verify extraction"
+            props.debug_log = "✓ Applied inverted rest pose to verify extraction"
             
         except (RuntimeError, KeyError, AttributeError) as e:
             Debug.report_and_log(self, 'ERROR', f"Error: {str(e)}")
@@ -605,12 +605,12 @@ class MTAR_OT_DebugApplyMappedRotation(bpy.types.Operator):
             # Apply as local rotation to the bone
             pose_bone.rotation_quaternion = mapped_quat
             
-            Debug.log(f"Applied mapped rotation to bone's local rotation")
+            Debug.log("Applied mapped rotation to bone's local rotation")
             Debug.log(f"Bone now has rotation: {pose_bone.rotation_quaternion}")
             Debug.log("=" * 60)
             
             Debug.report_and_log(self, 'INFO', f"Applied mapped rotation to '{bone_name}'")
-            props.debug_log = f"✓ Applied mapped rotation to bone"
+            props.debug_log = "✓ Applied mapped rotation to bone"
             
         except (RuntimeError, KeyError, AttributeError) as e:
             Debug.report_and_log(self, 'ERROR', f"Apply mapped rotaton error: {str(e)}")

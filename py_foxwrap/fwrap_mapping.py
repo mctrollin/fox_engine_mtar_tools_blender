@@ -9,14 +9,9 @@ from typing import Dict, Tuple, Optional
 
 from ..py_core.core_logging import Debug
 
-from .foxwrap_mapping_types import TransformConstraintEntry, BoneParameters, TrackMappingData
+from .fwrap_mapping_types import TransformConstraintEntry, BoneParameters, TrackMappingData
 
-from .foxwrap_metadata import (
-    parse_offset_r_parameter,
-    parse_map_r_parameter,
-    parse_space_parameter,
-    parse_as_ik_up_parameter,
-)
+from . import fwrap_metadata
 
 # Reserved mapping target name: routes the track's keyframes to the armature
 # object itself (object-level FCurves) instead of a pose bone.  Bracket syntax
@@ -90,7 +85,7 @@ def parse_mapping_line(line: str, line_num: int) -> Optional[Tuple[str, dict]]:
             
             # Handle different parameter types
             if param_name == 'offset_r':
-                result = parse_offset_r_parameter(param_value)
+                result = fwrap_metadata.parse_offset_r_parameter(param_value)
                 if result:
                     # Support multiple offset_r parameters - store as list
                     if 'rotation_offset' not in mapping_data:
@@ -102,14 +97,14 @@ def parse_mapping_line(line: str, line_num: int) -> Optional[Tuple[str, dict]]:
                     Debug.log(f"  Mapping '{from_name}' -> '{to_name}' with rotation offset #{offset_index}: ({euler[0]}, {euler[1]}, {euler[2]}) {order}")
             
             elif param_name == 'map_r':
-                result = parse_map_r_parameter(param_value)
+                result = fwrap_metadata.parse_map_r_parameter(param_value)
                 if result:
                     mapping_data['rotation_axis_map'] = result
                     map_str = ','.join([('-' if m['negate'] else '') + m['axis'] for m in result])
                     Debug.log(f"  Mapping '{from_name}' -> '{to_name}' with rotation axis map ({map_str})")
             
             elif param_name == 'space_r':
-                result = parse_space_parameter(param_value)
+                result = fwrap_metadata.parse_space_parameter(param_value)
                 if result:
                     mapping_data['space_r'] = result
                     if result.get('space') == 'CUSTOM':
@@ -118,7 +113,7 @@ def parse_mapping_line(line: str, line_num: int) -> Optional[Tuple[str, dict]]:
                         Debug.log(f"  Mapping '{from_name}' -> '{to_name}' with world-space rotation constraint")
             
             elif param_name == 'space_l':
-                result = parse_space_parameter(param_value)
+                result = fwrap_metadata.parse_space_parameter(param_value)
                 if result:
                     mapping_data['space_l'] = result
                     if result.get('space') == 'CUSTOM':
@@ -127,7 +122,7 @@ def parse_mapping_line(line: str, line_num: int) -> Optional[Tuple[str, dict]]:
                         Debug.log(f"  Mapping '{from_name}' -> '{to_name}' with world-space location constraint")
             
             elif param_name == 'space_ik':
-                result = parse_space_parameter(param_value)
+                result = fwrap_metadata.parse_space_parameter(param_value)
                 if result:
                     mapping_data['space_ik'] = result
                     if result.get('space') == 'CUSTOM':
@@ -136,7 +131,7 @@ def parse_mapping_line(line: str, line_num: int) -> Optional[Tuple[str, dict]]:
                         Debug.log(f"  Mapping '{from_name}' -> '{to_name}' with IK constraint space (world)")
             
             elif param_name == 'as_ik_up':
-                result = parse_as_ik_up_parameter(param_value)
+                result = fwrap_metadata.parse_as_ik_up_parameter(param_value)
                 if result:
                     mapping_data['as_ik_up'] = result
                     Debug.log(f"  Mapping '{from_name}' -> '{to_name}' as directional vector: base='{result['bone_base']}', axis={result['axis']}")

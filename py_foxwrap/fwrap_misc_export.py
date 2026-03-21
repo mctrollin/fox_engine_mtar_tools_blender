@@ -7,27 +7,15 @@ import bpy
 
 from ..py_core.core_logging import Debug
 
-from ..py_utilities.utilities_blender_animation import (
-    action_has_fcurves,
-    iter_action_fcurves,
-    is_relevant_strip,
-)
-from ..py_utilities.utilities_parsing import parse_segment_suffix
+from ..py_utilities import util_blender_animation
+from ..py_utilities import util_parsing
 
 from ..py_fox.fox_gani_types import TrackUnitFlags, SegmentType
 from ..py_fox.fox_misc_types import StrCode32
 
-from .foxwrap_metadata import (
-    TrackMetaData,
-    build_track_metadata_from_action,
-    build_track_metadata_from_fcurves,
-    merge_track_metadata,
-    iter_track_properties,
-    parse_action_track_metadata,
-    infer_segment_types_from_fcurves,
-)
-from .foxwrap_misc_export_types import ExportActionData, TrackSegmentBoneMapping
-from .foxwrap_mapping_types import BoneParameters
+from .fwrap_misc_export_types import ExportActionData, TrackSegmentBoneMapping
+from .fwrap_mapping_types import BoneParameters
+from . import fwrap_metadata
 
 
 def collect_armature_actions(
@@ -71,7 +59,7 @@ def collect_armature_actions(
             if track.mute:
                 continue
             for strip in track.strips:
-                if not is_relevant_strip(strip):
+                if not util_blender_animation.is_relevant_strip(strip):
                     if strip.action:
                         Debug.log(
                             f"    Skipping {track_type_label} strip "
@@ -94,12 +82,12 @@ def collect_armature_actions(
         Debug.log(f"  Using active action for {track_type_label}")
         action = armature.animation_data.action
 
-        if action_has_fcurves(action):
+        if util_blender_animation.action_has_fcurves(action):
             frame_start = int(
-                min(kp.co.x for fc in iter_action_fcurves(action) for kp in fc.keyframe_points)
+                min(kp.co.x for fc in util_blender_animation.iter_action_fcurves(action) for kp in fc.keyframe_points)
             )
             frame_end = int(
-                max(kp.co.x for fc in iter_action_fcurves(action) for kp in fc.keyframe_points)
+                max(kp.co.x for fc in util_blender_animation.iter_action_fcurves(action) for kp in fc.keyframe_points)
             )
         else:
             frame_start = 0
@@ -125,10 +113,10 @@ def build_track_metadata_dict_from_fcurves(
     armature: bpy.types.Object,
     action: bpy.types.Action,
     armature_label: str,
-    bone_skip_predicate: Optional[Callable[['bpy.types.Bone'], bool]] = None,
-    name_hash_extractor: Optional[Callable[[str, 'bpy.types.Bone'], Optional[int]]] = None,
+    bone_skip_predicate: Optional[Callable[[bpy.types.Bone], bool]] = None,
+    name_hash_extractor_fn: Optional[Callable[[str, bpy.types.Bone], Optional[int]]] = None,
     warn_on_missing_metadata: bool = True,
-) -> Dict[str, TrackMetaData]:
+) -> Dict[str, fwrap_metadata.TrackMetaData]:
     """Build a per-bone metadata dictionary by inspecting FCurves and stored properties.
 
     This is the shared implementation used by motion-point and shader-node export.
@@ -150,9 +138,9 @@ def build_track_metadata_dict_from_fcurves(
                                ``True`` to skip a bone entirely.  Used by the
                                shader caller to skip property-parent bones (those
                                with no parent of their own).
-        name_hash_extractor:   Optional callable ``(bone_name, bone) -> int|None``;
+        name_hash_extractor_fn: Optional callable ``(bone_name, bone) -> int|None``;
                                returns the StrCode32 hash to store in
-                               :attr:`TrackMetaData.name_hash`.  When ``None``,
+                               :attr:`fwrap_metadata.TrackMetaData.name_hash`.  When ``None``,
                                the hash is computed via
                                ``StrCode32.from_string(bone_name).to_int()``.
                                The shader caller passes a function that parses the
@@ -163,9 +151,9 @@ def build_track_metadata_dict_from_fcurves(
                                a normal debug log.
 
     Returns:
-        ``{bone_name: TrackMetaData}`` for every bone present in *action*.
+        ``{bone_name: fwrap_metadata.TrackMetaData}`` for every bone present in *action*.
     """
-    metadata_dict: Dict[str, TrackMetaData] = {}
+    metadata_dict: Dict[str, fwrap_metadata.TrackMetaData] = {}
 
     if not armature or armature.type != 'ARMATURE':
         return metadata_dict
@@ -189,11 +177,11 @@ def build_track_metadata_dict_from_fcurves(
         # deciding if the bone is present in the action at all.  We also
         # infer segment types (and default bit sizes) from the curves when
         # needed.
-        has_fcurves = action_has_fcurves(action)
+        has_fcurves = util_blender_animation.action_has_fcurves(action)
         segment_types: List[SegmentType] = []
         default_bits: Optional[List[int]] = None
         if has_fcurves:
-            segment_types, default_bits = infer_segment_types_from_fcurves(action, bone_name)
+            segment_types, default_bits = fwrap_metadata.infer_segment_types_from_fcurves(action, bone_name)
 
         # has_rotation/has_location flags used only for the old bool-based
         # detection; they are no longer needed.
@@ -202,11 +190,11 @@ def build_track_metadata_dict_from_fcurves(
         unit_flags = 0
         found_metadata_in_action = False
 
-        for _, track_name, metadata_str in iter_track_properties(action):
+        for _, track_name, metadata_str in fwrap_metadata.iter_track_properties(action):
             if track_name == bone_name:
                 found_metadata_in_action = True
                 if isinstance(metadata_str, str):
-                    parsed = parse_action_track_metadata(metadata_str)
+                    parsed = fwrap_metadata.parse_action_track_metadata(metadata_str)
                     if parsed:
                         if parsed.get('component_bit_sizes'):
                             component_bit_sizes = parsed['component_bit_sizes']
@@ -241,12 +229,12 @@ def build_track_metadata_dict_from_fcurves(
             component_bit_sizes = default_bits
 
         # Compute name hash
-        if name_hash_extractor is not None:
-            name_hash_int = name_hash_extractor(bone_name, bone)
+        if name_hash_extractor_fn is not None:
+            name_hash_int = name_hash_extractor_fn(bone_name, bone)
         else:
             name_hash_int = StrCode32.from_string(bone_name).to_int()
 
-        metadata_dict[bone_name] = TrackMetaData(
+        metadata_dict[bone_name] = fwrap_metadata.TrackMetaData(
             track_name=bone_name,
             segment_types=segment_types,
             unit_flags=unit_flags,
@@ -444,7 +432,7 @@ def group_bones_by_segment(bone_names: List[str]) -> List[Tuple[str, List[Tuple[
 
         # If this bone looks like a segment N (N>=1) of an existing base, skip it here;
         # it will be picked up when the base bone is processed.
-        base, idx = parse_segment_suffix(bone_name)
+        base, idx = util_parsing.parse_segment_suffix(bone_name)
         if idx >= 1 and base in name_set:
             continue
 
@@ -466,9 +454,9 @@ def group_bones_by_segment(bone_names: List[str]) -> List[Tuple[str, List[Tuple[
     return groups
 
 
-def create_synthetic_mapping(armature: 'bpy.types.Object', 
+def create_synthetic_mapping(armature: bpy.types.Object, 
                             action: bpy.types.Action,
-                            layout_metadata_dict: Optional[Dict[str, TrackMetaData]]) -> Tuple[TrackSegmentBoneMapping, Dict[str, TrackMetaData]]:
+                            layout_metadata_dict: Optional[Dict[str, fwrap_metadata.TrackMetaData]]) -> Tuple[TrackSegmentBoneMapping, Dict[str, fwrap_metadata.TrackMetaData]]:
     """Create synthetic track mapping from armature bones when no mapping is provided.
     
     This is used for motion points export or when exporting without a mapping file.
@@ -483,7 +471,7 @@ def create_synthetic_mapping(armature: 'bpy.types.Object',
     Returns:
         Tuple of (mapping, metadata_dict):
         - mapping: TrackSegmentBoneMapping with one track per bone (segment 0)
-        - metadata_dict: Dictionary of bone_name -> TrackMetaData
+        - metadata_dict: Dictionary of bone_name -> fwrap_metadata.TrackMetaData
     """
 
     Debug.log("    Building synthetic mapping from armature bones...")
@@ -501,13 +489,13 @@ def create_synthetic_mapping(armature: 'bpy.types.Object',
         if layout_metadata_dict and base_name in layout_metadata_dict:
             bone_metadata = layout_metadata_dict[base_name]
         else:
-            bone_metadata = build_track_metadata_from_fcurves(bone_name=base_name, action=action)
+            bone_metadata = fwrap_metadata.build_track_metadata_from_fcurves(bone_name=base_name, action=action)
 
         # Merge per-action overrides if available
         if action and bone_metadata:
-            action_meta_bone = build_track_metadata_from_action(action, base_name)
+            action_meta_bone = fwrap_metadata.build_track_metadata_from_action(action, base_name)
             if action_meta_bone:
-                bone_metadata = merge_track_metadata(bone_metadata, action_meta_bone)
+                bone_metadata = fwrap_metadata.merge_track_metadata(bone_metadata, action_meta_bone)
 
         # Register every segment detected by group_bones_by_segment.
         for seg_idx, seg_bone_name in segments:

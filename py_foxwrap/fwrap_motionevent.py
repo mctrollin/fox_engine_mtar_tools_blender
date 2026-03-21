@@ -11,15 +11,13 @@ import bpy
 
 from ..py_core.core_logging import Debug
 
-from ..py_utilities.utilities_hashing_cityhash import strcode32
-from ..py_utilities.utilities_hashing import unhash_event_name
-from ..py_utilities.utilities_parsing import format_float_for_metadata
+from ..py_utilities import util_hashing, util_hashing_cityhash, util_parsing
 
 from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox.fox_gani_types import EvpHeader, EvpData, EventUnitInfo, TimeSection
 from ..py_fox.fox_misc_types import StrCode32
 
-from .foxwrap_metadata import make_event_property_key, iter_event_properties
+from .fwrap_metadata import make_event_property_key, iter_event_properties
 
 
 def store_motion_events_on_action(action: bpy.types.Action, motion_events: Optional[EvpHeader]) -> None:
@@ -56,7 +54,7 @@ def store_motion_events_on_action(action: bpy.types.Action, motion_events: Optio
         for event in category_data.events:
             # Look up event name from the events dictionary
             hash_val = event.name.to_int()
-            event_name = unhash_event_name(hash_val)
+            event_name = util_hashing.unhash_event_name(hash_val)
             if event_name is None:
                 event_name = str(hash_val)
                 Debug.log(f"StrCode32 hash {hash_val} not found in events dictionary, using hash as name")
@@ -71,7 +69,7 @@ def store_motion_events_on_action(action: bpy.types.Action, motion_events: Optio
 
             # Float parameters
             if event.float_params:
-                floats_str = ','.join(format_float_for_metadata(f) for f in event.float_params)
+                floats_str = ','.join(util_parsing.format_float_for_metadata(f) for f in event.float_params)
                 params_parts.append(f"floats={floats_str}")
 
             # String parameters (stored as uint64 hashes)
@@ -179,7 +177,7 @@ def read_motion_events_from_action(action: bpy.types.Action) -> Optional[EvpHead
         event_name_for_marker = event_name
         if not event_name.isdigit():
             # Compute StrCode32 hash for the event name to use during export
-            event_name = str(strcode32(event_name))
+            event_name = str(util_hashing_cityhash.strcode32(event_name))
 
         # Parse parameters
         int_params = []

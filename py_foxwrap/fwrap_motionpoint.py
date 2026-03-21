@@ -22,11 +22,7 @@ import bpy
 
 from ..py_core.core_logging import Debug
 
-from .foxwrap_metadata import (
-    PROP_MTP_LIST,
-    PROP_MTP_PARENT_LIST,
-    store_foxdata_stringlist_on_action,
-)
+from . import fwrap_metadata
 
 
 # ---------------------------------------------------------------------------
@@ -53,8 +49,8 @@ def store_motion_point_stringlists_on_action(
                          ``MTP_PARENT_LIST`` node, or ``None`` if absent.
     """
     if mtp_list is not None:
-        store_foxdata_stringlist_on_action(action, PROP_MTP_LIST, mtp_list)
-        Debug.log(f"  Stored {PROP_MTP_LIST}: {len(mtp_list)} entries")
+        fwrap_metadata.store_foxdata_stringlist_on_action(action, fwrap_metadata.PROP_MTP_LIST, mtp_list)
+        Debug.log(f"  Stored {fwrap_metadata.PROP_MTP_LIST}: {len(mtp_list)} entries")
     if mtp_parent_list is not None:
-        store_foxdata_stringlist_on_action(action, PROP_MTP_PARENT_LIST, mtp_parent_list)
-        Debug.log(f"  Stored {PROP_MTP_PARENT_LIST}: {len(mtp_parent_list)} entries")
+        fwrap_metadata.store_foxdata_stringlist_on_action(action, fwrap_metadata.PROP_MTP_PARENT_LIST, mtp_parent_list)
+        Debug.log(f"  Stored {fwrap_metadata.PROP_MTP_PARENT_LIST}: {len(mtp_parent_list)} entries")

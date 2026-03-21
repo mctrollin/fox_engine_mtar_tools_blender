@@ -7,7 +7,7 @@ from typing import Optional, Dict, Tuple
 
 from ..py_fox.fox_mtar_types import MtarTableList2
 
-from .utilities_hashing import unhash_gani_path
+from . import util_hashing
 
 
 def extract_gani_name_from_path(path_str: str) -> str:
@@ -36,7 +36,7 @@ def resolve_gani_name_segment(file_header: MtarTableList2, gani_hash_dict: Optio
     gani_name_segment: Optional[str] = None
     
     if gani_hash_dict is not None and hasattr(file_header, 'path'):
-        gani_full_path = unhash_gani_path(file_header.path, gani_hash_dict)
+        gani_full_path = util_hashing.unhash_gani_path(file_header.path, gani_hash_dict)
         if gani_full_path is not None:
             gani_name_segment = extract_gani_name_from_path(gani_full_path)
     

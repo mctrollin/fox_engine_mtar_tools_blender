@@ -12,7 +12,7 @@ from typing import Optional
 import math
 from bpy.types import UILayout
 
-from .py_utilities.utilities_parsing import parse_index_selection
+from .py_utilities import util_parsing
 
 
 def draw_bool_prop_checkbox_icon(layout: UILayout, props, property_name: str,
@@ -140,7 +140,7 @@ def draw_gani_index_filter(
 
     if selection_str:
         try:
-            selected_indices = parse_index_selection(selection_str, total_count)
+            selected_indices = util_parsing.parse_index_selection(selection_str, total_count)
             selected_count = len(selected_indices)
         except ValueError as e:
             parse_error_msg = str(e)

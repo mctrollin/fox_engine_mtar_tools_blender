@@ -13,11 +13,7 @@ import bpy
 
 from ..py_core.core_logging import Debug
 
-from ..py_utilities.utilities_hashing_cityhash import (hash_file_name_with_ext,
-                                                       hash_file_name,
-                                                       hash_file_extension,
-                                                       hash_file_name_legacy,
-                                                       strcode32)
+from ..py_utilities import util_hashing_cityhash
 
 
 def resolve_executable_path(exe_path: str) -> Path:
@@ -278,28 +274,28 @@ def hash_filename_all_modes(input_string: str, modes: tuple = None) -> Tuple[boo
     try:
         # Hash Filename: -d -h <filename>
         if 'filename' in modes:
-            hash_val = hash_file_name(filename_only, remove_extension=False)
+            hash_val = util_hashing_cityhash.hash_file_name(filename_only, remove_extension=False)
             results['filename'] = f"0x{hash_val:016X}"
             results['filename_dec'] = str(hash_val)
             Debug.log(f"  filename (-d -h {filename_only}): 0x{hash_val:016X}")
         
         # Hash Extension: -d -he <extension> (only if extension exists and requested)
         if 'extension' in modes and extension_only:
-            hash_val = hash_file_extension(extension_only)
+            hash_val = util_hashing_cityhash.hash_file_extension(extension_only)
             results['extension'] = f"0x{hash_val:016X}"
             results['extension_dec'] = str(hash_val)
             Debug.log(f"  extension (-d -he {extension_only}): 0x{hash_val:016X}")
         
         # Hash With Extension: -d -hwe <filename.ext>
         if 'with_extension' in modes:
-            hash_val = hash_file_name_with_ext(input_string)
+            hash_val = util_hashing_cityhash.hash_file_name_with_ext(input_string)
             results['with_extension'] = f"0x{hash_val:016X}"
             results['with_extension_dec'] = str(hash_val)
             Debug.log(f"  with_extension (-d -hwe {input_string}): 0x{hash_val:016X}")
         
         # Hash Legacy: -d -hl <filename>
         if 'legacy' in modes:
-            hash_val = hash_file_name_legacy(input_string)
+            hash_val = util_hashing_cityhash.hash_file_name_legacy(input_string)
             results['legacy'] = f"0x{hash_val:016X}"
             results['legacy_dec'] = str(hash_val)
             Debug.log(f"  legacy (-d -hl {input_string}): 0x{hash_val:016X}")
@@ -488,7 +484,7 @@ def build_gani_hash_dictionary(dictionary_path: str) -> Dict[int, str]:
     for path in paths:
         path_with_ext = f"{path}.gani"
         try:
-            hash_value = hash_file_name_with_ext(path_with_ext)
+            hash_value = util_hashing_cityhash.hash_file_name_with_ext(path_with_ext)
             result[hash_value] = path
         except Exception:
             failed += 1
@@ -540,7 +536,7 @@ def build_event_hash_dictionary(dictionary_path: str) -> Dict[int, str]:
     failed = 0
     for event_name in event_names:
         try:
-            hash_value = strcode32(event_name)
+            hash_value = util_hashing_cityhash.strcode32(event_name)
             result[hash_value] = event_name
         except Exception:
             failed += 1

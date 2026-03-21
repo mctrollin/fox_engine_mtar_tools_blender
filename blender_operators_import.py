@@ -10,20 +10,17 @@ from bpy.types import Operator, Context
 
 from .py_core.core_logging import Debug
 
-from .py_utilities.utilities_blender_state import nla_tweak_guard
-from .py_utilities.utilities_parsing import parse_index_selection
-from .py_utilities.utilities_blender_animation import try_find_layout_track_action
+from .blender_properties import get_effective_import_bake_decimate_error
+
+from .py_utilities import util_blender_state, util_parsing, util_blender_animation
 
 from .py_fox.fox_frig_types import FrigFile
 
-from .py_foxwrap.foxwrap_mapping import parse_track_mapping_file, TrackMappingData, BoneParameters
-from .py_foxwrap.foxwrap_mtar_reader import MtarReader
+from .py_foxwrap.fwrap_mapping_types import TrackMappingData, BoneParameters
+from .py_foxwrap import fwrap_mapping
+from .py_foxwrap.fwrap_mtar_reader import MtarReader
 
-from .py_tools.tools_hash_generator import build_gani_hash_dictionary
-from .py_tools.tools_mapping import generate_mapping_template
-from .py_tools.tools_mtar_importer import import_mtar
-from .py_tools.tools_animation_bake import bake_constraints_and_decimate_fcurves
-from .blender_properties import get_effective_import_bake_decimate_error
+from .py_tools import tools_hash_generator, tools_mapping, tools_mtar_importer, tools_animation_bake
 
 
 class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
@@ -42,7 +39,7 @@ class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
         mtar_path = bpy.path.abspath(import_props.mtar_filepath) if import_props.mtar_filepath else None
         
         try:
-            output = generate_mapping_template(frig_path, mtar_path)
+            output = tools_mapping.generate_mapping_template(frig_path, mtar_path)
             Debug.report_and_log(self,'INFO', f"Mapping file created: {output}")
             props.mapping_filepath = output
             Debug.stop_timer("Generate Mapping Template")
@@ -120,7 +117,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                 Debug.report_and_log(self, 'WARNING', f"Track mapping file not found: {mapping_filepath_abs}")
             else:
                 try:
-                    mapping_data: TrackMappingData = parse_track_mapping_file(mapping_filepath_abs)
+                    mapping_data: TrackMappingData = fwrap_mapping.parse_track_mapping_file(mapping_filepath_abs)
                     track_mapping = mapping_data.fox_to_blender
                     blender_to_fox_map = mapping_data.blender_to_fox_names
                     transform_constraints = mapping_data.transform_constraints or None
@@ -143,7 +140,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                 header_info = reader.get_header_info()
                 
                 # Parse selection with validation
-                gani_indices = parse_index_selection(import_props.gani_indices_str, header_info.file_count)
+                gani_indices = util_parsing.parse_index_selection(import_props.gani_indices_str, header_info.file_count)
                 Debug.log(f"Parsed GANI selection: {gani_indices}")
             except ValueError as e:
                 Debug.report_and_log(self, 'ERROR', f"Invalid GANI selection: {e}")
@@ -167,16 +164,16 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
             addon_dir = os.path.dirname(os.path.abspath(__file__))
             dict_path = os.path.join(addon_dir, 'dic', 'path64', 'mtar_dictionary.txt')
             Debug.start_timer("Build GANI hash dict (import)")
-            gani_hash_dict = build_gani_hash_dictionary(dict_path)
+            gani_hash_dict = tools_hash_generator.build_gani_hash_dictionary(dict_path)
             Debug.stop_timer("Build GANI hash dict (import)")
             Debug.log(f"Built GANI hash dictionary: {len(gani_hash_dict)} entries")
 
         # NLA tweak mode guard — AnimData.action is read-only while use_tweak_mode is True.
-        with nla_tweak_guard(custom_rig):
+        with util_blender_state.nla_tweak_guard(custom_rig):
             try:
                 with Debug.busy_cursor():
                     # Import MTAR animation
-                    import_result: Tuple[Set[str], Optional[bpy.types.Object]] = import_mtar(context, mtar_filepath_abs, frig_data, track_mapping, gani_indices, custom_rig, import_props.strip_padding, gani_hash_dict=gani_hash_dict, transform_constraints=transform_constraints)
+                    import_result: Tuple[Set[str], Optional[bpy.types.Object]] = tools_mtar_importer.import_mtar(context, mtar_filepath_abs, frig_data, track_mapping, gani_indices, custom_rig, import_props.strip_padding, gani_hash_dict=gani_hash_dict, transform_constraints=transform_constraints)
                     
                     # Extract result and imported armature
                     if isinstance(import_result, tuple):
@@ -197,7 +194,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                     
                     # Custom rig post processing
                     if custom_rig:
-                        layout_action = try_find_layout_track_action()
+                        layout_action = util_blender_animation.try_find_layout_track_action()
 
                         # Bake custom rig if requested + decimation
                         bake_result = None  # ensure defined even when try raises
@@ -208,7 +205,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                                 Debug.start_timer("Bake + Decimate")
 
                                 # Delegate constraint-baking to shared utility (decimation deferred until after root motion)
-                                bake_result = bake_constraints_and_decimate_fcurves(
+                                bake_result = tools_animation_bake.bake_constraints_and_decimate_fcurves(
                                     rig_armature=custom_rig,
                                     source_armature=imported_armature,
                                     create_new_action=not import_props.delete_import_armature,

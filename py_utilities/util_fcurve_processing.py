@@ -12,17 +12,8 @@ from mathutils import Quaternion  # type: ignore[import]
 
 from ..py_core.core_logging import Debug
 
-from .utilities_blender_animation import (
-    iter_action_fcurves,
-    action_has_fcurves,
-    assign_action_to_datablock,
-    get_fcurves_for_bones,
-    is_fcurve_linear,
-    is_pose_bone_data_path,
-    extract_bone_name_from_data_path,
-    MTAR_ARMATURE_SLOT_NAME,
-    )
-from .utilities_blender_state import switch_context
+from . import util_blender_animation
+from . import util_blender_state
 
 
 
@@ -68,7 +59,7 @@ def debug_setup_graph_context_for_manual_test(armature_name: str, action_name: s
     
     Debug.log(f"Assigning action '{action.name}' using assign_action_to_datablock...")
     try:
-        assign_action_to_datablock(armature, action, slot_name=MTAR_ARMATURE_SLOT_NAME)
+        util_blender_animation.assign_action_to_datablock(armature, action, slot_name=util_blender_animation.MTAR_ARMATURE_SLOT_NAME)
         Debug.log(f"✓ Assigned action: {action.name} (using slot-aware helper)")
     except Exception as e:
         # Fallback to direct assignment if slot helper fails
@@ -76,7 +67,7 @@ def debug_setup_graph_context_for_manual_test(armature_name: str, action_name: s
         armature.animation_data.action = action
         Debug.log(f"✓ Assigned action: {action.name} (fallback direct assignment)")
     
-    Debug.log(f"  FCurves in action: {len(list(iter_action_fcurves(action)))}")
+    Debug.log(f"  FCurves in action: {len(list(util_blender_animation.iter_action_fcurves(action)))}")
     
     # Find or create graph editor
     target_area = None
@@ -101,7 +92,7 @@ def debug_setup_graph_context_for_manual_test(armature_name: str, action_name: s
     
     # Select some fcurves
     selected = 0
-    for i, fcurve in enumerate(iter_action_fcurves(action)):
+    for i, fcurve in enumerate(util_blender_animation.iter_action_fcurves(action)):
         fcurve.select = True
         selected += 1
         if i >= 4:  # Select first 5 for testing
@@ -140,15 +131,15 @@ def decimate_fcurves(action: bpy.types.Action, error_threshold: float,
     Returns:
         Number of fcurves processed
     """
-    if error_threshold <= 0.0 or not action or not action_has_fcurves(action):
+    if error_threshold <= 0.0 or not action or not util_blender_animation.action_has_fcurves(action):
         return 0
 
     # Get all fcurves once (version-safe)
-    all_fcurves: List[bpy.types.FCurve] = list(iter_action_fcurves(action))
+    all_fcurves: List[bpy.types.FCurve] = list(util_blender_animation.iter_action_fcurves(action))
 
     # Decide which fcurves to process (filtered by bone if requested)
     if bone_filter:
-        fcurves_to_process = get_fcurves_for_bones(action, bone_filter)
+        fcurves_to_process = util_blender_animation.get_fcurves_for_bones(action, bone_filter)
     else:
         fcurves_to_process = all_fcurves
 
@@ -159,19 +150,19 @@ def decimate_fcurves(action: bpy.types.Action, error_threshold: float,
     process_keys: Set[tuple] = {(fc.data_path, fc.array_index) for fc in fcurves_to_process}
 
     try:
-        with switch_context('GRAPH_EDITOR', obj=obj, action=action):
+        with util_blender_state.switch_context('GRAPH_EDITOR', obj=obj, action=action):
             # Select only fcurves to process using stable (data_path, array_index) key
-            for fcurve in iter_action_fcurves(action):
+            for fcurve in util_blender_animation.iter_action_fcurves(action):
                 fcurve.select = (fcurve.data_path, fcurve.array_index) in process_keys
 
-            selected_count = len([fcurve for fcurve in iter_action_fcurves(action) if fcurve.select])
+            selected_count = len([fcurve for fcurve in util_blender_animation.iter_action_fcurves(action) if fcurve.select])
             Debug.log(f"Decimating {selected_count} fcurves")
 
             # Apply decimation
             bpy.ops.graph.decimate(mode='ERROR', remove_error_margin=error_threshold)
 
             # Deselect all fcurves for clean UI state
-            for fcurve in iter_action_fcurves(action):
+            for fcurve in util_blender_animation.iter_action_fcurves(action):
                 fcurve.select = False
 
             return len(fcurves_to_process)
@@ -203,7 +194,7 @@ def _sample_fcurves_to_linear(armature: bpy.types.Object, action: bpy.types.Acti
     """
     if not armature.animation_data:
         armature.animation_data_create()
-    with switch_context('GRAPH_EDITOR', obj=armature, action=action):
+    with util_blender_state.switch_context('GRAPH_EDITOR', obj=armature, action=action):
         # Bake selected FCurves with LINEAR interpolation, frame step of 1.
         # FCurves must be selected by the caller before calling this function.
         bpy.ops.anim.channels_bake(
@@ -235,11 +226,11 @@ def clean_fcurves(action: bpy.types.Action, threshold: float,
         Number of fcurves processed
     """
 
-    if threshold <= 0.0 or not action or not action_has_fcurves(action):
+    if threshold <= 0.0 or not action or not util_blender_animation.action_has_fcurves(action):
         return 0
     
     # Get all fcurves once (version-safe) for reuse in selection
-    all_fcurves: List[bpy.types.FCurve] = list(iter_action_fcurves(action))
+    all_fcurves: List[bpy.types.FCurve] = list(util_blender_animation.iter_action_fcurves(action))
     
     # Filter fcurves: prefer fcurve_filter (per-FCurve), fall back to bone_filter (per-bone)
     if fcurve_filter:
@@ -248,7 +239,7 @@ def clean_fcurves(action: bpy.types.Action, threshold: float,
         fcurve_count: int = len(fcurves_to_process)
     elif bone_filter:
         # Legacy per-bone filtering
-        fcurves_to_process = get_fcurves_for_bones(action, bone_filter)
+        fcurves_to_process = util_blender_animation.get_fcurves_for_bones(action, bone_filter)
         fcurve_count: int = len(fcurves_to_process)
     else:
         fcurves_to_process = all_fcurves
@@ -261,7 +252,7 @@ def clean_fcurves(action: bpy.types.Action, threshold: float,
     process_keys: Set[tuple] = {(fc.data_path, fc.array_index) for fc in fcurves_to_process}
     
     try:
-        with switch_context('GRAPH_EDITOR', obj=obj, action=action):
+        with util_blender_state.switch_context('GRAPH_EDITOR', obj=obj, action=action):
             # Select only fcurves to process using stable (data_path, array_index) key
             for fcurve in all_fcurves:
                 fcurve.select = (fcurve.data_path, fcurve.array_index) in process_keys
@@ -305,12 +296,12 @@ def _make_quaternion_fcurves_compatible(action: bpy.types.Action) -> int:
     Returns:
         Number of quaternion tracks modified.
     """
-    if not action or not action_has_fcurves(action):
+    if not action or not util_blender_animation.action_has_fcurves(action):
         return 0
 
     # Group quaternion fcurves by data_path (bone/object path)
     quat_groups: Dict[str, List[bpy.types.FCurve]] = {}
-    for fc in iter_action_fcurves(action):
+    for fc in util_blender_animation.iter_action_fcurves(action):
         if fc.data_path.endswith("rotation_quaternion"):
             quat_groups.setdefault(fc.data_path, []).append(fc)
 
@@ -418,13 +409,13 @@ def decimate_import_fcurves_to_bezier(armature: bpy.types.Object,
         # update progress in UI
         Debug.update_progress_status(f"Decimating {idx}/{total_actions}: {action.name}", secondary_progress=(idx-1)/total_actions)
 
-        action_fcurves: List[bpy.types.FCurve] = list(iter_action_fcurves(action))
+        action_fcurves: List[bpy.types.FCurve] = list(util_blender_animation.iter_action_fcurves(action))
 
         # Get all bone names with fcurves in this action
         all_blender_bone_names: Set[str] = set()
         for fcurve in action_fcurves:
-            if is_pose_bone_data_path(fcurve.data_path):
-                blender_bone_name = extract_bone_name_from_data_path(fcurve.data_path)
+            if util_blender_animation.is_pose_bone_data_path(fcurve.data_path):
+                blender_bone_name = util_blender_animation.extract_bone_name_from_data_path(fcurve.data_path)
                 if blender_bone_name:
                     all_blender_bone_names.add(blender_bone_name)
 
@@ -444,8 +435,8 @@ def decimate_import_fcurves_to_bezier(armature: bpy.types.Object,
 
         for blender_bone_name in blender_bones_to_skip:
             for fcurve in action_fcurves:
-                if is_pose_bone_data_path(fcurve.data_path):
-                    extracted_bone = extract_bone_name_from_data_path(fcurve.data_path)
+                if util_blender_animation.is_pose_bone_data_path(fcurve.data_path):
+                    extracted_bone = util_blender_animation.extract_bone_name_from_data_path(fcurve.data_path)
                     if extracted_bone == blender_bone_name:
                         fcurves_skipped += 1
 
@@ -480,7 +471,7 @@ def _check_fcurves_for_large_gaps(action: bpy.types.Action,
         fcurve whose largest inter-keyframe gap exceeds *max_gap*.
     """
     violations: List[tuple] = []
-    for fcurve in iter_action_fcurves(action):
+    for fcurve in util_blender_animation.iter_action_fcurves(action):
         key = (fcurve.data_path, fcurve.array_index)
         if fcurve_filter and key not in fcurve_filter:
             continue
@@ -568,7 +559,7 @@ deltas can be encoded in the Fox binary format.
         Total number of keyframes inserted.
     """
     total_inserted = 0
-    for fcurve in iter_action_fcurves(action):
+    for fcurve in util_blender_animation.iter_action_fcurves(action):
         key = (fcurve.data_path, fcurve.array_index)
         if fcurve_filter and key not in fcurve_filter:
             continue
@@ -599,7 +590,7 @@ def bake_and_clean_export_fcurves(armature: bpy.types.Object,
     """
     action = armature.animation_data.action if armature.animation_data else None
     
-    if not action or not action_has_fcurves(action):
+    if not action or not util_blender_animation.action_has_fcurves(action):
         return {
             'action': action,
             'fcurves_baked': 0,
@@ -612,8 +603,8 @@ def bake_and_clean_export_fcurves(armature: bpy.types.Object,
     nonlinear_fcurves: List[bpy.types.FCurve] = []
     baked_fcurve_keys: Set[tuple] = set()  # Track which FCurves were non-linear: (data_path, array_index)
     
-    for fcurve in iter_action_fcurves(action):
-        if is_fcurve_linear(fcurve):
+    for fcurve in util_blender_animation.iter_action_fcurves(action):
+        if util_blender_animation.is_fcurve_linear(fcurve):
             linear_count += 1
         else:
             nonlinear_fcurves.append(fcurve)
@@ -643,18 +634,18 @@ def bake_and_clean_export_fcurves(armature: bpy.types.Object,
     frame_end = int(action.frame_range[1])
     
     # Assign copy to armature temporarily for baking
-    assign_action_to_datablock(armature, processed_action, slot_name=MTAR_ARMATURE_SLOT_NAME)
+    util_blender_animation.assign_action_to_datablock(armature, processed_action, slot_name=util_blender_animation.MTAR_ARMATURE_SLOT_NAME)
     
     try:
         # Select FCurves that need baking (non-linear ones)
-        for fcurve in iter_action_fcurves(processed_action):
+        for fcurve in util_blender_animation.iter_action_fcurves(processed_action):
             fcurve.select = (fcurve.data_path, fcurve.array_index) in baked_fcurve_keys
         
         _sample_fcurves_to_linear(armature, processed_action, frame_start, frame_end)
         fcurves_baked = len(nonlinear_fcurves)
         
         # Deselect all FCurves
-        for fcurve in iter_action_fcurves(processed_action):
+        for fcurve in util_blender_animation.iter_action_fcurves(processed_action):
             fcurve.select = False
     
     except Exception as e:

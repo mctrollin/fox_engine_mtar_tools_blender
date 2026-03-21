@@ -10,8 +10,8 @@ def create_or_update_dummy_object(
     edges: list,
     location: tuple,
     rotation: tuple,
-    collection: 'bpy.types.Collection'
-) -> 'bpy.types.Object':
+    collection: bpy.types.Collection
+) -> bpy.types.Object:
     """Create or update a dummy object with the given mesh and transform.
     Args:
         object_name: Name of the object to create/update

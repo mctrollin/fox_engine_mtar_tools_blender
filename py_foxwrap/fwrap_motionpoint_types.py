@@ -1,10 +1,10 @@
 """Motion point wrapper types isolated for import/export module separation."""
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, List, Optional
+from typing import List, Optional
 
 from ..py_core.core_logging import Debug
 
-from ..py_utilities.utilities_hashing_cityhash import strcode32
+from ..py_utilities import util_hashing_cityhash
 
 from ..py_fox.fox_mtar_types import MotionPointList2, MotionPointEntry
 from ..py_fox.fox_misc_types import StrCode32
@@ -75,7 +75,7 @@ class MotionPointWrapper:
                     if parent_list and track_idx < len(parent_list)
                     else None
                 )
-                hash_val = int(name_str) if name_str.isdigit() else strcode32(name_str)
+                hash_val = int(name_str) if name_str.isdigit() else util_hashing_cityhash.strcode32(name_str)
                 seen[name_str] = (hash_val, parent_name)
 
         if not seen:
@@ -84,7 +84,7 @@ class MotionPointWrapper:
         entries = []
         for name_str, (hash_val, parent_name) in seen.items():
             parent_hash = (
-                (int(parent_name) if (parent_name and parent_name.isdigit()) else strcode32(parent_name))
+                (int(parent_name) if (parent_name and parent_name.isdigit()) else util_hashing_cityhash.strcode32(parent_name))
                 if parent_name
                 else 0
             )

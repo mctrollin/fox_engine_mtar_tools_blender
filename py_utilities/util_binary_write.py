@@ -289,7 +289,6 @@ def write_vector4(f: BinaryIO, vec: List[float], component_bit_size: int = 32) -
         f.write(struct.pack('<ffff', vec[0], vec[1], vec[2], vec[3]))
 
 
-
 def align_length(length: int, alignment: int) -> int:
     """Align the provided length to the specified byte boundary.
     
@@ -298,6 +297,7 @@ def align_length(length: int, alignment: int) -> int:
         alignment: Alignment boundary in bytes (2, 4, 8, 16, etc.)
     """
     return (length + alignment - 1) & ~(alignment - 1)
+
 
 def align_buffer(buffer: BinaryIO, alignment: int) -> None:
     """Align a binary buffer to the specified byte boundary.
@@ -310,8 +310,6 @@ def align_buffer(buffer: BinaryIO, alignment: int) -> None:
     aligned_pos = align_length(length=current_pos, alignment=alignment)# (current_pos + alignment - 1) & ~(alignment - 1)
     if aligned_pos > current_pos:
         buffer.write(bytes(aligned_pos - current_pos))
-
-
 
 
 def align_bytearray(buffer: bytearray, alignment: int) -> None:

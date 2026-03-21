@@ -3,7 +3,7 @@ Blender N-Panel for MTAR plugin settings.
 """
 import bpy
 
-from .blender_panel_shared import draw_bool_prop_checkbox_icon
+from . import blender_panel_shared
 
 
 def draw_settings_page(layout, context) -> None:
@@ -16,22 +16,22 @@ def draw_settings_page(layout, context) -> None:
     box_advanced.alert = True
     box_advanced.label(text="Pro", icon='PREFERENCES')
     col = box_advanced.column()
-    draw_bool_prop_checkbox_icon(col, settings_props, "show_advanced_settings")
+    blender_panel_shared.draw_bool_prop_checkbox_icon(col, settings_props, "show_advanced_settings")
 
     if settings_props.show_advanced_settings:
         adv_box = box_advanced.box()
         adv_box.alert = True
 
         # Motion Event (Pose markers) visibility
-        draw_bool_prop_checkbox_icon(adv_box, settings_props, "show_pose_markers", text="Show Event Markers", toggle=True)
+        blender_panel_shared.draw_bool_prop_checkbox_icon(adv_box, settings_props, "show_pose_markers", text="Show Event Markers", toggle=True)
 
         # Rest Pose Correction toggle
-        draw_bool_prop_checkbox_icon(adv_box, settings_props, "enable_rest_pose_correction", toggle=True)
+        blender_panel_shared.draw_bool_prop_checkbox_icon(adv_box, settings_props, "enable_rest_pose_correction", toggle=True)
         if not settings_props.enable_rest_pose_correction:
             adv_box.label(text="Only mapping file transforms", icon='INFO')
 
         # Sorting option for GANI (advanced)
-        draw_bool_prop_checkbox_icon(adv_box, settings_props, "sort_gani", text="Sort GANI", toggle=True)
+        blender_panel_shared.draw_bool_prop_checkbox_icon(adv_box, settings_props, "sort_gani", text="Sort GANI", toggle=True)
 
     box = layout.box()
     box.label(text="Logging", icon='PREFERENCES')

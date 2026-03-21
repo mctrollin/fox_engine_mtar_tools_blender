@@ -10,21 +10,10 @@ import bpy
 
 from ..py_core.core_logging import Debug
 
-from ..py_utilities.utilities_blender_animation import (
-    MTAR_ARMATURE_SLOT_NAME,
-    assign_action_to_datablock,
-    remove_action_from_datablock,
-    action_has_fcurves,
-    iter_action_fcurves,
-    ensure_action_fcurve,
-    remove_action_fcurve,
-    is_relevant_strip,
-    is_pose_bone_data_path,
-    extract_bone_name_from_data_path,
-    set_nla_solo,
-)
-from ..py_utilities.utilities_fcurve_processing import decimate_import_fcurves_to_bezier
-from ..py_foxwrap.foxwrap_metadata import build_blender_bone_decimation_skip_map
+from ..py_utilities import util_blender_animation
+from ..py_utilities import util_fcurve_processing
+
+from ..py_foxwrap import fwrap_metadata
 
 
 def get_bones_with_keyframes(action: bpy.types.Action) -> Set[str]:
@@ -38,15 +27,15 @@ def get_bones_with_keyframes(action: bpy.types.Action) -> Set[str]:
     """
     bones_with_keyframes = set()
     
-    if not action or not action_has_fcurves(action):
+    if not action or not util_blender_animation.action_has_fcurves(action):
         return bones_with_keyframes
     
-    for fcurve in iter_action_fcurves(action):
+    for fcurve in util_blender_animation.iter_action_fcurves(action):
         data_path = fcurve.data_path
         
         # Check if this is a pose bone property
-        if is_pose_bone_data_path(data_path):
-            bone_name = extract_bone_name_from_data_path(data_path)
+        if util_blender_animation.is_pose_bone_data_path(data_path):
+            bone_name = util_blender_animation.extract_bone_name_from_data_path(data_path)
             if bone_name:
                 bones_with_keyframes.add(bone_name)
     
@@ -66,15 +55,15 @@ def get_keyframe_frames(action: bpy.types.Action,
     """
     keyframe_frames = set()
     
-    if not action or not action_has_fcurves(action):
+    if not action or not util_blender_animation.action_has_fcurves(action):
         return keyframe_frames
     
-    for fcurve in iter_action_fcurves(action):
+    for fcurve in util_blender_animation.iter_action_fcurves(action):
         data_path = fcurve.data_path
         
         # Check if this fcurve belongs to one of our bones
-        if is_pose_bone_data_path(data_path):
-            bone_name = extract_bone_name_from_data_path(data_path)
+        if util_blender_animation.is_pose_bone_data_path(data_path):
+            bone_name = util_blender_animation.extract_bone_name_from_data_path(data_path)
             
             if bone_name and bone_name in bone_names:
                 # Add all keyframe frames from this fcurve
@@ -97,15 +86,15 @@ def get_keyframe_frames_per_fcurve(action: bpy.types.Action,
     """
     fcurve_keyframes: Dict[str, Set[int]] = {}
     
-    if not action or not action_has_fcurves(action):
+    if not action or not util_blender_animation.action_has_fcurves(action):
         return fcurve_keyframes
     
-    for fcurve in iter_action_fcurves(action):
+    for fcurve in util_blender_animation.iter_action_fcurves(action):
         data_path = fcurve.data_path
         
         # Check if this fcurve belongs to one of our bones
-        if is_pose_bone_data_path(data_path):
-            bone_name = extract_bone_name_from_data_path(data_path)
+        if util_blender_animation.is_pose_bone_data_path(data_path):
+            bone_name = util_blender_animation.extract_bone_name_from_data_path(data_path)
             
             if bone_name and bone_name in bone_names:
                 # Create a unique key for this fcurve (data_path + array_index)
@@ -136,16 +125,16 @@ def cleanup_baked_keyframes(action: bpy.types.Action,
     Returns:
         Number of keyframes removed
     """
-    if not action or not action_has_fcurves(action):
+    if not action or not util_blender_animation.action_has_fcurves(action):
         return 0
     
     fcurves_to_remove = []
     keyframes_removed_count = 0
     
-    for fcurve in iter_action_fcurves(action):
+    for fcurve in util_blender_animation.iter_action_fcurves(action):
         # Check if this fcurve belongs to a baked bone
         data_path = fcurve.data_path
-        if is_pose_bone_data_path(data_path):
+        if util_blender_animation.is_pose_bone_data_path(data_path):
             # Build fcurve key to look up original keyframes
             fcurve_key = f"{data_path}[{fcurve.array_index}]"
             
@@ -183,7 +172,7 @@ def cleanup_baked_keyframes(action: bpy.types.Action,
         Debug.log(f"  Removing {len(fcurves_to_remove)} empty fcurves")
     for fcurve in fcurves_to_remove:
         try:
-            remove_action_fcurve(action, fcurve)
+            util_blender_animation.remove_action_fcurve(action, fcurve)
         except Exception:
             # FCurve might have been already removed, skip
             pass
@@ -211,15 +200,15 @@ def copy_action_animation_data(source_action: bpy.types.Action,
     fcurves_copied = 0
     
     # Copy all fcurves from source action to target action
-    for fcurve in iter_action_fcurves(source_action):
+    for fcurve in util_blender_animation.iter_action_fcurves(source_action):
         try:
-            new_fcurve = ensure_action_fcurve(
+            new_fcurve = util_blender_animation.ensure_action_fcurve(
                 target_action,
                 data_path=fcurve.data_path,
                 index=fcurve.array_index,
                 datablock=datablock,
                 action_group_name=(fcurve.group.name if fcurve.group else None),
-                slot_name=MTAR_ARMATURE_SLOT_NAME
+                slot_name=util_blender_animation.MTAR_ARMATURE_SLOT_NAME
             )
         except Exception as e:
             Debug.log_warning(f"Could not create target fcurve '{fcurve.data_path}[{fcurve.array_index}]' on action '{getattr(target_action, 'name', '<unknown>')}': {e}")
@@ -429,7 +418,7 @@ def bake_armature_constraints_to_keyframes(rig_armature: bpy.types.Object,
         if fcurves_copied > 0:
             Debug.log(f"  Copied {fcurves_copied} fcurves from original action")
         
-    assign_action_to_datablock(rig_armature, target_action)
+    util_blender_animation.assign_action_to_datablock(rig_armature, target_action)
     
     # Get bones with keyframes
     bones_with_keyframes = get_bones_with_keyframes(action)
@@ -474,7 +463,7 @@ def bake_armature_constraints_to_keyframes(rig_armature: bpy.types.Object,
             source_armature.animation_data_create()
         original_source_action = source_armature.animation_data.action
         # Assign the same action to source armature for constraint evaluation (select Legacy Slot if available)
-        assign_action_to_datablock(source_armature, action)
+        util_blender_animation.assign_action_to_datablock(source_armature, action)
         Debug.log(f"  Assigned action '{action.name}' to source armature '{source_armature.name}' for constraint binding")
 
     
@@ -500,7 +489,7 @@ def bake_armature_constraints_to_keyframes(rig_armature: bpy.types.Object,
         Debug.log(f"  Action '{action.name}' is in negative time range {frame_start} to {frame_end} (skipping)")
         try:
             if source_armature and source_armature != rig_armature and original_source_action is not None:
-                assign_action_to_datablock(source_armature, original_source_action)
+                util_blender_animation.assign_action_to_datablock(source_armature, original_source_action)
         except Exception:
             pass
         return {
@@ -533,7 +522,7 @@ def bake_armature_constraints_to_keyframes(rig_armature: bpy.types.Object,
     if source_armature and source_armature != rig_armature:
         keep_armatures.append(source_armature)
 
-    with set_nla_solo(rig_armature, keep_track=nla_track, keep_armatures=keep_armatures):
+    with util_blender_animation.set_nla_solo(rig_armature, keep_track=nla_track, keep_armatures=keep_armatures):
         try:
             Debug.log("  Starting bake operation...")
 
@@ -581,14 +570,14 @@ def bake_armature_constraints_to_keyframes(rig_armature: bpy.types.Object,
             bpy.ops.object.mode_set(mode='OBJECT')
             current_scene.frame_set(current_frame)
 
-            remove_action_from_datablock(rig_armature)
+            util_blender_animation.remove_action_from_datablock(rig_armature)
 
             # Restore source armature's action if it was changed
             if source_armature and source_armature != rig_armature:
                 if original_source_action:
-                    assign_action_to_datablock(source_armature, original_source_action)
+                    util_blender_animation.assign_action_to_datablock(source_armature, original_source_action)
                 else:
-                    remove_action_from_datablock(source_armature)
+                    util_blender_animation.remove_action_from_datablock(source_armature)
                 Debug.log(f"  Restored source armature '{source_armature.name}' action state")
 
             Debug.log(f"Successfully baked action '{action.name}' -> '{target_action.name}'")
@@ -598,11 +587,11 @@ def bake_armature_constraints_to_keyframes(rig_armature: bpy.types.Object,
             Debug.log("  Setting interpolation mode to LINEAR...")
 
             interpolation_count = 0
-            for fcurve in iter_action_fcurves(target_action):
+            for fcurve in util_blender_animation.iter_action_fcurves(target_action):
                 fcurve_modified = False
 
                 # Only process pose bone fcurves
-                if is_pose_bone_data_path(fcurve.data_path):
+                if util_blender_animation.is_pose_bone_data_path(fcurve.data_path):
                     for keyframe in fcurve.keyframe_points:
                         if keyframe.interpolation != 'LINEAR':
                             keyframe.interpolation = 'LINEAR'
@@ -636,13 +625,13 @@ def bake_armature_constraints_to_keyframes(rig_armature: bpy.types.Object,
             try:
                 bpy.ops.object.mode_set(mode='OBJECT')
                 current_scene.frame_set(current_frame)
-                remove_action_from_datablock(rig_armature)
+                util_blender_animation.remove_action_from_datablock(rig_armature)
                 # Restore source armature's action if it was changed
                 if source_armature and source_armature != rig_armature:
                     if original_source_action:
-                        assign_action_to_datablock(source_armature, original_source_action)
+                        util_blender_animation.assign_action_to_datablock(source_armature, original_source_action)
                     else:
-                        remove_action_from_datablock(source_armature)
+                        util_blender_animation.remove_action_from_datablock(source_armature)
                 # Clean up new action if creation failed
                 if create_new_action and target_action and target_action.users == 0:
                     bpy.data.actions.remove(target_action)
@@ -703,7 +692,7 @@ def bake_armature_nla_strips_to_keyframes(rig_armature: bpy.types.Object,
         if getattr(track, 'mute', False):
             continue
         for strip in track.strips:
-            if strip.action and is_relevant_strip(strip):
+            if strip.action and util_blender_animation.is_relevant_strip(strip):
                 strips_to_bake.append((track, strip, strip.action))
             else:
                 Debug.log(f"  Skipping strip '{getattr(strip, 'name', '<unknown>')}' (not a GANI strip)")
@@ -782,9 +771,9 @@ def bake_armature_nla_strips_to_keyframes(rig_armature: bpy.types.Object,
     
     # Restore original action
     if original_action:
-        assign_action_to_datablock(rig_armature, original_action)
+        util_blender_animation.assign_action_to_datablock(rig_armature, original_action)
     else:
-        remove_action_from_datablock(rig_armature)
+        util_blender_animation.remove_action_from_datablock(rig_armature)
     
     success = len(actions_created) > 0
     message = f"Baked {len(actions_created)}/{len(strips_to_bake)} NLA strip(s)"
@@ -1007,14 +996,14 @@ def bake_constraints_and_decimate_fcurves(
         Debug.update_progress_status("Decimating fcurves", secondary_progress=0.1)
         try:
             # Build explicit skip map from layout_action metadata and skip types.
-            blender_bone_skip_map = build_blender_bone_decimation_skip_map(
+            blender_bone_skip_map = fwrap_metadata.build_blender_bone_decimation_skip_map(
                 all_blender_bone_names=set(rig_armature.data.bones.keys()) if rig_armature and rig_armature.data else set(),
                 layout_action=layout_action,
                 decimate_skip_types=decimate_skip_types,
                 blender_to_fox_map=blender_to_fox_map,
                 cache={},
             )
-            dec_res = decimate_import_fcurves_to_bezier(
+            dec_res = util_fcurve_processing.decimate_import_fcurves_to_bezier(
                 armature=rig_armature,
                 bake_decimate_fcurve_error=bake_decimate_fcurve_error,
                 decimate_skip_types=decimate_skip_types,

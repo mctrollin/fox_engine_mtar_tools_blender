@@ -9,37 +9,22 @@ as well as interfacing with the external hash generator executable.
 
 from typing import Set
 import math
-import os
 import re
-import traceback
 
 import bpy
 from bpy.types import Operator, Context
 from bpy.props import StringProperty
 
-from .py_utilities.utilities_transforms import get_world_space_transform, get_local_space_transform
 from .py_core.core_logging import Debug
-from .py_utilities.utilities_debug import create_or_update_dummy_object
-from .py_utilities.utilities_blender_animation import assign_action_to_datablock, try_find_layout_track_action, remove_action_from_datablock
-from .py_utilities.utilities_fcurve_processing import decimate_import_fcurves_to_bezier, debug_setup_graph_context_for_manual_test
-from .py_foxwrap.foxwrap_metadata import build_blender_bone_decimation_skip_map
-from .py_utilities.utilities_hashing_cityhash import (
-    hash_file_name,
-    hash_file_name_legacy,
-    hash_file_extension,
-    hash_file_name_with_ext,
-    strcode32_path,
-)
-# Import bake helpers from tools module (keep top-level to prevent import loops)
-from .py_tools.tools_animation_bake import (
-    bake_armature_constraints_to_keyframes,
-    remove_bone_constraints,
-    get_bones_with_keyframes,
-    bake_constraints_and_decimate_fcurves,
-    clear_armature_transforms,
-)
+
 from .blender_properties import get_effective_import_bake_decimate_error
-from .py_tools.tools_hash_generator import hash_filename_all_modes_by_external_generator, validate_executable_path_by_external_generator
+
+from .py_utilities import util_transforms, util_debug, util_blender_animation, util_fcurve_processing, util_hashing_cityhash
+
+from .py_foxwrap import fwrap_metadata
+
+# Import bake helpers from tools module (keep top-level to prevent import loops)
+from .py_tools import tools_animation_bake, tools_hash_generator
 
 
 # Transform Debug Panel Operators ##################################################################
@@ -77,7 +62,7 @@ class MTAR_OT_InspectWorldSpaceTransform(Operator):
             context.scene.frame_set(frame)
             
             # Get world space transform
-            location, rotation = get_world_space_transform(
+            location, rotation = util_transforms.get_world_space_transform(
                 armature, bone_name, frame,
                 space_bone=None
             )
@@ -160,13 +145,13 @@ class MTAR_OT_CreateTransformDummies(Operator):
             context.scene.frame_set(frame)
             
             # Get transforms (returns tuple of (location, rotation))
-            world_result = get_world_space_transform(
+            world_result = util_transforms.get_world_space_transform(
                 obj=armature,
                 bone_name=bone_name,
                 frame=frame
             )
             
-            local_result = get_local_space_transform(
+            local_result = util_transforms.get_local_space_transform(
                 obj=armature,
                 bone_name=bone_name,
                 frame=frame
@@ -189,7 +174,7 @@ class MTAR_OT_CreateTransformDummies(Operator):
             
             # Create local space dummy (place at local space location as if it were world space)
             local_dummy_name = f"{bone_name}_local_space"
-            create_or_update_dummy_object(
+            util_debug.create_or_update_dummy_object(
                 object_name=local_dummy_name,
                 vertices=local_verts,
                 edges=local_edges,
@@ -208,7 +193,7 @@ class MTAR_OT_CreateTransformDummies(Operator):
 
             # Create world space dummy
             world_dummy_name = f"{bone_name}_world_space"
-            create_or_update_dummy_object(
+            util_debug.create_or_update_dummy_object(
                 object_name=world_dummy_name,
                 vertices=world_verts,
                 edges=world_edges,
@@ -352,7 +337,7 @@ class MTAR_OT_DebugRunBake(Operator):
                     else:
                         # Full bake using unified utility (constraint-bake + optional fcurve decimation)
                         Debug.log("Debug: Baking NLA strips on target armature")
-                        bake_result = bake_constraints_and_decimate_fcurves(
+                        bake_result = tools_animation_bake.bake_constraints_and_decimate_fcurves(
                             rig_armature=target_armature,
                             source_armature=source_arm,
                             create_new_action=True,
@@ -394,11 +379,11 @@ class MTAR_OT_DebugRunBake(Operator):
                             if source_arm.animation_data.nla_tracks:
                                 for t in source_arm.animation_data.nla_tracks:
                                     t.mute = True
-                            assign_action_to_datablock(source_arm, action)
+                            util_blender_animation.assign_action_to_datablock(source_arm, action)
                             Debug.log(f"Prepared strip '{strip.name}': muted source NLA and assigned action '{action.name}'")
                             # Mute the target track and assign action so active action previews
                             track.mute = True
-                            assign_action_to_datablock(target_armature, action)
+                            util_blender_animation.assign_action_to_datablock(target_armature, action)
                             Debug.report_and_log(self, 'INFO', f"Prepared scene for strip '{strip.name}' (no bake performed)")
                         continue
 
@@ -415,9 +400,9 @@ class MTAR_OT_DebugRunBake(Operator):
                                 for t in source_arm.animation_data.nla_tracks:
                                     t.mute = True
                                 Debug.log(f"  Muted {len(source_arm.animation_data.nla_tracks)} source NLA tracks for legacy bake")
-                            assign_action_to_datablock(source_arm, action)
+                            util_blender_animation.assign_action_to_datablock(source_arm, action)
 
-                        bake_result = bake_armature_constraints_to_keyframes(
+                        bake_result = tools_animation_bake.bake_armature_constraints_to_keyframes(
                             rig_armature=target_armature,
                             action=action,
                             remove_constraints=False,
@@ -444,15 +429,15 @@ class MTAR_OT_DebugRunBake(Operator):
 
                                 # Decimate via decimate_import_fcurves_to_bezier (operates on armature level)
                                 if decimate_err > 0.0:
-                                    layout_action = try_find_layout_track_action()
-                                    blender_bone_skip_map = build_blender_bone_decimation_skip_map(
+                                    layout_action = util_blender_animation.try_find_layout_track_action()
+                                    blender_bone_skip_map = fwrap_metadata.build_blender_bone_decimation_skip_map(
                                         all_blender_bone_names=set(target_armature.data.bones.keys()) if target_armature and target_armature.data else set(),
                                         layout_action=layout_action,
                                         decimate_skip_types=decimate_skip_types,
                                         blender_to_fox_map=None,
                                         cache={},
                                     )
-                                    dec_res = decimate_import_fcurves_to_bezier(
+                                    dec_res = util_fcurve_processing.decimate_import_fcurves_to_bezier(
                                         armature=target_armature,
                                         bake_decimate_fcurve_error=decimate_err,
                                         decimate_skip_types=decimate_skip_types,
@@ -470,9 +455,9 @@ class MTAR_OT_DebugRunBake(Operator):
                         try:
                             if source_arm and source_arm != target_armature and source_arm.animation_data:
                                 if original_source_action:
-                                    assign_action_to_datablock(source_arm, original_source_action)
+                                    util_blender_animation.assign_action_to_datablock(source_arm, original_source_action)
                                 else:
-                                    remove_action_from_datablock(source_arm)
+                                    util_blender_animation.remove_action_from_datablock(source_arm)
                                 if original_source_nla_mute_states and source_arm.animation_data.nla_tracks:
                                     for tn, was in original_source_nla_mute_states.items():
                                         if tn in source_arm.animation_data.nla_tracks:
@@ -485,12 +470,12 @@ class MTAR_OT_DebugRunBake(Operator):
                 if success_count > 0:
                     baked_bones = set()
                     for act in baked_actions:
-                        baked_bones.update(get_bones_with_keyframes(act))
+                        baked_bones.update(tools_animation_bake.get_bones_with_keyframes(act))
                     if baked_bones:
-                        removed = remove_bone_constraints(target_armature, baked_bones)
+                        removed = tools_animation_bake.remove_bone_constraints(target_armature, baked_bones)
                         Debug.log(f"Removed constraints from {len(baked_bones)} bones ({removed} constraints)")
 
-                    if clear_armature_transforms(target_armature):
+                    if tools_animation_bake.clear_armature_transforms(target_armature):
                         Debug.report_and_log(self, 'INFO', f"Baked {success_count} strip(s) and cleared transforms")
                         return {'FINISHED'}
                     else:
@@ -502,7 +487,7 @@ class MTAR_OT_DebugRunBake(Operator):
 
             elif target_armature.animation_data and target_armature.animation_data.action:
                 Debug.log("Debug: Baking active action on target armature")
-                bake_result = bake_constraints_and_decimate_fcurves(
+                bake_result = tools_animation_bake.bake_constraints_and_decimate_fcurves(
                     rig_armature=target_armature,
                     source_armature=source_arm,
                     create_new_action=True,
@@ -554,7 +539,7 @@ class MTAR_OT_DebugSetupGraphContext(Operator):
         action = armature.animation_data.action
         
         # Call the debug setup function
-        debug_setup_graph_context_for_manual_test(armature.name, action.name)
+        util_fcurve_processing.debug_setup_graph_context_for_manual_test(armature.name, action.name)
         
         Debug.report_and_log(self, 'INFO', f"Graph context setup complete for '{armature.name}' / '{action.name}'")
         Debug.report_and_log(self, 'INFO', "Check console for diagnostics. Try: bpy.ops.graph.decimate(mode='ERROR', error=0.01)")
@@ -576,7 +561,7 @@ class MTAR_OT_ValidateHashGeneratorExe(Operator):
         if not exe_path:
             Debug.report_and_log(self, 'ERROR', "Executable path not configured")
             return {'CANCELLED'}
-        is_valid, error_msg = validate_executable_path_by_external_generator(exe_path)
+        is_valid, error_msg = tools_hash_generator.validate_executable_path_by_external_generator(exe_path)
         if is_valid:
             Debug.report_and_log(self, 'INFO', "Executable path is valid")
             return {'FINISHED'}
@@ -619,7 +604,7 @@ class MTAR_OT_GenerateHash(Operator):
         """Compute all four hash variants using the pure-Python implementation."""
         text = props.hash_generator_input
         try:
-            h_file = hash_file_name(text)
+            h_file = util_hashing_cityhash.hash_file_name(text)
             props.hash_generator_py_hash_filename = format(h_file, 'x')
             props.hash_generator_py_hash_filename_dec = str(h_file)
 
@@ -627,18 +612,18 @@ class MTAR_OT_GenerateHash(Operator):
             dot = text.rfind('.')
             if dot != -1:
                 ext = text[dot + 1:]
-                h_ext = hash_file_extension(ext)
+                h_ext = util_hashing_cityhash.hash_file_extension(ext)
                 props.hash_generator_py_hash_extension = format(h_ext, 'x')
                 props.hash_generator_py_hash_extension_dec = str(h_ext)
             else:
                 props.hash_generator_py_hash_extension = ""
                 props.hash_generator_py_hash_extension_dec = ""
 
-            h_hwe = hash_file_name_with_ext(text)
+            h_hwe = util_hashing_cityhash.hash_file_name_with_ext(text)
             props.hash_generator_py_hash_with_extension = format(h_hwe, 'x')
             props.hash_generator_py_hash_with_extension_dec = str(h_hwe)
 
-            h_leg = hash_file_name_legacy(text)
+            h_leg = util_hashing_cityhash.hash_file_name_legacy(text)
             props.hash_generator_py_hash_legacy = format(h_leg, 'x')
             props.hash_generator_py_hash_legacy_dec = str(h_leg)
 
@@ -659,7 +644,7 @@ class MTAR_OT_GenerateHash(Operator):
             self._clear_exe_results(props)
             return
 
-        success, results, error = hash_filename_all_modes_by_external_generator(exe_path, props.hash_generator_input)
+        success, results, error = tools_hash_generator.hash_filename_all_modes_by_external_generator(exe_path, props.hash_generator_input)
 
         props.hash_generator_hash_filename = results.get('filename', '')
         props.hash_generator_hash_extension = results.get('extension', '')
@@ -821,7 +806,7 @@ class MTAR_OT_ComputeStrCode32(Operator):
         
         try:
             # Compute StrCode32
-            hash_val = strcode32_path(input_text, remove_extension=remove_ext)
+            hash_val = util_hashing_cityhash.strcode32_path(input_text, remove_extension=remove_ext)
             
             # Format as hex (32-bit, 8 digits)
             props.strcode32_result = f"0x{hash_val:08X}"

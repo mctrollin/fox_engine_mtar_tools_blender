@@ -6,8 +6,7 @@ from typing import List, Optional, Tuple
 
 from ..py_core.core_logging import Debug
 
-from ..py_utilities.utilities_hashing import unhash_param_name
-from ..py_utilities.utilities_binary_write import align_length
+from ..py_utilities import util_hashing, util_binary_write
 
 from ..py_fox.fox_mtar_types import MtarTableList2
 from ..py_fox.fox_gani_types import (
@@ -22,9 +21,8 @@ from ..py_fox.fox_gani_types import (
     EvpHeader,
 )
 
-from .foxwrap_misc import build_gani_tracks_from_tracks
-from .foxwrap_misc_types import Tracks, TrackDataBlobWrapper, TrackUnitWrapper
-from .foxwrap_gani_helpers import read_evp_header, finalize_bone_tracks, finalize_motion_point_tracks
+from .fwrap_misc_types import Tracks, TrackDataBlobWrapper, TrackUnitWrapper
+from . import fwrap_misc, fwrap_gani_helpers
 
 
 class Gani2Reader:
@@ -64,7 +62,7 @@ class Gani2Reader:
         motion_point_track_header: Optional[TrackHeader] = None
         
         # Apply naming resolution and suffixes to bone tracks
-        named_gani_tracks = finalize_bone_tracks(gani_tracks, skeleton_list=skeleton_list)
+        named_gani_tracks = fwrap_gani_helpers.finalize_bone_tracks(gani_tracks, skeleton_list=skeleton_list)
 
         motion_events: Optional[EvpHeader] = None
         if is_new_format:
@@ -86,14 +84,14 @@ class Gani2Reader:
                 motion_point_track_header = motion_point_layout.header
                 
                 # Convert TrackUnits with data_blobs to GaniTrack format
-                motion_point_gani_tracks_raw = build_gani_tracks_from_tracks(motion_point_layout)
+                motion_point_gani_tracks_raw = fwrap_misc.build_gani_tracks_from_tracks(motion_point_layout)
                 Debug.log(f"      Read {len(motion_point_gani_tracks_raw)} motion point track(s)")
                 
                 # Apply naming resolution and suffixes to motion point tracks
-                motion_point_gani_tracks = finalize_motion_point_tracks(motion_point_gani_tracks_raw)
+                motion_point_gani_tracks = fwrap_gani_helpers.finalize_motion_point_tracks(motion_point_gani_tracks_raw)
 
             # MotionEvents: Handle motion events if present
-            motion_events = read_evp_header(file_data, file_header.motion_events_offset)
+            motion_events = fwrap_gani_helpers.read_evp_header(file_data, file_header.motion_events_offset)
             if motion_events is not None:
                 Debug.log(f"      Read motion events: {motion_events.count} event(s)")
 
@@ -124,7 +122,7 @@ class Gani2Reader:
         # use the unhashed string instead of raw integers.
         named_params: list = []
         for param_name_hash, param_value in track_mini_header.params:
-            param_name = unhash_param_name(param_name_hash) or str(param_name_hash)
+            param_name = util_hashing.unhash_param_name(param_name_hash) or str(param_name_hash)
             Debug.log(f"          Param: {param_name} = {param_value}")
             named_params.append((param_name, param_value))
         track_mini_header.params = named_params
@@ -132,7 +130,7 @@ class Gani2Reader:
         # Calculate GANI2 animation_track data array start location
         param_end_ptr = track_header_ptr + TrackMiniHeader.BASE_SIZE + track_mini_header.param_count * 8 + track_count * 1
         # align up to 4 bytes
-        gani2_trackdata_base = align_length(param_end_ptr, 4)
+        gani2_trackdata_base = util_binary_write.align_length(param_end_ptr, 4)
         Debug.log(f"        Track data base: 0x{gani2_trackdata_base:X}")
 
         # Process each animation_track unit
@@ -273,7 +271,7 @@ class Gani2Reader:
         DEPRECATED: Use build_gani_tracks_from_tracks() instead.
         This method is kept for backward compatibility only.
         """
-        return build_gani_tracks_from_tracks(tracks)
+        return fwrap_misc.build_gani_tracks_from_tracks(tracks)
 
     def read_all_motion_tracks(self, file_data: bytes, motion_tracks_ptr: int) -> List[TrackUnit]:
         """Read motion point tracks block and return a list of TrackUnit objects.

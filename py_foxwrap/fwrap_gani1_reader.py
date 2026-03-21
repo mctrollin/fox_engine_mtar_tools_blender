@@ -12,23 +12,15 @@ from typing import Optional, List, BinaryIO, Tuple, Union, Dict
 
 from ..py_core.core_logging import Debug
 
-from ..py_utilities.utilities_hashing import (
-    unhash_gani_node,
-    unhash_shader_prop,
-    unhash_param_name,
-)
+from ..py_utilities import util_hashing
 
+from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox.fox_foxdata_types import FoxDataHeader, FoxDataNode, FoxDataParamType
 from ..py_fox.fox_gani_types import TrackMiniHeader, EvpHeader, Gani2TrackData
-from ..py_fox.fox_gani_constants import (
-    FOXDATA_HASH_ROOT, FOXDATA_HASH_MOTION, FOXDATA_HASH_UNIT,
-    FOXDATA_HASH_MTP, FOXDATA_HASH_EVP, FOXDATA_HASH_SHADER,
-    FOXDATA_HASH_SKL_LIST, FOXDATA_HASH_MTP_LIST, FOXDATA_HASH_MTP_PARENT_LIST,
-)
 
-from .foxwrap_misc import Tracks, TrackUnitWrapper, build_gani_tracks_from_tracks
-from .foxwrap_misc_import import GaniImportData, ShaderTrackWrapper
-from .foxwrap_gani_helpers import finalize_bone_tracks, finalize_motion_point_tracks, read_evp_header
+from .fwrap_misc_types import Tracks, TrackUnitWrapper
+from .fwrap_misc_import_types import GaniImportData, ShaderTrackWrapper
+from . import fwrap_misc, fwrap_gani_helpers
 
 
 class GaniReader:
@@ -85,7 +77,7 @@ class GaniReader:
         node_params: Dict[str, List[Tuple[int, Union[float, str, int]]]] = {}
         
         # --- Find ROOT (always first node, but use search for safety) ---
-        root_result = self._find_node_by_hash(file_data, nodes_start, FOXDATA_HASH_ROOT, endian)
+        root_result = self._find_node_by_hash(file_data, nodes_start, gani_const.FOXDATA_HASH_ROOT, endian)
         if root_result is None:
             raise ValueError("GANI has no ROOT node")
         root_node, root_node_pos = root_result
@@ -115,10 +107,10 @@ class GaniReader:
                 child_node = FoxDataNode.read(br, endian)
                 child_hash = child_node.name_hash
                 
-                if child_hash == FOXDATA_HASH_MOTION:
+                if child_hash == gani_const.FOXDATA_HASH_MOTION:
                     motion_node = child_node
                     motion_node_pos = child_pos
-                elif child_hash == FOXDATA_HASH_SHADER:
+                elif child_hash == gani_const.FOXDATA_HASH_SHADER:
                     # Read SHADER container parameters (if present)
                     if child_node.parameters_offset != 0:
                         shader_params = self._read_node_parameters(file_data, child_pos, child_node.parameters_offset, endian)
@@ -128,7 +120,7 @@ class GaniReader:
                     shader_tracks, shader_child_params = self._read_shader_tracks(br, file_data, child_node, child_pos, endian)
                     node_params.update(shader_child_params)
                 else:
-                    resolved = unhash_gani_node(child_hash) or str(child_hash)
+                    resolved = util_hashing.unhash_gani_node(child_hash) or str(child_hash)
                     # Store parameters from unhandled ROOT children
                     if child_node.parameters_offset != 0:
                         unhandled_params = self._read_node_parameters(file_data, child_pos, child_node.parameters_offset, endian)
@@ -154,42 +146,42 @@ class GaniReader:
                 child_node = FoxDataNode.read(br, endian)
                 child_hash = child_node.name_hash
                 
-                if child_hash == FOXDATA_HASH_UNIT:
+                if child_hash == gani_const.FOXDATA_HASH_UNIT:
                     unit_tracks = self._read_node_payload_as_tracks(br, file_data, child_node, child_pos, endian)
                     # Store UNIT node parameters
                     if child_node.parameters_offset != 0:
                         unit_params = self._read_node_parameters(file_data, child_pos, child_node.parameters_offset, endian)
                         if unit_params:
                             node_params["MOTION/UNIT"] = unit_params
-                elif child_hash == FOXDATA_HASH_MTP:
+                elif child_hash == gani_const.FOXDATA_HASH_MTP:
                     mtp_raw_tracks = self._read_node_payload_as_tracks(br, file_data, child_node, child_pos, endian)
                     # Store MTP node parameters
                     if child_node.parameters_offset != 0:
                         mtp_params = self._read_node_parameters(file_data, child_pos, child_node.parameters_offset, endian)
                         if mtp_params:
                             node_params["MOTION/MTP"] = mtp_params
-                elif child_hash == FOXDATA_HASH_EVP:
-                    events = read_evp_header(file_data, child_node.payload_abs_offset(child_pos), endian)
+                elif child_hash == gani_const.FOXDATA_HASH_EVP:
+                    events = fwrap_gani_helpers.read_evp_header(file_data, child_node.payload_abs_offset(child_pos), endian)
                     # Store EVP node parameters
                     if child_node.parameters_offset != 0:
                         evp_params = self._read_node_parameters(file_data, child_pos, child_node.parameters_offset, endian)
                         if evp_params:
                             node_params["MOTION/EVP"] = evp_params
-                elif child_hash == FOXDATA_HASH_SKL_LIST:
+                elif child_hash == gani_const.FOXDATA_HASH_SKL_LIST:
                     skeleton_list = self._read_stringdata_payload(file_data, child_node, child_pos, endian)
                     # Store SKL_LIST node parameters
                     if child_node.parameters_offset != 0:
                         skl_params = self._read_node_parameters(file_data, child_pos, child_node.parameters_offset, endian)
                         if skl_params:
                             node_params["MOTION/SKL_LIST"] = skl_params
-                elif child_hash == FOXDATA_HASH_MTP_LIST:
+                elif child_hash == gani_const.FOXDATA_HASH_MTP_LIST:
                     motion_point_list = self._read_stringdata_payload(file_data, child_node, child_pos, endian)
                     # Store MTP_LIST node parameters
                     if child_node.parameters_offset != 0:
                         mtp_list_params = self._read_node_parameters(file_data, child_pos, child_node.parameters_offset, endian)
                         if mtp_list_params:
                             node_params["MOTION/MTP_LIST"] = mtp_list_params
-                elif child_hash == FOXDATA_HASH_MTP_PARENT_LIST:
+                elif child_hash == gani_const.FOXDATA_HASH_MTP_PARENT_LIST:
                     motion_point_parent_list = self._read_stringdata_payload(file_data, child_node, child_pos, endian)
                     # Store MTP_PARENT_LIST node parameters
                     if child_node.parameters_offset != 0:
@@ -197,7 +189,7 @@ class GaniReader:
                         if mtp_parent_params:
                             node_params["MOTION/MTP_PARENT_LIST"] = mtp_parent_params
                 else:
-                    resolved = unhash_gani_node(child_hash) or str(child_hash)
+                    resolved = util_hashing.unhash_gani_node(child_hash) or str(child_hash)
                     # Store parameters from unhandled MOTION children
                     if child_node.parameters_offset != 0:
                         unhandled_motion_params = self._read_node_parameters(file_data, child_pos, child_node.parameters_offset, endian)
@@ -211,8 +203,8 @@ class GaniReader:
                 child_pos += child_node.next_node_offset
         
         # --- Convert UNIT tracks to TrackUnitWrapper list ---
-        bone_tracks = finalize_bone_tracks(
-            build_gani_tracks_from_tracks(unit_tracks),
+        bone_tracks = fwrap_gani_helpers.finalize_bone_tracks(
+            fwrap_misc.build_gani_tracks_from_tracks(unit_tracks),
             skeleton_list=skeleton_list,
             label=f"Read gani @ (0x{gani_start:X})"
         )
@@ -225,7 +217,7 @@ class GaniReader:
             # Always use decimal hash strings for motion point track names (no prefix, no unhashing).
             # This ensures FCurve bone paths match the decimal hash bone names in the motion points armature.
             # SKL_LIST/MTP_LIST name overrides are intentionally skipped here.
-            mtp_tracks = finalize_motion_point_tracks(build_gani_tracks_from_tracks(mtp_raw_tracks))
+            mtp_tracks = fwrap_gani_helpers.finalize_motion_point_tracks(fwrap_misc.build_gani_tracks_from_tracks(mtp_raw_tracks))
             motion_point_layout = mtp_raw_tracks
             motion_point_track_header = mtp_raw_tracks.header
         
@@ -423,7 +415,7 @@ class GaniReader:
                 name = file_data[str_pos:end].decode('utf-8', errors='replace')
             else:
                 # No inline string: resolve from dictionary or fall back to hex
-                name = unhash_gani_node(hash_val)
+                name = util_hashing.unhash_gani_node(hash_val)
                 if name is None:
                     name = f"0x{hash_val:08X}"
             
@@ -476,7 +468,7 @@ class GaniReader:
                     )
                     
                     # Resolve property name from dictionary or use decimal hash fallback
-                    property_name = unhash_shader_prop(child_node.name_hash)
+                    property_name = util_hashing.unhash_shader_prop(child_node.name_hash)
                     if not property_name:
                         # Use '.' as separator so the decimal hash is never mistaken
                         # for a multi-segment index by parse_segment_suffix (which uses '_').
@@ -571,7 +563,7 @@ class GaniReader:
 
             elif type_code == FoxDataParamType.STRING:
                 if param_pos + _PARAM_STRING_SIZE > len(file_data):
-                    resolved = unhash_param_name(name_hash) or f"0x{name_hash:08X}"
+                    resolved = util_hashing.unhash_param_name(name_hash) or f"0x{name_hash:08X}"
                     Debug.log_warning(
                         f"_read_node_parameters: STRING parameter '{resolved}' at "
                         f"0x{param_pos:X} exceeds file bounds — stopping early"
@@ -595,13 +587,13 @@ class GaniReader:
                     results.append((name_hash, value_hash))
 
             elif type_code == FoxDataParamType.UINT:
-                resolved = unhash_param_name(name_hash) or f"0x{name_hash:08X}"
+                resolved = util_hashing.unhash_param_name(name_hash) or f"0x{name_hash:08X}"
                 Debug.log_warning(
                     f"_read_node_parameters: parameter '{resolved}' has unsupported type "
                     f"UINT (0) — skipping"
                 )
             else:
-                resolved = unhash_param_name(name_hash) or f"0x{name_hash:08X}"
+                resolved = util_hashing.unhash_param_name(name_hash) or f"0x{name_hash:08X}"
                 Debug.log_warning(
                     f"_read_node_parameters: parameter '{resolved}' has unknown type "
                     f"{type_code} — skipping"

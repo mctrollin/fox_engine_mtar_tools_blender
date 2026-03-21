@@ -40,28 +40,15 @@ from typing import Optional, List, Tuple, Union, Dict
 
 from ..py_core.core_logging import Debug
 
-from ..py_utilities.utilities_binary_write import align_buffer
-from ..py_utilities.utilities_hashing import is_hash_string, hash_or_parse_name
-from ..py_utilities.utilities_hashing_cityhash import strcode32
+from ..py_utilities import util_binary_write, util_hashing, util_hashing_cityhash
 
+from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox.fox_foxdata_types import FoxDataHeader, FoxDataNode, FoxDataNodeType, FoxDataParamType
 from ..py_fox.fox_gani_types import TrackHeader, TrackUnit, EvpHeader, TrackData, TrackUnitFlags
 from ..py_fox.fox_misc_types import StrCode32
-from ..py_fox.fox_gani_constants import (
-    FOXDATA_HASH_ROOT,
-    FOXDATA_HASH_MOTION,
-    FOXDATA_HASH_UNIT,
-    FOXDATA_HASH_MTP,
-    FOXDATA_HASH_EVP,
-    FOXDATA_HASH_SKL_LIST,
-    FOXDATA_HASH_MTP_LIST,
-    FOXDATA_HASH_MTP_PARENT_LIST,
-    FOXDATA_HASH_SHADER,
-    FOXDATA_HASH_PARAM_SLOPE_ANGLE,
-    FOXDATA_HASH_PARAM_SLOPE_DIR,
-)
 
-from .foxwrap_misc import TrackUnitWrapper, Tracks, is_root_motion_track
+from .fwrap_misc_types import TrackUnitWrapper, Tracks
+from . import fwrap_misc
 
 
 # FoxDataHeader.flags bit 0: set when no SKL_LIST node is written
@@ -163,15 +150,15 @@ class GaniWriter:
         # (primary guard — catches tracks whose name was never resolved).
         # An additional guard below catches root motion tracks that have been
         # renamed to a readable string (e.g. via mapping / unhashing).
-        non_skl_tracks = [w for w in gani_tracks if is_hash_string(str(w.name))]
-        skl_tracks      = [w for w in gani_tracks if not is_hash_string(str(w.name))]
+        non_skl_tracks = [w for w in gani_tracks if util_hashing.is_hash_string(str(w.name))]
+        skl_tracks      = [w for w in gani_tracks if not util_hashing.is_hash_string(str(w.name))]
 
         # Secondary guard: if the first track in the original list has at least
         # one segment and all segments are DIFF types, treat it as a root motion
         # track regardless of its name (handles renamed / unhashed root tracks).
         if (gani_tracks
                 and gani_tracks[0].segments_track_data
-                and is_root_motion_track(gani_tracks[0])):
+                and fwrap_misc.is_root_motion_track(gani_tracks[0])):
             first = gani_tracks[0]
             if first not in non_skl_tracks:
                 try:
@@ -186,7 +173,7 @@ class GaniWriter:
 
         # Validate: every non-SKL track placed first should be a root motion track.
         for track in non_skl_tracks:
-            if not (track.segments_track_data and is_root_motion_track(track)):
+            if not (track.segments_track_data and fwrap_misc.is_root_motion_track(track)):
                 Debug.log_warning(
                     f"write_gani_to_buffer: Non-SKL track '{track.name}' is placed "
                     f"before SKL tracks but does not appear to be a root motion track "
@@ -319,11 +306,11 @@ class GaniWriter:
 
         # ── ROOT node (container, no payload) ───────────────────────────────
         root_node_pos = buffer.tell()
-        self._write_placeholder_node(buffer, FOXDATA_HASH_ROOT, flags=0, name_string="ROOT")
+        self._write_placeholder_node(buffer, gani_const.FOXDATA_HASH_ROOT, flags=0, name_string="ROOT")
 
         # ── MOTION node (container, no payload) ───────────────────────────────────
         motion_node_pos = buffer.tell()
-        self._write_placeholder_node(buffer, FOXDATA_HASH_MOTION, flags=0, name_string="MOTION")
+        self._write_placeholder_node(buffer, gani_const.FOXDATA_HASH_MOTION, flags=0, name_string="MOTION")
 
         # ── MOTION parameters: SLOPE_ANGLE and SLOPE_DIR ─────────────────────────────
         # parameters_offset is relative to MOTION node start; name string area is 16 bytes
@@ -343,29 +330,29 @@ class GaniWriter:
 
         # 1. SKL_LIST (optional, before MTP and UNIT)
         if skeleton_list is not None:
-            pos, payload_end = self._write_stringdata_node(buffer, FOXDATA_HASH_SKL_LIST, skeleton_list)
+            pos, payload_end = self._write_stringdata_node(buffer, gani_const.FOXDATA_HASH_SKL_LIST, skeleton_list)
             children.append(("SKL_LIST", pos, payload_end))
 
         # 2. MTP (optional, before UNIT)
         if mtp_tracks is not None:
-            pos, _, payload_end = self._write_tracks_node(buffer, FOXDATA_HASH_MTP, mtp_tracks)
+            pos, _, payload_end = self._write_tracks_node(buffer, gani_const.FOXDATA_HASH_MTP, mtp_tracks)
             children.append(("MTP", pos, payload_end))
 
         # 3. UNIT (mandatory)
-        unit_pos, _, unit_payload_end = self._write_tracks_node(buffer, FOXDATA_HASH_UNIT, unit_tracks)
+        unit_pos, _, unit_payload_end = self._write_tracks_node(buffer, gani_const.FOXDATA_HASH_UNIT, unit_tracks)
         children.append(("UNIT", unit_pos, unit_payload_end))
 
         # 4. MTP_PARENT_LIST (optional, after UNIT)
         if motion_point_parent_list is not None:
             pos, payload_end = self._write_stringdata_node(
-                buffer, FOXDATA_HASH_MTP_PARENT_LIST, motion_point_parent_list
+                buffer, gani_const.FOXDATA_HASH_MTP_PARENT_LIST, motion_point_parent_list
             )
             children.append(("MTP_PARENT_LIST", pos, payload_end))
 
         # 5. MTP_LIST (optional, after UNIT)
         if motion_point_list is not None:
             pos, payload_end = self._write_stringdata_node(
-                buffer, FOXDATA_HASH_MTP_LIST, motion_point_list
+                buffer, gani_const.FOXDATA_HASH_MTP_LIST, motion_point_list
             )
             children.append(("MTP_LIST", pos, payload_end))
 
@@ -381,12 +368,10 @@ class GaniWriter:
 
         shader_node_pos: Optional[int] = None
         if shader_tracks:
-            shader_node_pos, shader_children = self._write_shader_node(
+            shader_node_pos, _ = self._write_shader_node(
                 buffer, shader_tracks, node_params=node_params
             )
             root_children.append(("SHADER", shader_node_pos))
-        else:
-            shader_children = []
 
         # ── Compute final file size ──────────────────────────────────────────
         file_end_pos = buffer.tell()
@@ -484,7 +469,7 @@ class GaniWriter:
         buffer.seek(file_end_pos)
         # Trailing alignment is written AFTER file_size is captured so that
         # FoxDataHeader.file_size excludes the padding bytes.
-        align_buffer(buffer, 16)
+        util_binary_write.align_buffer(buffer, 16)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Node writing helpers
@@ -518,7 +503,7 @@ class GaniWriter:
         """
         shader_node_pos = buffer.tell()
         # SHADER is a container node (like ROOT / MOTION) with an inline name string
-        self._write_placeholder_node(buffer, FOXDATA_HASH_SHADER, flags=0, name_string="SHADER")
+        self._write_placeholder_node(buffer, gani_const.FOXDATA_HASH_SHADER, flags=0, name_string="SHADER")
 
         # Write SHADER container parameters if present (e.g., TARGET_NAME)
         shader_container_params = (node_params or {}).get("SHADER")
@@ -537,13 +522,13 @@ class GaniWriter:
                 try:
                     prop_hash = int(prop_name_str[len("shader_prop."):])
                 except ValueError:
-                    prop_hash = strcode32(prop_name_str)
+                    prop_hash = util_hashing_cityhash.strcode32(prop_name_str)
                     Debug.log_warning(
                         f"  write_shader_node: Could not parse hash from '{prop_name_str}', "
                         f"using strcode32 as fallback (hash={prop_hash})"
                     )
             else:
-                prop_hash = hash_or_parse_name(prop_name_str)
+                prop_hash = util_hashing.hash_or_parse_name(prop_name_str)
 
             pos, _, payload_end = self._write_tracks_node(buffer, prop_hash, tracks)
             
@@ -677,8 +662,8 @@ class GaniWriter:
                     ``[(SLOPE_ANGLE, 0.0), (SLOPE_DIR, 0.0)]``.
         """
         effective_params: List[Tuple[int, Union[float, str, int]]] = params if params else [
-            (FOXDATA_HASH_PARAM_SLOPE_ANGLE, 0.0),
-            (FOXDATA_HASH_PARAM_SLOPE_DIR, 0.0),
+            (gani_const.FOXDATA_HASH_PARAM_SLOPE_ANGLE, 0.0),
+            (gani_const.FOXDATA_HASH_PARAM_SLOPE_DIR, 0.0),
         ]
 
         # Pre-compute per-entry sizes so next_off can be set correctly before writing.
@@ -720,7 +705,7 @@ class GaniWriter:
                 buffer.write(struct.pack('<HhIIII',
                     FoxDataParamType.STRING, next_off,
                     name_hash, 0,
-                    strcode32(value), 8,
+                    util_hashing_cityhash.strcode32(value), 8,
                 ))
                 buffer.write(raw)
                 buffer.write(b'\x00' * pad)
@@ -729,7 +714,7 @@ class GaniWriter:
         # structure (node header or payload) always starts at an aligned offset.
         # FLOAT entries (16 bytes each) are already aligned in practice; this
         # is critical for STRING hash-only entries which are 20 bytes.
-        align_buffer(buffer, 16)
+        util_binary_write.align_buffer(buffer, 16)
 
     def _write_tracks_node(
         self,
@@ -760,7 +745,7 @@ class GaniWriter:
 
         tracks.write(buffer, write_data_blobs=True)
         payload_end = buffer.tell()
-        align_buffer(buffer, 16)
+        util_binary_write.align_buffer(buffer, 16)
 
         return (node_pos, payload_start, payload_end)
 
@@ -815,11 +800,11 @@ class GaniWriter:
                 entries.append((name, None))
             else:
                 s = str(name)
-                if is_hash_string(s):
+                if util_hashing.is_hash_string(s):
                     # numeric hash literal
-                    entries.append((hash_or_parse_name(s), None))
+                    entries.append((util_hashing.hash_or_parse_name(s), None))
                 else:
-                    entries.append((hash_or_parse_name(s), s))
+                    entries.append((util_hashing.hash_or_parse_name(s), s))
 
         # Write EntryCount
         buffer.write(struct.pack('<I', len(entries)))
@@ -837,7 +822,7 @@ class GaniWriter:
 
         # Align to 8 bytes, then write 8 zero bytes of padding before the
         # inline string area (matches observed original file layout).
-        align_buffer(buffer, 8)
+        util_binary_write.align_buffer(buffer, 8)
         buffer.write(b'\x00' * 8)
 
         # Write inline name strings and backfill StringOffset fields.
@@ -852,7 +837,7 @@ class GaniWriter:
                 # Write null-terminated string (packed tightly, no per-string alignment)
                 buffer.write(name_str.encode('ascii') + b'\x00')
 
-        align_buffer(buffer, 16)
+        util_binary_write.align_buffer(buffer, 16)
         payload_end = buffer.tell()
 
         return (node_pos, payload_end)
@@ -871,7 +856,7 @@ class GaniWriter:
         payload_start = node_pos + FoxDataNode.SIZE
 
         FoxDataNode(
-            name_hash=FOXDATA_HASH_EVP,
+            name_hash=gani_const.FOXDATA_HASH_EVP,
             name_string_offset=0,
             flags=FoxDataNodeType.EVENTS,
             data_offset=FoxDataNode.SIZE,

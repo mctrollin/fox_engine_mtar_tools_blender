@@ -18,12 +18,12 @@ from typing import Optional, List, Any
 
 from ..py_core.core_logging import Debug
 
-from ..py_utilities.utilities_hashing import unhash_rig_type
+from ..py_utilities import util_hashing
 
 from ..py_fox.fox_frig_types import FrigFile, RigUnitDef
 
-from ..py_foxwrap.foxwrap_mtar_reader import MtarReader
-from ..py_foxwrap.foxwrap_metadata import get_segments_for_track_type
+from ..py_foxwrap import fwrap_metadata
+from ..py_foxwrap.fwrap_mtar_reader import MtarReader
 
 
 def generate_mapping_template(frig_filepath: Optional[str], mtar_filepath: Optional[str]) -> str:
@@ -128,7 +128,7 @@ def generate_mapping_template(frig_filepath: Optional[str], mtar_filepath: Optio
             if layout_unit.name:
                 track_hash = layout_unit.name
                 track_hash_int = track_hash.to_int() if hasattr(track_hash, 'to_int') else int(track_hash)
-                resolved = unhash_rig_type(track_hash_int)
+                resolved = util_hashing.unhash_rig_type(track_hash_int)
                 if resolved:
                     track_name = resolved
 
@@ -161,7 +161,7 @@ def generate_mapping_template(frig_filepath: Optional[str], mtar_filepath: Optio
                         segment_count = unit_def.track_count
                 segments_shorthand = ['q'] * segment_count
             else:
-                segments = get_segments_for_track_type(track_type)
+                segments = fwrap_metadata.get_segments_for_track_type(track_type)
                 for seg in segments:
                     dtype = seg.get('data_type', '')
                     if dtype == 'quatdiff':

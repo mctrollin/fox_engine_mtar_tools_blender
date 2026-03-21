@@ -30,31 +30,19 @@ import bpy
 
 from ..py_core.core_logging import Debug
 
-from ..py_utilities.utilities_blender_animation import (
-    configure_action,
-    assign_action_to_datablock,
-    MTAR_SHADER_SLOT_NAME,
-)
-from ..py_utilities.utilities_blender_armature import BoneSpec, create_track_armature
-from ..py_utilities.utilities_naming import (
-    format_action_name,
-    resolve_gani_name_segment,
-)
-from ..py_foxwrap.foxwrap_gani_helpers import apply_segment_suffixes
+from ..py_utilities.util_blender_armature_types import BoneSpec
+from ..py_utilities import util_blender_animation, util_naming, util_blender_armature
 
-from ..py_fox.fox_mtar_types import MtarTableList2
 from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_fox import fox_gani_constants as gani_const
+from ..py_fox.fox_mtar_types import MtarTableList2
 
-from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper, build_gani_tracks_from_tracks
-from ..py_foxwrap.foxwrap_misc_import import ShaderTrackWrapper
-from ..py_foxwrap.foxwrap_gani_helpers import apply_track_naming
-from ..py_foxwrap.foxwrap_metadata import (
-    TrackMetaData,
-    store_track_metadata_on_action,
-    store_node_params_on_action,
-)
+from ..py_foxwrap.fwrap_misc_import_types import ShaderTrackWrapper
+from ..py_foxwrap.fwrap_misc_types import TrackUnitWrapper
+from ..py_foxwrap.fwrap_metadata_types import TrackMetaData
+from ..py_foxwrap import fwrap_gani_helpers, fwrap_misc, fwrap_metadata
 
+# TODO: Tools shoud not import other tools
 from .tools_gani_track_importer import import_gani_track
 from .tools_motion_points_importer import create_nla_strips_for_actions
 
@@ -112,11 +100,11 @@ def _convert_shader_track_to_unit_wrappers(
     # Convert to gani tracks using decimal hashes for unit names (no unhashing —
     # the unit hashes are not in the rig/gani dictionaries and decimal preserves
     # the original StrCode32 value needed for export round-trip).
-    gani_tracks: List[TrackUnitWrapper] = apply_track_naming(
-        build_gani_tracks_from_tracks(shader_track.tracks),
+    gani_tracks: List[TrackUnitWrapper] = fwrap_gani_helpers.apply_track_naming(
+        fwrap_misc.build_gani_tracks_from_tracks(shader_track.tracks),
         use_decimal_only=True,
     )
-    apply_segment_suffixes(gani_tracks)
+    fwrap_gani_helpers.apply_segment_suffixes(gani_tracks)
 
     # Prefix every track/segment name with the property name so bones are
     # globally unique within the armature.
@@ -187,9 +175,9 @@ def create_shader_animation_actions(
         file_header = all_file_headers[gani_index]
         h_idx, d_idx = path_to_indices.get(file_header.path, (0, 0))
 
-        gani_full_path, gani_name_segment = resolve_gani_name_segment(file_header, gani_hash_dict)
+        gani_full_path, gani_name_segment = util_naming.resolve_gani_name_segment(file_header, gani_hash_dict)
 
-        action_name: str = format_action_name(
+        action_name: str = util_naming.format_action_name(
             mtar_file_name, gani_index, h_idx, d_idx,
             use_verbose_naming,
             is_shader_nodes=True,
@@ -228,7 +216,7 @@ def create_shader_animation_actions(
             for unit_wrapper in unit_wrappers:
                 track_max_frame = import_gani_track(
                     context, action, unit_wrapper,
-                    slot_name=MTAR_SHADER_SLOT_NAME,
+                    slot_name=util_blender_animation.MTAR_SHADER_SLOT_NAME,
                     apply_transforms=False,
                 )
                 gani_frame_count = max(gani_frame_count, track_max_frame)
@@ -264,17 +252,17 @@ def create_shader_animation_actions(
         if all_node_params and gani_index < len(all_node_params):
             for node_key, params in all_node_params[gani_index].items():
                 if node_key.startswith("SHADER"):
-                    store_node_params_on_action(action, node_key, params)
+                    fwrap_metadata.store_node_params_on_action(action, node_key, params)
 
         # Store per-unit metadata on the action (bits, flags — no segment abbrevs
         # or hash needed since the bone name already encodes the decimal hash).
         if all_track_metadata:
-            store_track_metadata_on_action(
+            fwrap_metadata.store_track_metadata_on_action(
                 action, all_track_metadata,
                 include_segments=False,
             )
 
-        configure_action(action, frame_start=0, frame_end=gani_frame_count)
+        util_blender_animation.configure_action(action, frame_start=0, frame_end=gani_frame_count)
         Debug.log(f"  Shader nodes frame range: 0 - {gani_frame_count}")
 
     return shader_actions
@@ -343,7 +331,7 @@ def create_and_setup_shader_nodes_armature(
                 bone_specs.append(BoneSpec(name=unit_bone_name, parent_name=prop_name))
                 seen.add(unit_bone_name)
 
-    armature_obj: bpy.types.Object = create_track_armature(context, armature_name, bone_specs)
+    armature_obj: bpy.types.Object = util_blender_armature.create_track_armature(context, armature_name, bone_specs)
 
     # Assign NLA actions if any
     if any(a is not None for a in shader_actions):
@@ -357,10 +345,10 @@ def create_and_setup_shader_nodes_armature(
         # during FCurve import so that channelbags already exist.
         for action in shader_actions:
             if action is not None:
-                assign_action_to_datablock(
+                util_blender_animation.assign_action_to_datablock(
                     armature_obj,
                     action,
-                    slot_name=MTAR_SHADER_SLOT_NAME,
+                    slot_name=util_blender_animation.MTAR_SHADER_SLOT_NAME,
                 )
 
         nla_track: bpy.types.NlaTrack = armature_obj.animation_data.nla_tracks.new()

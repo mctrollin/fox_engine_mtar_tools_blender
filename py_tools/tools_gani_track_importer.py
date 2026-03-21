@@ -13,32 +13,19 @@ from mathutils import Quaternion, Vector
 
 from ..py_core.core_logging import Debug
 
-from ..py_utilities.utilities_transforms import (
-    calculate_directional_location,
-    prepare_rotation_offset_quats,
-    apply_rotation_transforms,
-    fox_to_blender_vector,
-    apply_rest_pose_correction_local,
-    make_blender_quaternion_compatible,
-)
-from ..py_utilities.utilities_blender_animation import (
-    BLENDER_OBJECT_TRANSFORMS_GROUP_NAME,
-    MTAR_ARMATURE_SLOT_NAME,
-    ensure_action_fcurve,
-    build_data_path_for_bone,
-)
+from ..py_utilities import util_transforms, util_blender_animation
 
 from ..py_fox.fox_gani_types import SegmentType
 
-from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper, TrackDataBlobWrapper
-from ..py_foxwrap.foxwrap_mapping import ARMATURE_TARGET_NAME
+from ..py_foxwrap.fwrap_misc_types import TrackUnitWrapper, TrackDataBlobWrapper
+from ..py_foxwrap.fwrap_mapping import ARMATURE_TARGET_NAME
 
 
 def import_keyframes_track(
     context: bpy.types.Context,
     action: bpy.types.Action,
     keyframes_track: TrackDataBlobWrapper,
-    slot_name: Optional[str] = MTAR_ARMATURE_SLOT_NAME,
+    slot_name: Optional[str] = util_blender_animation.MTAR_ARMATURE_SLOT_NAME,
     apply_transforms: bool = True,
 ) -> int:
     """Import a single track data blob into a Blender action.
@@ -66,7 +53,7 @@ def import_keyframes_track(
             f"({keyframes_track.data_blob.type.name}): "
             f"{len(keyframes_track.data_blob.keyframes)} keyframe(s)"
         )
-    except:
+    except Exception:
         Debug.log("bla")
 
     # Always use LINEAR interpolation — decimation will create bezier curves later if enabled.
@@ -76,16 +63,16 @@ def import_keyframes_track(
     # Pre-compute data paths: direct property names for armature target, bone paths otherwise.
     data_path_rotation: str = (
         'rotation_quaternion' if is_armature_target
-        else build_data_path_for_bone(keyframes_track.name, 'rotation_quaternion')
+        else util_blender_animation.build_data_path_for_bone(keyframes_track.name, 'rotation_quaternion')
     )
     data_path_location: str = (
         'location' if is_armature_target
-        else build_data_path_for_bone(keyframes_track.name, 'location')
+        else util_blender_animation.build_data_path_for_bone(keyframes_track.name, 'location')
     )
     # Ensure group_name is a string (name can be an integer hash).
     # For armature targets, put object transform fcurves in Blender's default group.
     group_name: Optional[str] = (
-        BLENDER_OBJECT_TRANSFORMS_GROUP_NAME
+        util_blender_animation.BLENDER_OBJECT_TRANSFORMS_GROUP_NAME
         if is_armature_target
         else str(keyframes_track.name)
     )
@@ -97,7 +84,7 @@ def import_keyframes_track(
     if keyframes_track.data_blob.type in [SegmentType.QUAT, SegmentType.QUAT_DIFF]:
         if apply_transforms:
             if keyframes_track.rotation_offset:
-                rotation_offset_quats = prepare_rotation_offset_quats(keyframes_track.rotation_offset)
+                rotation_offset_quats = util_transforms.prepare_rotation_offset_quats(keyframes_track.rotation_offset)
             if keyframes_track.rotation_axis_map:
                 rotation_axis_map = keyframes_track.rotation_axis_map
                 axis_str = ','.join(
@@ -124,7 +111,7 @@ def import_keyframes_track(
                 prev_quat: Optional[Quaternion] = None
                 for keyframe in keyframes_track.data_blob.keyframes:
                     absolute_frame += keyframe.frame_count
-                    quat = apply_rotation_transforms(
+                    quat = util_transforms.apply_rotation_transforms(
                         keyframe.data.value,
                         rotation_axis_map,
                         rotation_offset_quats,
@@ -134,14 +121,14 @@ def import_keyframes_track(
                     if keyframes_track.space_r:
                         pass
                     elif keyframes_track.map_r_rest_pose:
-                        quat = apply_rest_pose_correction_local(quat, keyframes_track.map_r_rest_pose)
+                        quat = util_transforms.apply_rest_pose_correction_local(quat, keyframes_track.map_r_rest_pose)
 
                     # Ensure quaternion stays in same hemisphere as previous keyframe
-                    quat = make_blender_quaternion_compatible(quat, prev_quat)
+                    quat = util_transforms.make_blender_quaternion_compatible(quat, prev_quat)
                     prev_quat = quat
 
                     bone_base_location = Vector((0.0, 0.0, 0.0))
-                    target_location = calculate_directional_location(
+                    target_location = util_transforms.calculate_directional_location(
                         bone_location=bone_base_location,
                         bone_rotation_quat=quat,
                         axis=axis,
@@ -153,7 +140,7 @@ def import_keyframes_track(
                 for i in range(3):
                     try:
                         data_path_str = data_path_location
-                        fcurve: bpy.types.FCurve = ensure_action_fcurve(
+                        fcurve: bpy.types.FCurve = util_blender_animation.ensure_action_fcurve(
                             action,
                             data_path=data_path_str,
                             index=i,
@@ -182,7 +169,7 @@ def import_keyframes_track(
             prev_quat: Optional[Quaternion] = None
             for keyframe in keyframes_track.data_blob.keyframes:
                 absolute_frame += keyframe.frame_count
-                quat = apply_rotation_transforms(
+                quat = util_transforms.apply_rotation_transforms(
                     keyframe.data.value,
                     rotation_axis_map,
                     rotation_offset_quats,
@@ -194,7 +181,7 @@ def import_keyframes_track(
                         pass
                     Debug.log("    Applied world space transformation (space_r)")
                 elif keyframes_track.map_r_rest_pose:
-                    quat = apply_rest_pose_correction_local(quat, keyframes_track.map_r_rest_pose)
+                    quat = util_transforms.apply_rest_pose_correction_local(quat, keyframes_track.map_r_rest_pose)
                     euler = keyframes_track.map_r_rest_pose['euler']
                     Debug.log(
                         f"    Applied local space rest pose correction: "
@@ -202,7 +189,7 @@ def import_keyframes_track(
                     )
 
                 # Ensure quaternion stays in same hemisphere as previous keyframe
-                quat = make_blender_quaternion_compatible(quat, prev_quat)
+                quat = util_transforms.make_blender_quaternion_compatible(quat, prev_quat)
                 prev_quat = quat
 
                 converted_quaternions.append((absolute_frame, quat))
@@ -220,7 +207,7 @@ def import_keyframes_track(
         for i in range(4):
             try:
                 data_path_str = data_path_rotation
-                fcurve: bpy.types.FCurve = ensure_action_fcurve(
+                fcurve: bpy.types.FCurve = util_blender_animation.ensure_action_fcurve(
                     action,
                     data_path=data_path_str,
                     index=i,
@@ -249,7 +236,7 @@ def import_keyframes_track(
         for keyframe in keyframes_track.data_blob.keyframes:
             absolute_frame += keyframe.frame_count
             if apply_transforms:
-                blender_vec: List[float] = fox_to_blender_vector(keyframe.data.value)
+                blender_vec: List[float] = util_transforms.fox_to_blender_vector(keyframe.data.value)
             else:
                 blender_vec = list(keyframe.data.value)
             converted_vectors.append((absolute_frame, blender_vec))
@@ -258,7 +245,7 @@ def import_keyframes_track(
         for i in range(3):
             try:
                 data_path_str = data_path_location
-                fcurve: bpy.types.FCurve = ensure_action_fcurve(
+                fcurve: bpy.types.FCurve = util_blender_animation.ensure_action_fcurve(
                     action,
                     data_path=data_path_str,
                     index=i,
@@ -296,7 +283,7 @@ def import_keyframes_track(
 
         try:
             data_path_str = data_path_location
-            fcurve: bpy.types.FCurve = ensure_action_fcurve(
+            fcurve: bpy.types.FCurve = util_blender_animation.ensure_action_fcurve(
                 action,
                 data_path=data_path_str,
                 index=0,
@@ -329,7 +316,7 @@ def import_keyframes_track(
         for i in range(2):
             try:
                 data_path_str = data_path_location
-                fcurve: bpy.types.FCurve = ensure_action_fcurve(
+                fcurve: bpy.types.FCurve = util_blender_animation.ensure_action_fcurve(
                     action,
                     data_path=data_path_str,
                     index=i,
@@ -363,7 +350,7 @@ def import_gani_track(
     context: bpy.types.Context,
     action: bpy.types.Action,
     gani_track: TrackUnitWrapper,
-    slot_name: Optional[str] = MTAR_ARMATURE_SLOT_NAME,
+    slot_name: Optional[str] = util_blender_animation.MTAR_ARMATURE_SLOT_NAME,
     apply_transforms: bool = True,
 ) -> int:
     """Import a :class:`TrackUnitWrapper` (all its segments) into a Blender action.

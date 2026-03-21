@@ -4,19 +4,14 @@ Blender N-Panel for MTAR export functionality.
 import bpy
 from bpy.types import Context, UILayout
 
-from .py_utilities.utilities_blender_animation import is_relevant_strip, try_find_layout_track_action
-
-from .py_foxwrap.foxwrap_metadata import read_mtar_properties_from_action, read_mtar_properties_from_any_action
+from .py_utilities import util_blender_animation
 
 from .py_fox import fox_mtar_constants as mtar_const
 
+from .py_foxwrap import fwrap_metadata
+
 from .blender_operators_export import MTAR_OT_ExportAnimationToMTAR
-from .blender_panel_shared import (
-    draw_bool_prop_checkbox_icon,
-    draw_estimated_operation_time,
-    draw_progress_bar,
-    draw_gani_index_filter,
-)
+from . import blender_panel_shared
 
 
 def draw_export_page(layout: UILayout, context: Context) -> None:
@@ -27,7 +22,7 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
 
     # Reference MTAR use option
     ref_box = layout.box()
-    draw_bool_prop_checkbox_icon(ref_box, export_props, "use_reference_mtar")
+    blender_panel_shared.draw_bool_prop_checkbox_icon(ref_box, export_props, "use_reference_mtar")
     if export_props.use_reference_mtar:
         ref_box.prop(props.import_props, "mtar_filepath", text="", icon='FILE')
 
@@ -41,12 +36,12 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
     box_rig.prop(export_props, "armature", text="", icon='OUTLINER_OB_ARMATURE')
     if export_props.armature:
         # Resolve the layout action once; reused for format/info logic below.
-        _layout_action = try_find_layout_track_action()
+        _layout_action = util_blender_animation.try_find_layout_track_action()
         _fmt_flags = 0x1000  # default: new format
         # For old-format MTARs (no layout action), collect fallback NLA actions
         _fallback_nla_actions = []
         if _layout_action:
-            _fmt_mtar_props = read_mtar_properties_from_action(_layout_action)
+            _fmt_mtar_props = fwrap_metadata.read_mtar_properties_from_action(_layout_action)
             _fmt_flags = _fmt_mtar_props.get(mtar_const.MTAR_FLAGS, 0x1000)
         elif export_props.armature and export_props.armature.animation_data:
             # Old-format: collect NLA actions for fallback MTAR property reading
@@ -54,17 +49,17 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
             for track in anim_data.nla_tracks:
                 if not track.mute:
                     for strip in track.strips:
-                        if is_relevant_strip(strip) and strip.action:
+                        if util_blender_animation.is_relevant_strip(strip) and strip.action:
                             _fallback_nla_actions.append(strip.action)
             if _fallback_nla_actions:
-                _fmt_mtar_props = read_mtar_properties_from_any_action(_layout_action, _fallback_nla_actions)
+                _fmt_mtar_props = fwrap_metadata.read_mtar_properties_from_any_action(_layout_action, _fallback_nla_actions)
                 _fmt_flags = _fmt_mtar_props.get(mtar_const.MTAR_FLAGS, 0x1000)
         # old-format info still needs to know _fmt_flags
 
     if settings_props.show_advanced_settings:
         adv_box = box_rig.box()
         adv_box.alert = True
-        draw_bool_prop_checkbox_icon(adv_box, export_props, "use_nla")
+        blender_panel_shared.draw_bool_prop_checkbox_icon(adv_box, export_props, "use_nla")
 
     # Show info about NLA status and compute export_count
     animinfo_box = box_rig.box()
@@ -78,7 +73,7 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
             unmuted_strips = sum(1 for track in anim_data.nla_tracks
                                 if not track.mute
                                 for strip in track.strips
-                                if is_relevant_strip(strip))
+                                if util_blender_animation.is_relevant_strip(strip))
             export_count = unmuted_strips
             if unmuted_strips > 0:
                 info_nla = f"{unmuted_strips} NLA strip(s)"
@@ -134,7 +129,7 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
         mtar_box.prop(props, "mapping_filepath", text="", icon='TEXT')
 
         # Optional GANI selection filter (similar to import UI)
-        selected_count, _, _ = draw_gani_index_filter(
+        selected_count, _, _ = blender_panel_shared.draw_gani_index_filter(
             layout, export_props, "gani_indices_str", export_count
         )
 
@@ -144,7 +139,7 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
 
             # FCurve cleaning controls (advanced setting)
             row = adv_box.row(align=True)
-            draw_bool_prop_checkbox_icon(row, export_props, 'export_clean_fcurves')
+            blender_panel_shared.draw_bool_prop_checkbox_icon(row, export_props, 'export_clean_fcurves')
 
             sub = row.row(align=True)
             sub.enabled = export_props.export_clean_fcurves and export_props.export_decimate_fcurves
@@ -152,19 +147,19 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
 
             # Force highest bit encoding option
             row2 = adv_box.row()
-            draw_bool_prop_checkbox_icon(row2, export_props, "force_highest_bit_encoding")
+            blender_panel_shared.draw_bool_prop_checkbox_icon(row2, export_props, "force_highest_bit_encoding")
 
         if settings_props.show_advanced_settings:
             adv_box = box_export.box()
             adv_box.alert = True
 
             # Custom path hash export option
-            draw_bool_prop_checkbox_icon(adv_box, export_props, "treat_hashes_as_names")
+            blender_panel_shared.draw_bool_prop_checkbox_icon(adv_box, export_props, "treat_hashes_as_names")
             # Always show base path — it applies to invalid paths and NLA fallbacks regardless of the flag above
             adv_box.prop(export_props, "custom_path_base", text="")
 
             # Export info file option
-            draw_bool_prop_checkbox_icon(adv_box, export_props, "info_file")
+            blender_panel_shared.draw_bool_prop_checkbox_icon(adv_box, export_props, "info_file")
 
         # Export file picker
         mtar_box = layout.box()
@@ -180,14 +175,14 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
         col.enabled = can_export
         col.operator("mtar.export_animation", text="Export Animation", icon='EXPORT')
 
-        draw_progress_bar(box_button, props)
+        blender_panel_shared.draw_progress_bar(box_button, props)
 
         # Show an estimated export duration based on GANI count
         display_count = selected_count if selected_count is not None else export_count
         if display_count is not None and display_count > 0:
             warn_box = box_button.box()
             warn_box.label(text=f"Exporting {display_count} animations.")
-            draw_estimated_operation_time(warn_box, display_count, 1)
+            blender_panel_shared.draw_estimated_operation_time(warn_box, display_count, 1)
 
         if not export_props.armature:
             warn_box.alert = True

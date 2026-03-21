@@ -29,13 +29,13 @@ import bpy
 
 from ..py_core.core_logging import Debug
 
-from ..py_fox.fox_misc_types import StrCode32
 from ..py_fox import fox_gani_constants as gani_const
+from ..py_fox.fox_misc_types import StrCode32
 
-from ..py_foxwrap.foxwrap_metadata import TrackMetaData
-from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper, TrackDataBlobWrapper
-from ..py_foxwrap.foxwrap_misc_export import ExportActionData, collect_armature_actions
-
+from ..py_foxwrap.fwrap_metadata_types import TrackMetaData
+from ..py_foxwrap.fwrap_misc_types import TrackUnitWrapper, TrackDataBlobWrapper
+from ..py_foxwrap.fwrap_misc_export_types import ExportActionData
+from ..py_foxwrap import fwrap_misc_export
 
 
 # ---------------------------------------------------------------------------
@@ -58,7 +58,7 @@ def collect_shader_nodes_actions(
     Returns:
         List of :class:`ExportActionData` objects (may be empty).
     """
-    return collect_armature_actions(
+    return fwrap_misc_export.collect_armature_actions(
         shader_nodes_armature, use_nla,
         track_type_label="shader nodes",
         export_clean_threshold=export_clean_threshold,
@@ -88,9 +88,8 @@ def build_shader_nodes_metadata_dict(
     Returns:
         ``{unit_bone_name: TrackMetaData}`` for every unit bone present in *action*.
     """
-    from ..py_foxwrap.foxwrap_misc_export import build_track_metadata_dict_from_fcurves
 
-    def _shader_hash(bone_name: str, bone: 'bpy.types.Bone') -> int:
+    def _shader_hash(bone_name: str, bone: bpy.types.Bone) -> int:
         parent_bone_name = bone.parent.name if bone.parent else bone_name
         prefix = parent_bone_name + "."
         unit_part = bone_name[len(prefix):] if bone_name.startswith(prefix) else bone_name
@@ -99,12 +98,12 @@ def build_shader_nodes_metadata_dict(
         except ValueError:
             return StrCode32.from_string(unit_part).to_int()
 
-    return build_track_metadata_dict_from_fcurves(
+    return fwrap_misc_export.build_track_metadata_dict_from_fcurves(
         armature=shader_nodes_armature,
         action=action,
         armature_label="shader nodes",
         bone_skip_predicate=lambda b: b.parent is None,
-        name_hash_extractor=_shader_hash,
+        name_hash_extractor_fn=_shader_hash,
         warn_on_missing_metadata=False,
     )
 

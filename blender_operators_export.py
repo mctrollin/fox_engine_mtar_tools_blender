@@ -11,15 +11,12 @@ from bpy.types import Operator, Context
 
 from .py_core.core_logging import Debug
 
-from .py_utilities.utilities_blender_state import nla_tweak_guard
-from .py_utilities.utilities_blender_armature import auto_detect_aux_armatures
+from .py_utilities import util_blender_state, util_blender_armature, util_parsing, util_blender_animation
 
-from .py_foxwrap.foxwrap_misc_export_types import TrackSegmentBoneMapping
-from .py_utilities.utilities_parsing import parse_segment_suffix
-from .py_foxwrap.foxwrap_mapping import parse_track_mapping_file, ARMATURE_TARGET_NAME
-from .py_foxwrap.foxwrap_metadata import iter_track_properties
+from .py_foxwrap.fwrap_misc_export_types import TrackSegmentBoneMapping
+from .py_foxwrap import fwrap_mapping, fwrap_metadata
 
-from .py_tools.tools_mtar_exporter import export_mtar, try_find_layout_track_action
+from .py_tools import tools_mtar_exporter
 
 
 def build_track_segment_bone_mapping_from_file(mapping_filepath: str,
@@ -38,7 +35,7 @@ def build_track_segment_bone_mapping_from_file(mapping_filepath: str,
     """
     
     Debug.log(f"Loading bone mapping from: {mapping_filepath}")
-    mapping_data = parse_track_mapping_file(mapping_filepath)
+    mapping_data = fwrap_mapping.parse_track_mapping_file(mapping_filepath)
     if mapping_data.fox_to_blender:
         Debug.log(f"Loaded {len(mapping_data.fox_to_blender)} fox-to-blender bone mapping(s)")
     
@@ -52,7 +49,7 @@ def build_track_segment_bone_mapping_from_file(mapping_filepath: str,
     
     # Parse track indices from layout action custom properties using utility function
     track_name_to_idx = {}
-    for track_idx, track_name, _ in iter_track_properties(layout_action):
+    for track_idx, track_name, _ in fwrap_metadata.iter_track_properties(layout_action):
         track_name_to_idx[track_name] = track_idx
     
     Debug.log(f"  Found {len(track_name_to_idx)} track(s) in layout action")
@@ -72,12 +69,12 @@ def build_track_segment_bone_mapping_from_file(mapping_filepath: str,
         # Check if this bone exists in the armature.
         # ARMATURE_TARGET_NAME ('[armature]') is a virtual target that routes keyframes
         # to the armature object itself — it is never a real pose bone.
-        if blender_bone_name != ARMATURE_TARGET_NAME and blender_bone_name not in armature.data.bones:
+        if blender_bone_name != fwrap_mapping.ARMATURE_TARGET_NAME and blender_bone_name not in armature.data.bones:
             missing_bones.append(blender_bone_name)
             continue
         
         # Multi-segment tracks have numeric suffixes (Option D naming).
-        base_track_name, segment_idx = parse_segment_suffix(fox_name)
+        base_track_name, segment_idx = util_parsing.parse_segment_suffix(fox_name)
         # For single-segment tracks parse_segment_suffix returns index -1; clamp to 0
         if segment_idx < 0:
             segment_idx = 0
@@ -141,7 +138,7 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
             
             try:
                 # Get layout action to determine track indices
-                layout_action = try_find_layout_track_action()
+                layout_action = util_blender_animation.try_find_layout_track_action()
                 
                 if not layout_action:
                     Debug.report_and_log(self, 'ERROR', "No layout track action found. Cannot determine track indices for export.")
@@ -182,14 +179,14 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
 
         # NLA tweak mode guard — AnimData.action is read-only while use_tweak_mode is True.
         # detect auxiliaries so they can be included in the guard
-        mp_arm, sh_arm = auto_detect_aux_armatures(export_props.armature)
-        with nla_tweak_guard(export_props.armature, mp_arm, sh_arm):
+        mp_arm, sh_arm = util_blender_armature.auto_detect_aux_armatures(export_props.armature)
+        with util_blender_state.nla_tweak_guard(export_props.armature, mp_arm, sh_arm):
             try:
                 with Debug.busy_cursor():
                     # Export MTAR with layout track extracted from metadata
                     export_filepath_abs = bpy.path.abspath(export_props.filepath)
 
-                    result = export_mtar(
+                    result = tools_mtar_exporter.export_mtar(
                         context=context,
                         filepath=export_filepath_abs,
                         armature=export_props.armature,

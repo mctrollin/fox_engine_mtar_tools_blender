@@ -5,12 +5,12 @@ import math
 from typing import List
 
 from ..py_core.core_logging import Debug
-from ..py_fox.fox_gani_enums import TrackUnitFlags
+from ..py_fox.fox_gani_enums import TrackUnitFlags, SegmentType
 
-from .foxwrap_mapping_types import BoneParameters
-from .foxwrap_misc_types import Tracks, TrackDataBlobWrapper, TrackUnitWrapper
+from .fwrap_mapping_types import BoneParameters
+from .fwrap_misc_types import Tracks, TrackDataBlobWrapper, TrackUnitWrapper
 
-_DIFF_SEGMENT_TYPES = frozenset(() )
+_DIFF_SEGMENT_TYPES = frozenset({SegmentType.QUAT_DIFF, SegmentType.VECTOR_DIFF})
 
 
 def get_rest_pose_dict_from_bone(bone) -> dict:

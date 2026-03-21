@@ -252,7 +252,7 @@ class FCurveCache:
         fcurves_for_rotation = cache.get_fcurves_for_bone(bone_name, 'rotation_quaternion')
     """
     
-    def __init__(self, cache_dict: Optional[Dict[str, Dict[str, List['bpy.types.FCurve']]]] = None):
+    def __init__(self, cache_dict: Optional[Dict[str, Dict[str, List[bpy.types.FCurve]]]] = None):
         """Initialize the FCurve cache.
         
         Args:
@@ -270,7 +270,7 @@ class FCurveCache:
         Returns:
             FCurveCache instance with all fcurves indexed
         """
-        cache_dict: Dict[str, Dict[str, List['bpy.types.FCurve']]] = {}
+        cache_dict: Dict[str, Dict[str, List[bpy.types.FCurve]]] = {}
         
         if not action or not action_has_fcurves(action):
             return cls(cache_dict)
@@ -308,7 +308,7 @@ class FCurveCache:
         
         return cls(cache_dict)
     
-    def get_fcurves_for_bone(self, bone_name: str, property_name: str) -> List['bpy.types.FCurve']:
+    def get_fcurves_for_bone(self, bone_name: str, property_name: str) -> List[bpy.types.FCurve]:
         """Get all fcurves for a specific bone and property.
         
         Args:
@@ -351,7 +351,7 @@ class FCurveCache:
         """
         return len(self._cache) == 0
     
-    def to_dict(self) -> Dict[str, Dict[str, List['bpy.types.FCurve']]]:
+    def to_dict(self) -> Dict[str, Dict[str, List[bpy.types.FCurve]]]:
         """Get the underlying cache dictionary.
         
         Useful for passing to functions that expect the raw dict format.
@@ -719,7 +719,7 @@ def set_nla_solo(
             except Exception as e:
                 Debug.log_warning(f"set_nla_solo: failed to remove temporary export track: {e}")
 
-def get_action_slot(action: bpy.types.Action, slot_name: Optional[str] = None) -> 'bpy.types.ActionSlot':
+def get_action_slot(action: bpy.types.Action, slot_name: Optional[str] = None) -> bpy.types.ActionSlot:
     """Return or create an Action slot.
 
     If `slot_name` is provided, this will look for a slot whose `name` or
@@ -939,7 +939,7 @@ def iter_channelbags(owner) -> Iterator:
                 yield ch
 
 
-def iter_action_fcurves(action: bpy.types.Action) -> Iterator['bpy.types.FCurve']:
+def iter_action_fcurves(action: bpy.types.Action) -> Iterator[bpy.types.FCurve]:
     """ Return an iterator over all F-Curves in an Action. 
     Uses Python's built-in iter() on the list returned by get_all_fcurves_from_action(). """ 
     return iter(get_all_fcurves_from_action(action))

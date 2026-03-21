@@ -5,41 +5,22 @@ import bpy
 
 from ..py_core.core_logging import Debug
 
-from ..py_utilities.utilities_blender_animation import (
-    add_dummy_keyframes_to_action,
-    configure_action,
-    remove_action_from_datablock,
-    iter_action_fcurves,
-    build_data_path_for_bone
-)
-from ..py_utilities.utilities_blender_armature import BoneSpec, create_track_armature
-from ..py_utilities.utilities_naming import format_action_name, format_strip_name, resolve_gani_name_segment
+from ..py_utilities import util_blender_animation, util_naming, util_blender_armature
+from ..py_utilities.util_blender_armature_types import BoneSpec
 
 from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_fox.fox_mtar_types import MtarTableList, MtarTableList2, MtarHeader
 from ..py_fox.fox_gani_types import SegmentType
 from ..py_fox.fox_frig_types import FrigFile
 
-from ..py_foxwrap.foxwrap_metadata import (
-    PROP_NO_SKL_LIST,
-    build_track_metadata_from_layout_track_units,
-    build_track_metadata_from_gani_tracks,
-    store_track_header_properties_on_action,
-    store_track_metadata_on_action,
-    store_mtar_properties_on_action,
-    store_node_params_on_action,
-    merge_node_params,
-)
-from ..py_foxwrap.foxwrap_misc import TrackDataBlobWrapper, Tracks
-from ..py_foxwrap import foxwrap_misc
-from ..py_foxwrap.foxwrap_misc_import import GaniImportData, iter_gani_tracks, iter_gani_bone_tracks
-from ..py_foxwrap.foxwrap_motionevent import store_motion_events_on_action
-from ..py_foxwrap.foxwrap_mtar_reader import MtarReader
-from ..py_foxwrap.foxwrap_mapping_types import BoneParameters, TransformConstraintEntry
-from ..py_foxwrap.foxwrap_mapping import ARMATURE_TARGET_NAME
-from ..py_foxwrap.foxwrap_motionpoint_types import MotionPointWrapper
-from ..py_foxwrap.foxwrap_motionpoint import store_motion_point_stringlists_on_action
+from ..py_foxwrap.fwrap_misc_types import TrackDataBlobWrapper, Tracks
+from ..py_foxwrap.fwrap_misc_import_types import GaniImportData
+from ..py_foxwrap.fwrap_mapping_types import BoneParameters, TransformConstraintEntry
+from ..py_foxwrap.fwrap_motionpoint_types import MotionPointWrapper
+from ..py_foxwrap import fwrap_metadata, fwrap_misc, fwrap_misc_import, fwrap_motionevent, fwrap_motionpoint, fwrap_mapping
+from ..py_foxwrap.fwrap_mtar_reader import MtarReader
 
+# TODO: tools should not import other tools
 from .tools_gani_track_importer import import_gani_track
 from .tools_motion_points_importer import (
     create_nla_strips_for_actions,
@@ -129,7 +110,7 @@ def validate_track_mapping_collisions(
     # iterate each GANI independently to avoid cross-file warnings
     for index, data in enumerate(all_gani_data):
         collision_map: Dict[Tuple[str, SegmentType], List[str]] = {}
-        for gani_track in iter_gani_bone_tracks([data]):
+        for gani_track in fwrap_misc_import.iter_gani_bone_tracks([data]):
             for track_blob in gani_track.segments_track_data:
                 name = track_blob.name
                 if name not in track_mapping:
@@ -161,7 +142,7 @@ def apply_track_transformations(all_gani_data: List[GaniImportData], track_mappi
         Debug.log("Applying track mapping transformations...")
         validate_track_mapping_collisions(all_gani_data, track_mapping)
 
-        for gani_track in iter_gani_tracks(all_gani_data, include_mtp=True):
+        for gani_track in fwrap_misc_import.iter_gani_tracks(all_gani_data, include_mtp=True):
             for track_blob in gani_track.segments_track_data:
                 if track_blob.name in track_mapping:
                     old_name: str = track_blob.name
@@ -187,7 +168,7 @@ def extract_rest_pose_from_custom_rig(all_gani_data: List[GaniImportData], custo
     Debug.log("\n=== Extracting Rest Pose from custom rig ===")
     rest_pose_count = 0
     
-    for gani_track in iter_gani_bone_tracks(all_gani_data):
+    for gani_track in fwrap_misc_import.iter_gani_bone_tracks(all_gani_data):
         for track_blob in gani_track.segments_track_data:
             # Only apply to rotation segments
             if track_blob.data_blob.type not in [SegmentType.QUAT, SegmentType.QUAT_DIFF]:
@@ -203,13 +184,13 @@ def extract_rest_pose_from_custom_rig(all_gani_data: List[GaniImportData], custo
 
             # Extract rest pose rotation from custom rig
             bone = custom_rig.data.bones[track_blob.name]
-            rest_pose_dict = foxwrap_misc.get_rest_pose_dict_from_bone(bone)
+            rest_pose_dict = fwrap_misc.get_rest_pose_dict_from_bone(bone)
 
             had_map_r_rest_pose = track_blob.map_r_rest_pose is not None
             existing_euler = track_blob.map_r_rest_pose['euler'] if had_map_r_rest_pose else None
 
             # Apply helper updates for both import/export semantics
-            euler_deg = foxwrap_misc.apply_rest_pose_correction_to_target(track_blob, rest_pose_dict)
+            euler_deg = fwrap_misc.apply_rest_pose_correction_to_target(track_blob, rest_pose_dict)
 
             if track_blob.space_r:
                 Debug.log(f"  {track_blob.name} [WORLD]: Added rest pose to offset_r: ({euler_deg[0]:.1f}, {euler_deg[1]:.1f}, {euler_deg[2]:.1f})")
@@ -265,29 +246,29 @@ def create_animation_actions(
     if layout_track and layout_track.track_units and not is_old_format:
         # GANI2 / new-format: create layout action (unchanged)
         Debug.log("Creating layout track action for metadata storage (GANI2)...")
-        layout_action_name = format_action_name(mtar_file_name, 0, 0, 0, False, is_layout=True)
+        layout_action_name = util_naming.format_action_name(mtar_file_name, 0, 0, 0, False, is_layout=True)
         layout_action = bpy.data.actions.new(name=layout_action_name)
         layout_action.use_fake_user = True
         
         # Convert layout track to TrackMetaData and store metadata
         # Pass first gani_tracks (if available) to preserve rig_unit_type from FRIG
         first_gani_tracks = all_gani_data[0].gani_bone_tracks if all_gani_data else None
-        track_metadata_list = build_track_metadata_from_layout_track_units(layout_track.track_units, gani_tracks=first_gani_tracks)
-        store_track_metadata_on_action(layout_action, track_metadata_list)
+        track_metadata_list = fwrap_metadata.build_track_metadata_from_layout_track_units(layout_track.track_units, gani_tracks=first_gani_tracks)
+        fwrap_metadata.store_track_metadata_on_action(layout_action, track_metadata_list)
         
         # Store header properties separately
         if layout_track.header:
-            store_track_header_properties_on_action(layout_action, layout_track.header)
+            fwrap_metadata.store_track_header_properties_on_action(layout_action, layout_track.header)
         
         # Store MTAR-level version and flags for export
-        store_mtar_properties_on_action(layout_action, mtar_version, mtar_flags)
+        fwrap_metadata.store_mtar_properties_on_action(layout_action, mtar_version, mtar_flags)
         
         # Add dummy keyframes at frames -100 and -50
         dummy_frames = [-100.0, -50.0]
-        add_dummy_keyframes_to_action(layout_action, frames=dummy_frames)
+        util_blender_animation.add_dummy_keyframes_to_action(layout_action, frames=dummy_frames)
         
         # ensure action frame range reflects the dummy frames as well
-        configure_action(layout_action, frame_start=dummy_frames[0], frame_end=dummy_frames[-1])
+        util_blender_animation.configure_action(layout_action, frame_start=dummy_frames[0], frame_end=dummy_frames[-1])
         
         Debug.log(f"Created layout track action: {layout_action_name}")
 
@@ -302,7 +283,7 @@ def create_animation_actions(
 
         # Resolve GANI path hash to readable name if dictionary provided
         file_header = data.file_header
-        gani_full_path, gani_name_segment = resolve_gani_name_segment(file_header, gani_hash_dict)
+        gani_full_path, gani_name_segment = util_naming.resolve_gani_name_segment(file_header, gani_hash_dict)
 
         # -----------------------------------------------------
         # Update UI progress for per-GANI processing (keeps overall 'Creating Actions...' stage)
@@ -329,7 +310,7 @@ def create_animation_actions(
         if file_header.path not in path_to_indices:
             Debug.log_warning(f"Missing path hash mapping for GANI: 0x{file_header.path:016X}, using h0_d0")
         
-        action_name: str = format_action_name(mtar_file_name, gani_index, h_idx, d_idx, use_verbose_naming, gani_name=gani_name_segment)
+        action_name: str = util_naming.format_action_name(mtar_file_name, gani_index, h_idx, d_idx, use_verbose_naming, gani_name=gani_name_segment)
         action: bpy.types.Action = bpy.data.actions.new(name=action_name)
         gani_actions.append(action)
         Debug.log(f"Created action: {action_name}")
@@ -344,23 +325,23 @@ def create_animation_actions(
         if is_old_format and data.gani_layout_track:
             per_gani_layout = data.gani_layout_track
             # Old-format: use per-GANI layout_track which has full segment information
-            track_metadata_list = build_track_metadata_from_layout_track_units(
+            track_metadata_list = fwrap_metadata.build_track_metadata_from_layout_track_units(
                 per_gani_layout.track_units,
                 gani_tracks=data.gani_bone_tracks)  # Pass gani_tracks to resolve rig_unit_type from FRIG
-            store_track_metadata_on_action(
+            fwrap_metadata.store_track_metadata_on_action(
                 action, track_metadata_list,
                 include_segments=True)  # Full segment types stored for old-format
-            store_track_header_properties_on_action(action, per_gani_layout.header)
-            store_mtar_properties_on_action(action, mtar_version, mtar_flags)
+            fwrap_metadata.store_track_header_properties_on_action(action, per_gani_layout.header)
+            fwrap_metadata.store_mtar_properties_on_action(action, mtar_version, mtar_flags)
             Debug.log(f"Stored full metadata on old-format GANI action (idx={gani_index}) from per-GANI layout")
         else:
             # GANI2 path or missing layout: metadata already on layout action; per-GANI only stores bits+flags
-            track_metadata_list = build_track_metadata_from_gani_tracks(data.gani_bone_tracks, track_mini_header.segment_headers)
-            store_track_metadata_on_action(action, track_metadata_list, include_segments=False)
+            track_metadata_list = fwrap_metadata.build_track_metadata_from_gani_tracks(data.gani_bone_tracks, track_mini_header.segment_headers)
+            fwrap_metadata.store_track_metadata_on_action(action, track_metadata_list, include_segments=False)
         # Store all non-SHADER node params from this GANI (MOTION, ROOT, etc.) for lossless round-trip
-        gani_node_params = merge_node_params(data.gani_node_params or {})
+        gani_node_params = fwrap_metadata.merge_node_params(data.gani_node_params or {})
         for node_key, params in gani_node_params.items():
-            store_node_params_on_action(action, node_key, params)
+            fwrap_metadata.store_node_params_on_action(action, node_key, params)
         
         # Store mtar_const.TABL_PATH for re-export: full asset path if unhashed, raw decimal hash string otherwise
         if hasattr(file_header, 'path'):
@@ -390,12 +371,12 @@ def create_animation_actions(
         # (see foxwrap_gani_reader.py), so gfox_skl_list is no longer stored here.
         # Instead we store a flag indicating whether the original GANI had NO SKL_LIST node.
         if data.gani_skeleton_list is None:
-            action[PROP_NO_SKL_LIST] = 1
-            action.id_properties_ui(PROP_NO_SKL_LIST).update(
+            action[fwrap_metadata.PROP_NO_SKL_LIST] = 1
+            action.id_properties_ui(fwrap_metadata.PROP_NO_SKL_LIST).update(
                 description="Original GANI had no SKL_LIST node — suppress on re-export"
             )
-            Debug.log(f"  Stored {PROP_NO_SKL_LIST}: 1 (original had no SKL_LIST)")
-        store_motion_point_stringlists_on_action(
+            Debug.log(f"  Stored {fwrap_metadata.PROP_NO_SKL_LIST}: 1 (original had no SKL_LIST)")
+        fwrap_motionpoint.store_motion_point_stringlists_on_action(
             action,
             data.gani1_motion_point_list,
             data.gani1_motion_point_parent_list,
@@ -403,7 +384,7 @@ def create_animation_actions(
 
         # Store motion events if present
         if data.gani_events:
-            store_motion_events_on_action(action, data.gani_events)
+            fwrap_motionevent.store_motion_events_on_action(action, data.gani_events)
 
         # =============================
 
@@ -419,7 +400,7 @@ def create_animation_actions(
         Debug.log(f"Track frame range: 0 - {gani_frame_count}")
         
         # Configure action with frame range from MTAR file header
-        configure_action(action, frame_start=0, frame_end=gani_frame_count)
+        util_blender_animation.configure_action(action, frame_start=0, frame_end=gani_frame_count)
         Debug.log(f"  Configured action frame range: 0 - {gani_frame_count}")
 
         # Update offset for next strip (used for calculating total frame range)
@@ -487,7 +468,7 @@ def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object,
     if track_mapping:
         for source_name, mapping_data in track_mapping.items():
             target_name = mapping_data.track_name if mapping_data.track_name else mapping_data.fox_name
-            if target_name == ARMATURE_TARGET_NAME:
+            if target_name == fwrap_mapping.ARMATURE_TARGET_NAME:
                 # Check if this track has rotation segments
                 # (We check the data blobs from the imported tracks)
                 # For now, we'll be conservative and assume it might
@@ -503,7 +484,7 @@ def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object,
     try:
         if hasattr(custom_rig, 'animation_data') and custom_rig.animation_data and custom_rig.animation_data.action:
             Debug.log(f"Removing existing action '{custom_rig.animation_data.action.name}' from custom rig '{custom_rig.name}'")
-            remove_action_from_datablock(custom_rig)
+            util_blender_animation.remove_action_from_datablock(custom_rig)
     except Exception:
         # Best-effort: do not fail the import if we cannot modify the rig's animation_data
         pass
@@ -532,8 +513,8 @@ def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object,
         # Check for rotation FCurves
         has_rotation = False
         if imported_armature.animation_data and imported_armature.animation_data.action:
-            rotation_data_path = build_data_path_for_bone(source_name, 'rotation_quaternion')
-            for fcurve in iter_action_fcurves(imported_armature.animation_data.action):
+            rotation_data_path = util_blender_animation.build_data_path_for_bone(source_name, 'rotation_quaternion')
+            for fcurve in util_blender_animation.iter_action_fcurves(imported_armature.animation_data.action):
                 # Check if this fcurve belongs to this bone and is a rotation curve
                 if fcurve.data_path == rotation_data_path:
                     has_rotation = True
@@ -558,7 +539,7 @@ def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object,
 
         # Armature-object target: FCurves are written directly to the action,
         # no constraints are needed in the custom rig.
-        if target_bone_name == ARMATURE_TARGET_NAME:
+        if target_bone_name == fwrap_mapping.ARMATURE_TARGET_NAME:
             Debug.log(f"  Skipping constraint setup for '{source_name}' -> '[armature]' (object-level FCurves)")
             continue
 
@@ -797,11 +778,11 @@ def create_and_setup_armature(
 
     # Collect all unique bone names from all GANI files
     all_bone_names = []
-    for gani_track in iter_gani_bone_tracks(all_gani_data):
+    for gani_track in fwrap_misc_import.iter_gani_bone_tracks(all_gani_data):
         for keyframes_track in gani_track.segments_track_data:
             bone_name_str = str(keyframes_track.name)
             # Skip the special armature-object target — it is not a real bone.
-            if bone_name_str == ARMATURE_TARGET_NAME:
+            if bone_name_str == fwrap_mapping.ARMATURE_TARGET_NAME:
                 continue
             if bone_name_str not in all_bone_names:
                 all_bone_names.append(bone_name_str)
@@ -809,7 +790,7 @@ def create_and_setup_armature(
     Debug.log(f"Found {len(all_bone_names)} unique handle(s)")
 
     bone_specs = [BoneSpec(name=n) for n in all_bone_names]
-    armature: bpy.types.Object = create_track_armature(context, mtar_file_name, bone_specs)
+    armature: bpy.types.Object = util_blender_armature.create_track_armature(context, mtar_file_name, bone_specs)
 
     # Create animation data on imported armature
     Debug.log("Setting up animation data on armature...")
@@ -861,7 +842,7 @@ def create_and_setup_armature(
             start=-100,
             action=layout_action
         )
-        layout_strip.name = format_strip_name(mtar_file_name, 0, 0, 0, False, is_layout=True)
+        layout_strip.name = util_naming.format_strip_name(mtar_file_name, 0, 0, 0, False, is_layout=True)
         layout_strip.frame_start = -100
         layout_strip.frame_end = -50
         layout_strip.blend_type = 'REPLACE'
@@ -885,7 +866,7 @@ def create_and_setup_armature(
                 start=-100,
                 action=layout_action
             )
-            layout_strip.name = format_strip_name(mtar_file_name, 0, 0, 0, False, is_layout=True)
+            layout_strip.name = util_naming.format_strip_name(mtar_file_name, 0, 0, 0, False, is_layout=True)
             layout_strip.frame_start = -100
             layout_strip.frame_end = -50
             layout_strip.blend_type = 'REPLACE'

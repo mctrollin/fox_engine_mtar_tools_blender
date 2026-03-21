@@ -22,11 +22,7 @@ import bpy
 
 from ..py_core.core_logging import Debug
 
-from .utilities_blender_animation import (
-    assign_action_to_datablock,
-    remove_action_from_datablock,
-    MTAR_ARMATURE_SLOT_NAME,
-)
+from . import util_blender_animation
 
 
 @contextmanager
@@ -143,7 +139,7 @@ def switch_context(area_type: str, obj: Optional[bpy.types.Object] = None,
                 # the operator-level guard.
                 with nla_tweak_guard(obj):
                     try:
-                        assign_action_to_datablock(obj, action, slot_name=MTAR_ARMATURE_SLOT_NAME)
+                        util_blender_animation.assign_action_to_datablock(obj, action, slot_name=util_blender_animation.MTAR_ARMATURE_SLOT_NAME)
                     except Exception as e:
                         Debug.log_warning(f"Could not use slot-aware assignment: {e}")
                         if not obj.animation_data:
@@ -182,7 +178,7 @@ def switch_context(area_type: str, obj: Optional[bpy.types.Object] = None,
                                 pass
                     else:
                         try:
-                            remove_action_from_datablock(obj)
+                            util_blender_animation.remove_action_from_datablock(obj)
                         except Exception:
                             obj.animation_data.action = None
 

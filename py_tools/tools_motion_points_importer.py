@@ -19,31 +19,18 @@ import bpy
 
 from ..py_core.core_logging import Debug
 
-from ..py_utilities.utilities_hashing import is_gani_path_a_hash
-from ..py_utilities.utilities_blender_animation import (
-    configure_action,
-    iter_action_fcurves,
-)
-from ..py_utilities.utilities_blender_armature import BoneSpec, create_track_armature
-from ..py_utilities.utilities_naming import (
-    format_action_name,
-    format_strip_name,
-    resolve_gani_name_segment,
-    extract_gani_name_from_path,
-)
+from ..py_utilities.util_blender_armature_types import BoneSpec
+from ..py_utilities import util_hashing, util_blender_animation, util_naming, util_blender_armature
 
+from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_fox.fox_gani_types import TrackHeader
 from ..py_fox.fox_mtar_types import MtarTableList2
-from ..py_fox import fox_mtar_constants as mtar_const
 
-from ..py_foxwrap.foxwrap_metadata import (
-    build_track_metadata_from_layout_track_units,
-    store_track_header_properties_on_action,
-    store_track_metadata_on_action,
-)
-from ..py_foxwrap.foxwrap_misc import TrackUnitWrapper, Tracks
-from ..py_foxwrap.foxwrap_motionpoint_types import MotionPointWrapper
+from ..py_foxwrap.fwrap_misc import TrackUnitWrapper, Tracks
+from ..py_foxwrap.fwrap_motionpoint_types import MotionPointWrapper
+from ..py_foxwrap import fwrap_metadata
 
+# TODO: don't import tools into other tools
 from .tools_gani_track_importer import import_gani_track
 
 
@@ -68,7 +55,7 @@ def get_action_length(action: bpy.types.Action) -> int:
         return int(action.frame_end)
 
     action_frame_end: int = 0
-    for fcurve in iter_action_fcurves(action):
+    for fcurve in util_blender_animation.iter_action_fcurves(action):
         for keyframe in fcurve.keyframe_points:
             action_frame_end = max(action_frame_end, int(keyframe.co.x))
     return action_frame_end
@@ -140,10 +127,10 @@ def create_nla_strips_for_actions(
             gani_name_segment: Optional[str] = None
             if mtar_const.TABL_PATH in action.keys():
                 gani_path_val = str(action[mtar_const.TABL_PATH])
-                if not is_gani_path_a_hash(gani_path_val):
-                    gani_name_segment = extract_gani_name_from_path(gani_path_val)
+                if not util_hashing.is_gani_path_a_hash(gani_path_val):
+                    gani_name_segment = util_naming.extract_gani_name_from_path(gani_path_val)
 
-            strip.name = format_strip_name(
+            strip.name = util_naming.format_strip_name(
                 mtar_file_name, index, h_idx, d_idx,
                 use_verbose_naming,
                 is_motion_points=is_motion_points,
@@ -241,11 +228,11 @@ def create_motion_points_animation_actions(
                 f"0x{file_header.path:016X}, using h0_d0"
             )
 
-        gani_full_path, gani_name_segment = resolve_gani_name_segment(
+        gani_full_path, gani_name_segment = util_naming.resolve_gani_name_segment(
             file_header, gani_hash_dict
         )
 
-        action_name: str = format_action_name(
+        action_name: str = util_naming.format_action_name(
             mtar_file_name, gani_index, h_idx, d_idx,
             use_verbose_naming,
             is_motion_points=True,
@@ -258,18 +245,18 @@ def create_motion_points_animation_actions(
         # Store track metadata
         motion_point_layout = all_motion_point_layouts[gani_index]
         if motion_point_layout is not None:
-            track_metadata_list = build_track_metadata_from_layout_track_units(
+            track_metadata_list = fwrap_metadata.build_track_metadata_from_layout_track_units(
                 motion_point_layout.track_units,
                 track_name_prefix="MotionPoint",
             )
-            store_track_metadata_on_action(
+            fwrap_metadata.store_track_metadata_on_action(
                 action, track_metadata_list,
                 include_segments=False,
             )
 
         motion_point_track_header: TrackHeader = all_motion_point_track_headers[gani_index]
         if motion_point_track_header is not None:
-            store_track_header_properties_on_action(action, motion_point_track_header)
+            fwrap_metadata.store_track_header_properties_on_action(action, motion_point_track_header)
 
         if hasattr(file_header, 'path'):
             if gani_full_path is not None:
@@ -314,7 +301,7 @@ def create_motion_points_animation_actions(
                 gani_frame_count = max(gani_frame_count, track_max_frame)
 
         Debug.log(f"  Motion point frame range: 0 - {gani_frame_count}")
-        configure_action(action, frame_start=0, frame_end=gani_frame_count)
+        util_blender_animation.configure_action(action, frame_start=0, frame_end=gani_frame_count)
         Debug.log(
             f"  Configured motion point action frame range: 0 - {gani_frame_count}"
         )
@@ -392,7 +379,7 @@ def create_and_setup_motion_points_armature(
         )
         for h, p in all_hashes.items()
     ]
-    armature: bpy.types.Object = create_track_armature(context, armature_name, bone_specs)
+    armature: bpy.types.Object = util_blender_armature.create_track_armature(context, armature_name, bone_specs)
     Debug.log(
         f"Motion points armature created with {motion_points.count} point(s)"
     )

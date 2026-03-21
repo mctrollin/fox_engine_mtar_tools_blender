@@ -12,21 +12,15 @@ import bpy
 
 from ..py_core.core_logging import Debug
 
-from ..py_utilities.utilities_blender_animation import action_has_fcurves, iter_action_fcurves, build_data_path_for_bone
-from ..py_utilities.utilities_hashing import (
-    unhash_param_name,
-    hash_or_parse_name,
-)
-from ..py_utilities.utilities_parsing import format_float_for_metadata
-from ..py_utilities.utilities_hashing import is_hash_string, unhash_rig_type
+from ..py_utilities import util_blender_animation, util_hashing, util_parsing
 
-from ..py_fox.fox_gani_types import Gani2TrackData, SegmentType, TrackHeader, TrackUnit, TrackUnitFlags, TrackMiniHeader
 from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox import fox_mtar_constants as mtar_const
+from ..py_fox.fox_gani_types import Gani2TrackData, SegmentType, TrackHeader, TrackUnit, TrackUnitFlags, TrackMiniHeader
 from ..py_fox.fox_frig_types import RigUnitType
 
-from ..py_foxwrap.foxwrap_misc_types import Tracks, TrackUnitWrapper
-from ..py_foxwrap.foxwrap_metadata_types import TrackMetaData
+from .fwrap_misc_types import Tracks, TrackUnitWrapper
+from .fwrap_metadata_types import TrackMetaData
 
 
 # Action property key constants -------------------------------------------------------------
@@ -178,9 +172,9 @@ def store_node_params_on_action(
     key = f"{PROP_NODE_PARAMS_PREFIX}{node_key}"
     items = []
     for name, value in params:
-        name_str = unhash_param_name(name) if isinstance(name, int) else str(name)
+        name_str = util_hashing.unhash_param_name(name) if isinstance(name, int) else str(name)
         if isinstance(value, float):
-            items.append(f"{name_str}:{format_float_for_metadata(value)}")
+            items.append(f"{name_str}:{util_parsing.format_float_for_metadata(value)}")
         else:
             # int (hash-only STRING) or str (inline STRING): store as-is
             items.append(f"{name_str}:{value}")
@@ -233,7 +227,7 @@ def parse_node_params_from_action(
         else:
             value = val_str
         name_str = name_str.strip()
-        name_hash = hash_or_parse_name(name_str)
+        name_hash = util_hashing.hash_or_parse_name(name_str)
         result.append((name_hash, value))
     return result
 
@@ -1262,17 +1256,17 @@ def infer_segment_types_from_fcurves(
     """
     
 
-    if not action or not action_has_fcurves(action):
+    if not action or not util_blender_animation.action_has_fcurves(action):
         return [], []
 
-    rotation_quat_path = build_data_path_for_bone(bone_name, 'rotation_quaternion')
-    rotation_euler_path = build_data_path_for_bone(bone_name, 'rotation_euler')
-    location_path = build_data_path_for_bone(bone_name, 'location')
+    rotation_quat_path = util_blender_animation.build_data_path_for_bone(bone_name, 'rotation_quaternion')
+    rotation_euler_path = util_blender_animation.build_data_path_for_bone(bone_name, 'rotation_euler')
+    location_path = util_blender_animation.build_data_path_for_bone(bone_name, 'location')
 
     has_rotation = False
     location_indices: Set[int] = set()
 
-    for fc in iter_action_fcurves(action):
+    for fc in util_blender_animation.iter_action_fcurves(action):
         if fc.data_path in (rotation_quat_path, rotation_euler_path):
             has_rotation = True
         elif fc.data_path == location_path:
@@ -1339,7 +1333,7 @@ def build_track_metadata_from_action(layout_action: bpy.types.Action, fox_track_
             Debug.log_warning(f"      Warning: Unknown rig unit type '{parsed['rig_unit_type']}' in track '{fox_track_name}'")
 
     track_name_val = parsed['track_name']
-    name_hash = hash_or_parse_name(track_name_val)
+    name_hash = util_hashing.hash_or_parse_name(track_name_val)
 
     return TrackMetaData(
         track_name=track_name_val,
@@ -1354,7 +1348,7 @@ def build_track_metadata_from_action(layout_action: bpy.types.Action, fox_track_
 
 def build_track_metadata_from_fcurves(bone_name: str, action: bpy.types.Action) -> Optional[TrackMetaData]:
     """Infer minimal TrackMetaData from action fcurves."""
-    if not action or not action_has_fcurves(action):
+    if not action or not util_blender_animation.action_has_fcurves(action):
         return None
 
     segment_types, default_bits = infer_segment_types_from_fcurves(action, bone_name)
@@ -1386,12 +1380,12 @@ def build_track_metadata_from_layout_track_units(
         name_hash: int = 0
         if track_unit.name:
             name_hash = track_unit.name.to_int() if hasattr(track_unit.name, 'to_int') else int(track_unit.name)
-            resolved_name: Optional[str] = unhash_rig_type(name_hash)
+            resolved_name: Optional[str] = util_hashing.unhash_rig_type(name_hash)
             if resolved_name:
                 track_name = resolved_name
             elif gani_tracks and track_idx < len(gani_tracks):
                 gani_name = gani_tracks[track_idx].name
-                track_name = gani_name if not is_hash_string(gani_name) else str(track_unit.name)
+                track_name = gani_name if not util_hashing.is_hash_string(gani_name) else str(track_unit.name)
             else:
                 track_name = str(track_unit.name)
 
@@ -1498,7 +1492,7 @@ def merge_track_metadata(layout_meta: TrackMetaData, action_meta: Optional[Track
             # Derive hash from the track name string, handling numeric literals
             # automatically via helper.
             try:
-                result.name_hash = hash_or_parse_name(action_meta.track_name)
+                result.name_hash = util_hashing.hash_or_parse_name(action_meta.track_name)
             except Exception:
                 # if helper somehow fails (shouldn't), leave existing hash
                 pass

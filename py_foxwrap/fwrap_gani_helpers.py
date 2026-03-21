@@ -6,18 +6,18 @@ from typing import List, Optional
 
 from ..py_core.core_logging import Debug
 
-from ..py_utilities.utilities_hashing import hash_or_parse_name, is_hash_string, unhash_rig_type
-from ..py_utilities.utilities_hashing_cityhash import strcode32
+from ..py_utilities import util_hashing
+from ..py_utilities import util_hashing_cityhash
 
 from ..py_fox.fox_misc_types import StrCode32
 from ..py_fox.fox_gani_types import EvpHeader
 
-from .foxwrap_misc import TrackUnitWrapper, TrackDataBlobWrapper
+from .fwrap_misc import TrackUnitWrapper, TrackDataBlobWrapper
 
 
 def resolve_track_name(rig_hash: StrCode32, prefix: Optional[str] = None) -> str:
     """Resolve a StrCode32 hash to a readable name."""
-    bone_name = unhash_rig_type(rig_hash.to_int())
+    bone_name = util_hashing.unhash_rig_type(rig_hash.to_int())
     if bone_name:
         return bone_name
     hex_str = str(rig_hash)
@@ -65,14 +65,14 @@ def _apply_stringlist_names(
 
     skl_lookup: dict = {}
     for entry in string_list:
-        if not is_hash_string(entry):
-            h = strcode32(entry)
+        if not util_hashing.is_hash_string(entry):
+            h = util_hashing_cityhash.strcode32(entry)
             skl_lookup[h] = entry
 
     for track in tracks:
         name = track.name
-        is_hash_fallback = is_hash_string(name)
-        track_hash = hash_or_parse_name(name)
+        is_hash_fallback = util_hashing.is_hash_string(name)
+        track_hash = util_hashing.hash_or_parse_name(name)
 
         if track_hash in skl_lookup:
             skl_name = skl_lookup[track_hash]

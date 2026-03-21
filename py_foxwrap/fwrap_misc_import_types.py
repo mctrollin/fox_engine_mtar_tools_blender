@@ -3,13 +3,14 @@ from typing import Optional, List, Tuple, Union, Dict
 
 import io
 
-from ..py_utilities.utilities_hashing import unhash_rig_type
+from ..py_utilities.util_hashing import unhash_rig_type
+
 from ..py_fox.fox_gani_enums import CommonInfoNodeType
 from ..py_fox.fox_gani_types import EvpHeader, TrackMiniHeader, TrackHeader
 from ..py_fox.fox_mtar_types import MtarHeader, MtarMiniDataNode, MtarTableList, MtarTableList2
 
-from .foxwrap_misc import Tracks, TrackUnitWrapper
-from .foxwrap_motionpoint_types import MotionPointWrapper
+from .fwrap_misc_types import Tracks, TrackUnitWrapper
+from .fwrap_motionpoint_types import MotionPointWrapper
 
 
 @dataclass

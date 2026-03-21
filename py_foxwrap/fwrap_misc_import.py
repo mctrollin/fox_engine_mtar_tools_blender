@@ -3,7 +3,7 @@ Import-only fake types for MTAR importer.
 """
 from typing import List
 
-from .foxwrap_misc_import_types import ShaderTrackWrapper, GaniImportData, CommonInfo
+from .fwrap_misc_import_types import ShaderTrackWrapper, GaniImportData, CommonInfo
 
 __all__ = [
     "ShaderTrackWrapper",

@@ -4,7 +4,7 @@ Utilities for handling Fox Engine hash values and rig type name mappings.
 import os
 from typing import Optional, Dict, Set
 
-from .utilities_hashing_cityhash import strcode32
+from . import util_hashing_cityhash
 
 from ..py_core.core_logging import Debug
 
@@ -48,7 +48,7 @@ def load_strcode32_dictionary(dict_path: str) -> None:
 
     loaded_count = 0
     for name in names:
-        hash_val = strcode32(name)
+        hash_val = util_hashing_cityhash.strcode32(name)
         _strcode32_cache[hash_val] = name
         loaded_count += 1
 
@@ -186,7 +186,7 @@ def hash_rig_type(name: str) -> int:
     Returns:
         The StrCode32 hash value for the name.
     """
-    return strcode32(name)
+    return util_hashing_cityhash.strcode32(name)
 
 
 def hash_or_parse_name(name: str) -> int:
@@ -210,8 +210,8 @@ def hash_or_parse_name(name: str) -> int:
             return parse_hash_string(s)
         except ValueError:
             # fall back to computing the hash normally
-            return strcode32(s)
-    return strcode32(s)
+            return util_hashing_cityhash.strcode32(s)
+    return util_hashing_cityhash.strcode32(s)
 
 
 def load_gani_hash_dictionary(dict_path: str) -> Dict[int, str]:

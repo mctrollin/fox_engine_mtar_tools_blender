@@ -13,36 +13,14 @@ from mathutils import Quaternion, Vector
 
 from ..py_core.core_logging import Debug
 
-from ..blender_properties import get_effective_export_fcurve_clean_threshold
+from .. import blender_properties
 
-from ..py_utilities.utilities_transforms import (
-    reverse_directional_location, 
-    apply_reverse_transforms, 
-    get_local_space_transform, 
-    get_world_space_transform, 
-    blender_to_fox_vector, 
-    blender_to_fox_quaternion,
-    reverse_rest_pose_correction_local,
-    reverse_rest_pose_correction_world,
-    TransformsCache
-)
-from ..py_utilities.utilities_blender_animation import (
-    FCurveCache, iter_action_fcurves, is_relevant_strip, remove_action_from_datablock, try_find_layout_track_action,
-    build_data_path_for_bone, assign_action_to_datablock, MTAR_ARMATURE_SLOT_NAME,
-    find_action_fcurve, set_nla_solo,
-)
-from ..py_utilities.utilities_parsing import parse_index_selection
+from ..py_utilities import util_transforms
+from ..py_utilities import util_blender_animation
+from ..py_utilities import util_parsing
 
-from ..py_utilities.utilities_blender_armature import (
-    auto_detect_motion_points_armature,
-    auto_detect_shader_nodes_armature,
-    detach_armature_for_export,
-    restore_armature_after_export,
-)
-from ..py_utilities.utilities_fcurve_processing import (
-    bake_and_clean_export_fcurves,
-    insert_intermediate_frames,
-)
+from ..py_utilities import util_blender_armature
+from ..py_utilities import util_fcurve_processing
 
 from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox import fox_mtar_constants as mtar_const
@@ -50,16 +28,9 @@ from ..py_fox.fox_gani_types import AnimKeyframe, SegmentType, TrackUnitFlags, T
 from ..py_fox.fox_frig_types import RigUnitType
 from ..py_fox.fox_misc_types import StrCode32
 
-from ..py_foxwrap import foxwrap_misc
-from ..py_foxwrap.foxwrap_motionevent import read_motion_events_from_action
-from ..py_foxwrap.foxwrap_mtar_reader import MtarReader
-from ..py_foxwrap.foxwrap_metadata import read_track_header_properties_from_action, read_mtar_properties_from_any_action, iter_all_node_params_from_action, merge_node_params, resolve_gani_frame_info
-from ..py_foxwrap.foxwrap_metadata import TrackMetaData, merge_track_metadata, get_all_track_metadata_from_action, build_track_metadata_from_action, build_track_metadata_from_fcurves, extract_space_bone_name
-from ..py_foxwrap.foxwrap_misc_import_types import GaniImportData
-from ..py_foxwrap.foxwrap_misc_types import TrackUnitWrapper, Tracks, TrackDataBlobWrapper
-from ..py_utilities.utilities_parsing import parse_segment_suffix
-from ..py_foxwrap.foxwrap_mtar_writer import MtarWriter
-from ..py_foxwrap.foxwrap_misc_export_types import (
+from ..py_foxwrap.fwrap_misc_import_types import GaniImportData
+from ..py_foxwrap.fwrap_misc_types import TrackUnitWrapper, Tracks, TrackDataBlobWrapper
+from ..py_foxwrap.fwrap_misc_export_types import (
     GaniExportData, 
     GaniExportTracksData, 
     GaniExportMotionPointsData, 
@@ -68,27 +39,14 @@ from ..py_foxwrap.foxwrap_misc_export_types import (
     TrackSegmentBoneMapping, 
     ExportActionData, 
 )
-from ..py_foxwrap.foxwrap_misc_export import (
-    create_synthetic_mapping, 
-    group_bones_by_segment,
-    build_motion_point_action_maps, 
-    find_motion_point_action_for_gani,
-    build_shader_action_maps, 
-    find_shader_action_for_gani
-)
-from ..py_foxwrap.foxwrap_mapping import BoneParameters, ARMATURE_TARGET_NAME
+from ..py_foxwrap.fwrap_mapping_types import BoneParameters
+from ..py_foxwrap import fwrap_misc, fwrap_motionevent, fwrap_metadata, fwrap_misc_export, fwrap_mapping
+from ..py_foxwrap.fwrap_mtar_writer import MtarWriter
+from ..py_foxwrap.fwrap_mtar_reader import MtarReader
 
-from .tools_motion_points_exporter import (
-    build_motion_points_list_from_armature,
-    build_motion_point_metadata_dict,
-    collect_motion_point_actions,
-)
-from .tools_gani1_shader_exporter import (
-    collect_shader_nodes_actions,
-    build_shader_nodes_metadata_dict,
-    group_shader_tracks_by_property,
-    collect_shader_property_headers,
-)
+# TODO: don't import tools into other tools
+from . import tools_motion_points_exporter
+from . import tools_gani1_shader_exporter
 
 
 # Utility Functions ###############################################################
@@ -136,7 +94,7 @@ def _convert_import_gani_to_export_gani(
 ) -> GaniExportData:
     """Convert an imported GANI object to export data for writer re-export."""
 
-    frame_count, frame_rate = resolve_gani_frame_info(
+    frame_count, frame_rate = fwrap_metadata.resolve_gani_frame_info(
         import_data.gani_layout_track,
         import_data.gani_track_mini_header,
         import_data.gani_motion_point_track_header,
@@ -223,7 +181,7 @@ def _get_object_keyframe_numbers(
 
     frame_set: set = set()
     for i in range(num_components):
-        fc = find_action_fcurve(action, data_path, i)
+        fc = util_blender_animation.find_action_fcurve(action, data_path, i)
         if fc is None:
             continue
         for kp in fc.keyframe_points:
@@ -267,7 +225,7 @@ def clamp_bit_size_for_segment(segment_type: SegmentType, component_bit_size: in
     return component_bit_size
 
 
-def _merge_metadata_from_actions(actions: List[bpy.types.Action]) -> Dict[str, TrackMetaData]:
+def _merge_metadata_from_actions(actions: List[bpy.types.Action]) -> Dict[str, fwrap_metadata.TrackMetaData]:
     """Builds a union metadata dict from multiple per-GANI actions.
     
     For each track name, takes the entry with the most segments (widest definition).
@@ -277,13 +235,13 @@ def _merge_metadata_from_actions(actions: List[bpy.types.Action]) -> Dict[str, T
         actions: List of GANI actions to merge metadata from
         
     Returns:
-        Dictionary mapping fox_track_name -> TrackMetaData with union of segments
+        Dictionary mapping fox_track_name -> fwrap_metadata.TrackMetaData with union of segments
     """
-    merged: Dict[str, TrackMetaData] = {}
+    merged: Dict[str, fwrap_metadata.TrackMetaData] = {}
     for action in actions:
         if action is None:
             continue
-        per_action_dict = get_all_track_metadata_from_action(action)
+        per_action_dict = fwrap_metadata.get_all_track_metadata_from_action(action)
         for track_name, meta in per_action_dict.items():
             existing = merged.get(track_name)
             if existing is None:
@@ -297,14 +255,14 @@ def _merge_metadata_from_actions(actions: List[bpy.types.Action]) -> Dict[str, T
 # Layout and MetaData #############################################################
 
 def build_layout_track_from_metadata(track_segment_bone_mapping: TrackSegmentBoneMapping, 
-                                     metadata_dict: Dict[str, TrackMetaData],
+                                     metadata_dict: Dict[str, fwrap_metadata.TrackMetaData],
                                      layout_action: Optional[bpy.types.Action] = None,
                                      force_highest_bit_encoding: bool = False) -> 'Tracks':
     """Build a Tracks (layout track) object from metadata.
     
     Args:
         track_segment_bone_mapping: Unified mapping from (track_idx, segment_idx) to (bone_name, fox_mapping_params)
-        metadata_dict: Dictionary of fox_track_name -> TrackMetaData
+        metadata_dict: Dictionary of fox_track_name -> fwrap_metadata.TrackMetaData
         layout_action: Optional layout action containing header properties (t_id, unknown_a, unknown_b, frame_rate)
         force_highest_bit_encoding: If True, use highest available bit sizes for all segments
         
@@ -326,7 +284,7 @@ def build_layout_track_from_metadata(track_segment_bone_mapping: TrackSegmentBon
         fox_track_name = fox_mapping_params.fox_name
         
         # Strip multi-segment suffix if present
-        base_fox_track_name, _ = parse_segment_suffix(fox_track_name)
+        base_fox_track_name, _ = util_parsing.parse_segment_suffix(fox_track_name)
         
         if base_fox_track_name in metadata_dict:
             metadata = metadata_dict[base_fox_track_name]
@@ -385,7 +343,7 @@ def build_layout_track_from_metadata(track_segment_bone_mapping: TrackSegmentBon
             track_units.append(track_unit)
     
     # Get header properties from layout_action if available
-    header_props = read_track_header_properties_from_action(layout_action)
+    header_props = fwrap_metadata.read_track_header_properties_from_action(layout_action)
     
     Debug.log(
         f"    Using layout header from action: "
@@ -441,7 +399,7 @@ def extract_rest_pose_correction_mapping_from_armature(track_segment_bone_mappin
     # Iterate through all mapped bones
     for track_idx in track_segment_bone_mapping.get_track_indices():
         segments = track_segment_bone_mapping.get_track_segments(track_idx)
-        for seg_idx, blender_bone_name, bone_params in segments:
+        for _seg_idx, blender_bone_name, bone_params in segments:
             # Skip as_ik_up bones - they should not be affected by rest pose corrections
             if bone_params.as_ik_up:
                 continue
@@ -452,13 +410,13 @@ def extract_rest_pose_correction_mapping_from_armature(track_segment_bone_mappin
             
             # Extract rest pose rotation from armature
             bone = armature.data.bones[blender_bone_name]
-            rest_pose_dict = foxwrap_misc.get_rest_pose_dict_from_bone(bone)
+            rest_pose_dict = fwrap_misc.get_rest_pose_dict_from_bone(bone)
 
             had_map_r = bone_params.map_r is not None
             existing_euler = bone_params.map_r['euler'] if had_map_r else None
 
             # Apply helper updates for both import/export semantics
-            euler_deg = foxwrap_misc.apply_rest_pose_correction_to_target(bone_params, rest_pose_dict)
+            euler_deg = fwrap_misc.apply_rest_pose_correction_to_target(bone_params, rest_pose_dict)
 
             if bone_params.space_r:
                 Debug.log(f"  {blender_bone_name} [WORLD]: Added rest pose to offset_r: ({euler_deg[0]:.1f}, {euler_deg[1]:.1f}, {euler_deg[2]:.1f})")
@@ -509,7 +467,7 @@ def collect_actions_for_export_from_armature(armature: bpy.types.Object,
             
             for strip_idx, strip in enumerate(track.strips):
                 # Skip non-GANI strips (includes muted, layout, or negative-time strips)
-                if not is_relevant_strip(strip):
+                if not util_blender_animation.is_relevant_strip(strip):
                     Debug.log(f"    Strip {strip_idx} '{getattr(strip, 'name', '<unknown>')}': Skipping (not a GANI strip)")
                     continue
 
@@ -577,7 +535,7 @@ def get_bone_keyframe_numbers_from_action(action: bpy.types.Action,
                                           frame_start: int, 
                                           frame_end: int,
                                           bone_params: Optional[BoneParameters] = None,
-                                          fcurve_cache: Optional[FCurveCache] = None
+                                          fcurve_cache: Optional[util_blender_animation.FCurveCache] = None
                                           ) -> List[int]:
     """Get the actual frames that have keyframes for a specific bone and segment type.
     
@@ -593,7 +551,7 @@ def get_bone_keyframe_numbers_from_action(action: bpy.types.Action,
         frame_start: First frame in export range (absolute for NLA, action-relative for active action)
         frame_end: Last frame in export range (absolute for NLA, action-relative for active action)
         bone_params: Optional bone parameters to check for special cases (e.g., as_ik_up)
-        fcurve_cache: Optional pre-built FCurveCache for fast lookups (20-100× faster than scanning action.fcurves)
+        fcurve_cache: Optional pre-built util_blender_animation.FCurveCache for fast lookups (20-100× faster than scanning action.fcurves)
         
     Returns:
         Sorted list of frame numbers that have keyframes (in same coordinate system as frame_start/frame_end)
@@ -645,8 +603,8 @@ def get_bone_keyframe_numbers_from_action(action: bpy.types.Action,
                         keyframe_frames.add(export_frame)
     else:
         # Fall back to scanning action.fcurves (slow path - for backward compatibility)
-        data_paths = [build_data_path_for_bone(bone_name, prop) for prop in property_names]
-        for fcurve in iter_action_fcurves(action):
+        data_paths = [util_blender_animation.build_data_path_for_bone(bone_name, prop) for prop in property_names]
+        for fcurve in util_blender_animation.iter_action_fcurves(action):
             if fcurve.data_path in data_paths:
                 for keyframe_point in fcurve.keyframe_points:
                     # keyframe_point.co[0] is always relative to action's internal frame range
@@ -680,8 +638,8 @@ def export_keyframes_track(armature: bpy.types.Object,
                            is_static: bool, 
                            action: bpy.types.Action = None,
                            rig_unit_type: Optional[RigUnitType] = None,
-                           fcurve_cache: Optional[FCurveCache] = None,
-                           transform_cache: Optional[TransformsCache] = None,
+                           fcurve_cache: Optional[util_blender_animation.FCurveCache] = None,
+                           transform_cache: Optional[util_transforms.TransformsCache] = None,
                            use_object_level: bool = False) -> List['AnimKeyframe']:
     """Export a single track data segment (one segment of a bone's animation).
     
@@ -697,7 +655,7 @@ def export_keyframes_track(armature: bpy.types.Object,
         is_static: Whether this is a static track (single frame)
         action: Blender action to get actual keyframe frames from
         rig_unit_type: Type of rig unit (determines if world space transforms are needed)
-        fcurve_cache: Optional pre-built FCurveCache for fast lookups
+        fcurve_cache: Optional pre-built util_blender_animation.FCurveCache for fast lookups
         transform_cache: Optional pre-computed transform cache for all bones/frames
         
     Returns:
@@ -735,7 +693,7 @@ def export_keyframes_track(armature: bpy.types.Object,
                 export_frames = sorted(set(export_frames))
 
         # 2. Fill gaps > 255 with intermediate frames (8-bit delta limit)
-        export_frames, inserted = insert_intermediate_frames(export_frames)
+        export_frames, inserted = util_fcurve_processing.insert_intermediate_frames(export_frames)
         if inserted:
             Debug.log(
                 f"Non-static track '{blender_bone_name}' ({segment_type.name}): "
@@ -811,7 +769,7 @@ def _get_rotation_transform_fn(bone_params: BoneParameters,
                                blender_bone_name: str, 
                                space_bone: Optional[str],
                                rig_unit_type: Optional[RigUnitType],
-                               transform_cache: Optional[TransformsCache] = None,
+                               transform_cache: Optional[util_transforms.TransformsCache] = None,
                                use_object_level: bool = False
                                ):
     """Return a callable that produces rotation quaternion for a given frame.
@@ -859,9 +817,9 @@ def _get_rotation_transform_fn(bone_params: BoneParameters,
                 ik_location, _ = transform_cache.get_world(blender_bone_name, frame, space_bone)
                 base_location, _ = transform_cache.get_world(base_bone_name, frame, space_bone)
             else:
-                ik_location, _ = get_world_space_transform(armature, blender_bone_name, frame, space_bone)
-                base_location, _ = get_world_space_transform(armature, base_bone_name, frame, space_bone)
-            return reverse_directional_location(ik_location, base_location, axis)
+                ik_location, _ = util_transforms.get_world_space_transform(armature, blender_bone_name, frame, space_bone)
+                base_location, _ = util_transforms.get_world_space_transform(armature, base_bone_name, frame, space_bone)
+            return util_transforms.reverse_directional_location(ik_location, base_location, axis)
         
         return get_rotation_as_ik_up
     else:
@@ -876,9 +834,9 @@ def _get_rotation_transform_fn(bone_params: BoneParameters,
                     _, quat = transform_cache.get_local(blender_bone_name, frame)
             else:
                 if use_world_space:
-                    _, quat = get_world_space_transform(armature, blender_bone_name, frame, space_bone)
+                    _, quat = util_transforms.get_world_space_transform(armature, blender_bone_name, frame, space_bone)
                 else:
-                    _, quat = get_local_space_transform(armature, blender_bone_name, frame)
+                    _, quat = util_transforms.get_local_space_transform(armature, blender_bone_name, frame)
             return quat
         
         return get_rotation_normal
@@ -890,7 +848,7 @@ def export_rotation_segment(armature: bpy.types.Object,
                             frame_start: int, 
                             is_static: bool, 
                             rig_unit_type: Optional[RigUnitType] = None,
-                            transform_cache: Optional[TransformsCache] = None,
+                            transform_cache: Optional[util_transforms.TransformsCache] = None,
                             use_object_level: bool = False,
                             ) -> List['AnimKeyframe']:
     """Export rotation segment keyframes."""
@@ -913,9 +871,9 @@ def export_rotation_segment(armature: bpy.types.Object,
         # For as_ik_up bones, use space_ik instead of space_r for the space bone
         # This is because space_ik defines the transformation constraint space for IK targets
         if bone_params.as_ik_up:
-            space_bone = extract_space_bone_name(bone_params.space_ik)
+            space_bone = fwrap_metadata.extract_space_bone_name(bone_params.space_ik)
         else:
-            space_bone = extract_space_bone_name(bone_params.space_r)
+            space_bone = fwrap_metadata.extract_space_bone_name(bone_params.space_r)
         
         # Extract rest pose correction parameters
         space_r_value = bone_params.space_r
@@ -945,19 +903,19 @@ def export_rotation_segment(armature: bpy.types.Object,
             # World space track - reverse offset_r if present
             if rotation_offset:
                 # Use first offset as the offset_r (world space offset)
-                blender_quat = reverse_rest_pose_correction_world(blender_quat, rotation_offset[0])
+                blender_quat = util_transforms.reverse_rest_pose_correction_world(blender_quat, rotation_offset[0])
         elif map_r_dict:
             # Local space track - reverse similarity transformation
-            blender_quat = reverse_rest_pose_correction_local(blender_quat, map_r_dict)
+            blender_quat = util_transforms.reverse_rest_pose_correction_local(blender_quat, map_r_dict)
 
         # Apply reverse transformations (offsets, axis mapping)
-        blender_quat_transformed = apply_reverse_transforms(blender_quat, rotation_offset, rotation_axis_map)
+        blender_quat_transformed = util_transforms.apply_reverse_transforms(blender_quat, rotation_offset, rotation_axis_map)
         if prev_blender_quat_transformed is not None:
             blender_quat_transformed.make_compatible(prev_blender_quat_transformed)
         prev_blender_quat_transformed = blender_quat_transformed.copy()
         
         # Convert to Fox Engine coordinate system
-        fox_quat_final = blender_to_fox_quaternion(blender_quat_transformed)
+        fox_quat_final = util_transforms.blender_to_fox_quaternion(blender_quat_transformed)
 
         # Create keyframe with relative frame delta from previous frame
         if is_static:
@@ -986,7 +944,7 @@ def export_location_segment(armature: bpy.types.Object,
                             frame_start: int, 
                             is_static: bool,
                             rig_unit_type: Optional[RigUnitType] = None,
-                            transform_cache: Optional[TransformsCache] = None,
+                            transform_cache: Optional[util_transforms.TransformsCache] = None,
                             no_coordinate_transform: bool = False,
                             num_components: int = 3,
                             use_object_level: bool = False,
@@ -1020,7 +978,7 @@ def export_location_segment(armature: bpy.types.Object,
     else:
         # Get custom space if specified (constant across all frames)
         # Use the same extraction logic as rotation export for consistency
-        space_bone = extract_space_bone_name(bone_params.space_l)
+        space_bone = fwrap_metadata.extract_space_bone_name(bone_params.space_l)
 
         # For FLOAT/VECTOR2 (no_coordinate_transform=True): raw channel, always local
         # space, no axis-swap, no custom-space or invert-XY correction.
@@ -1064,10 +1022,10 @@ def export_location_segment(armature: bpy.types.Object,
         else:
             if use_world_space:
                 # Use world space transforms for ORIENTATION, TWO_BONE, ARM
-                blender_location, _ = get_world_space_transform(armature, blender_bone_name, frame, space_bone)
+                blender_location, _ = util_transforms.get_world_space_transform(armature, blender_bone_name, frame, space_bone)
             else:
                 # Use local space transforms for other types (LOCAL_ORIENTATION, TRANSFORM, ROOT, etc.)
-                blender_location, _ = get_local_space_transform(armature, blender_bone_name, frame)
+                blender_location, _ = util_transforms.get_local_space_transform(armature, blender_bone_name, frame)
         
         # Reverse X and Y inversion if custom space bone was used during import
         if invert_xy:
@@ -1079,7 +1037,7 @@ def export_location_segment(armature: bpy.types.Object,
         if no_coordinate_transform:
             fox_location = list(blender_location)[:num_components]
         else:
-            fox_location = blender_to_fox_vector(blender_location)
+            fox_location = util_transforms.blender_to_fox_vector(blender_location)
         
         # Create keyframe with relative frame delta from previous frame
         if is_static:
@@ -1107,7 +1065,7 @@ def bone_has_fcurves_for_segment(
         bone_name: str,
         segment_type: SegmentType,
         bone_params: Optional[BoneParameters],
-        fcurve_cache: Optional[FCurveCache]) -> bool:
+        fcurve_cache: Optional[util_blender_animation.FCurveCache]) -> bool:
     """Return True if the FCurve cache contains curves for the expected property
     of a segment type on the given bone.
 
@@ -1156,11 +1114,11 @@ def export_gani_track_from_action(armature: bpy.types.Object,
                                   track_idx: int,
                                   frame_start: int,
                                   frame_end: int,
-                                  layout_metadata: Optional[TrackMetaData],
+                                  layout_metadata: Optional[fwrap_metadata.TrackMetaData],
                                   track_segment_bone_mapping: TrackSegmentBoneMapping,
                                   force_highest_bit_encoding: bool = False,
-                                  fcurve_cache: Optional[FCurveCache] = None,
-                                  transform_cache: Optional[TransformsCache] = None
+                                  fcurve_cache: Optional[util_blender_animation.FCurveCache] = None,
+                                  transform_cache: Optional[util_transforms.TransformsCache] = None
                                   ) -> TrackUnitWrapper:
     """Export a GaniTrack (all segments for one track).
     
@@ -1178,8 +1136,8 @@ def export_gani_track_from_action(armature: bpy.types.Object,
         frame_start: First frame to export
         frame_end: Last frame to export
         action: Animation action containing keyframes
-        layout_metadata: TrackMetaData instance containing track structure metadata for this track
-        fcurve_cache: Optional pre-built FCurveCache for fast lookups
+        layout_metadata: fwrap_metadata.TrackMetaData instance containing track structure metadata for this track
+        fcurve_cache: Optional pre-built util_blender_animation.FCurveCache for fast lookups
         force_highest_bit_encoding: If True, use highest available bit sizes for all segments
         transform_cache: Optional pre-computed transform cache
         
@@ -1224,10 +1182,10 @@ def export_gani_track_from_action(armature: bpy.types.Object,
     fox_track_name = base_fox_mapping_params.fox_name
     
     # Strip multi-segment suffix if present
-    base_fox_track_name, _ = parse_segment_suffix(fox_track_name)
+    base_fox_track_name, _ = util_parsing.parse_segment_suffix(fox_track_name)
 
     # Prepare meta data from layout / shared header and per action header ----------------------------------------------
-    # layout_metadata is passed in directly (TrackMetaData instance for this track)
+    # layout_metadata is passed in directly (fwrap_metadata.TrackMetaData instance for this track)
     if layout_metadata is None:
         # No metadata found and FCurve fallback also produced nothing (bone has no animation)
         Debug.log_warning(f"      Warning: No metadata for track '{base_fox_track_name}' (blender bone: '{base_blender_bone_name}') and no FCurves found — creating empty track to skipping track")
@@ -1244,10 +1202,10 @@ def export_gani_track_from_action(armature: bpy.types.Object,
     action_meta = None
     merged_metadata = layout_metadata
     if action:
-        action_meta = build_track_metadata_from_action(action, base_fox_track_name)
+        action_meta = fwrap_metadata.build_track_metadata_from_action(action, base_fox_track_name)
         if action_meta:
             Debug.log(f"      Applying action-level overrides for track '{base_fox_track_name}' from action '{action.name}'")
-            merged_metadata = merge_track_metadata(layout_metadata, action_meta)
+            merged_metadata = fwrap_metadata.merge_track_metadata(layout_metadata, action_meta)
 
     # Track whether the action explicitly overrides segment types (segments= in custom prop).
     # When True, skip FCurve-presence filtering so user-forced types are always exported.
@@ -1263,7 +1221,7 @@ def export_gani_track_from_action(armature: bpy.types.Object,
     # When the mapping file routes this track to '[armature]', keyframes are stored
     # on the armature object itself (bare 'location' / 'rotation_quaternion' FCurves)
     # rather than on a pose bone.
-    use_object_level_for_track = (base_blender_bone_name == ARMATURE_TARGET_NAME)
+    use_object_level_for_track = (base_blender_bone_name == fwrap_mapping.ARMATURE_TARGET_NAME)
     if use_object_level_for_track:
         Debug.log(f"      Track '{base_fox_track_name}': [armature] mapping target — using object-level FCurves")
     
@@ -1404,7 +1362,7 @@ def export_gani_track_from_action(armature: bpy.types.Object,
 
 def _find_nla_strip_and_track_for_action(armature: bpy.types.Object,
                                            action: bpy.types.Action
-                                           ) -> Tuple[Optional['bpy.types.NlaTrack'], Optional['bpy.types.NlaStrip']]:
+                                           ) -> Tuple[Optional[bpy.types.NlaTrack], Optional[bpy.types.NlaStrip]]:
     """Return the first NLA track and strip on *armature* whose strip.action is *action*.
 
     Returns:
@@ -1439,7 +1397,7 @@ def _collect_bones_for_transform_cache(track_segment_bone_mapping: TrackSegmentB
         # Space bones (custom coordinate spaces used by mapping params)
         for space_attr in (bone_params.space_r, bone_params.space_l, bone_params.space_ik):
             if space_attr:
-                space_bone = extract_space_bone_name(space_attr)
+                space_bone = fwrap_metadata.extract_space_bone_name(space_attr)
                 if space_bone:
                     bones.add(space_bone)
 
@@ -1449,7 +1407,7 @@ def _collect_bones_for_transform_cache(track_segment_bone_mapping: TrackSegmentB
 
     # The special [armature] target is not a real pose bone and must not be used
     # as a cache key (it's handled via object-level transforms instead).
-    bones.discard(ARMATURE_TARGET_NAME)
+    bones.discard(fwrap_mapping.ARMATURE_TARGET_NAME)
 
     return bones
 
@@ -1457,7 +1415,7 @@ def _collect_bones_for_transform_cache(track_segment_bone_mapping: TrackSegmentB
 def export_gani_tracks_from_action(armature: bpy.types.Object,
                        action_data: ExportActionData,
                        track_segment_bone_mapping: Optional[TrackSegmentBoneMapping],
-                       layout_metadata_dict: Dict[str, TrackMetaData],
+                       layout_metadata_dict: Dict[str, fwrap_metadata.TrackMetaData],
                        force_highest_bit_encoding: bool = False,
                        discard_empty_tracks: bool = False) -> List['TrackUnitWrapper']:
     """Export a single action as GANI track data.
@@ -1470,7 +1428,7 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
         armature: Armature object
         action_data: ExportActionData containing action and export parameters
         track_segment_bone_mapping: Optional unified mapping from (track_idx, segment_idx) to (bone_name, fox_mapping_params). If None, fallback mode is used.
-        layout_metadata_dict: Dictionary mapping fox track name to TrackMetaData. If empty, fallback mode is used.
+        layout_metadata_dict: Dictionary mapping fox track name to fwrap_metadata.TrackMetaData. If empty, fallback mode is used.
         force_highest_bit_encoding: If True, use highest available bit sizes for all segments
         discard_empty_tracks: If True, skip tracks with no segments (used for motion points to avoid empty placeholders)
         
@@ -1507,9 +1465,9 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
                 else:
                     original_slot = anim_data.action
 
-                assign_action_to_datablock(armature, action, slot_name=MTAR_ARMATURE_SLOT_NAME)
+                util_blender_animation.assign_action_to_datablock(armature, action, slot_name=util_blender_animation.MTAR_ARMATURE_SLOT_NAME)
 
-                export_result = bake_and_clean_export_fcurves(armature=armature, fcurve_clean_threshold=clean_threshold)
+                export_result = util_fcurve_processing.bake_and_clean_export_fcurves(armature=armature, fcurve_clean_threshold=clean_threshold)
 
                 processed_action = export_result['action']
 
@@ -1534,8 +1492,8 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
                     if armature.animation_data:
                         try:
                             # armature.animation_data.action = None
-                            # assign_action_to_datablock(armature, None, slot_name=MTAR_ARMATURE_SLOT_NAME)
-                            remove_action_from_datablock(armature)
+                            # util_blender_animation.assign_action_to_datablock(armature, None, slot_name=util_blender_animation.MTAR_ARMATURE_SLOT_NAME)
+                            util_blender_animation.remove_action_from_datablock(armature)
                         except Exception:
                             pass
                 
@@ -1547,7 +1505,7 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
         # Once for this action (major performance optimization)
         # This eliminates 20-100× redundancy from scanning action.fcurves for every bone
         Debug.start_timer("build_fcurve_cache")
-        fcurve_cache = FCurveCache.build(processed_action) if processed_action else None
+        fcurve_cache = util_blender_animation.FCurveCache.build(processed_action) if processed_action else None
         Debug.stop_timer("build_fcurve_cache")
         
         if fcurve_cache and not fcurve_cache.is_empty():
@@ -1563,7 +1521,7 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
         # Layer 3 in bake_and_clean_export_fcurves), NOT the original action.
         # The bake/clean step restores the original action to the armature before
         # returning, so a temporary re-assign is needed here. Without this, Layer 3
-        # fixes processed_action FCurves but TransformsCache still evaluates the
+        # fixes processed_action FCurves but util_transforms.TransformsCache still evaluates the
         # original action and the hemisphere fix has no effect on exported values.
 
         # Compute which bones are actually relevant so the cache can skip the rest.
@@ -1573,29 +1531,29 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
         # because those are used as custom space bones or IK bases during export.
         if track_segment_bone_mapping is not None:
             relevant_bone_names = _collect_bones_for_transform_cache(track_segment_bone_mapping)
-            Debug.log(f"    TransformsCache bone filter: {len(relevant_bone_names)} bones from mapping (including space bones)")
+            Debug.log(f"    util_transforms.TransformsCache bone filter: {len(relevant_bone_names)} bones from mapping (including space bones)")
         elif fcurve_cache is not None:
             relevant_bone_names = set(fcurve_cache.get_bones())
-            Debug.log(f"    TransformsCache bone filter: {len(relevant_bone_names)} bones from FCurve cache")
+            Debug.log(f"    util_transforms.TransformsCache bone filter: {len(relevant_bone_names)} bones from FCurve cache")
         else:
             relevant_bone_names = None
-            Debug.log("    TransformsCache bone filter: None (caching all bones)")
+            Debug.log("    util_transforms.TransformsCache bone filter: None (caching all bones)")
 
-        transform_cache = TransformsCache(armature, frame_start, frame_end, bone_filter=relevant_bone_names)
+        transform_cache = util_transforms.TransformsCache(armature, frame_start, frame_end, bone_filter=relevant_bone_names)
 
         # Always identify the NLA track/strip for this action (if it exists).
         # This lets mute_nla_tracks() unmute the correct strip/track when building
         # the transforms cache (to avoid flat/empty exports).
         nla_track, nla_strip = _find_nla_strip_and_track_for_action(armature, action)
 
-        with set_nla_solo(armature, keep_track=nla_track, keep_strip=nla_strip):
+        with util_blender_animation.set_nla_solo(armature, keep_track=nla_track, keep_strip=nla_strip):
             if processed_action is not action:
                 # If the action lives inside an NLA strip, temporarily swap the
                 # strip's action pointer so the evaluation uses the processed copy
                 # (which is the one that has been baked/cleaned/fixed).
                 if nla_strip:
                     nla_strip.action = processed_action
-                    remove_action_from_datablock(armature)  # force NLA evaluation
+                    util_blender_animation.remove_action_from_datablock(armature)  # force NLA evaluation
                     try:
                         transform_cache.build()
                     finally:
@@ -1603,11 +1561,11 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
                 else:
                     # No strip found (active-action export): assign processed action
                     # directly to the armature so the cache evaluates it correctly.
-                    assign_action_to_datablock(armature, processed_action, slot_name=MTAR_ARMATURE_SLOT_NAME)
+                    util_blender_animation.assign_action_to_datablock(armature, processed_action, slot_name=util_blender_animation.MTAR_ARMATURE_SLOT_NAME)
                     try:
                         transform_cache.build()
                     finally:
-                        remove_action_from_datablock(armature)
+                        util_blender_animation.remove_action_from_datablock(armature)
             else:
                 transform_cache.build()
 
@@ -1617,7 +1575,7 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
             # Use the processed action (baked, cleaned, and hemisphere-fixed) when
             # deriving synthetic mapping/metadata so the frame/keyframe set matches
             # what will ultimately be exported.
-            track_segment_bone_mapping, synthetic_metadata = create_synthetic_mapping(
+            track_segment_bone_mapping, synthetic_metadata = fwrap_misc_export.create_synthetic_mapping(
                 armature, processed_action, layout_metadata_dict
             )
             # Merge synthetic metadata into layout_metadata_dict
@@ -1637,14 +1595,14 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
                 _blender_bone_name, fox_mapping_params = base_mapping
                 fox_track_name = fox_mapping_params.fox_name
                 # Strip multi-segment suffix if present
-                base_fox_track_name, _ = parse_segment_suffix(fox_track_name)
+                base_fox_track_name, _ = util_parsing.parse_segment_suffix(fox_track_name)
                 
                 if layout_metadata_dict and base_fox_track_name in layout_metadata_dict:
                     layout_metadata = layout_metadata_dict[base_fox_track_name]
                 elif action:
                     # Fallback: layout action exists but has no matching entry for this bone.
                     # Derive minimal metadata from FCurves so export can proceed.
-                    layout_metadata = build_track_metadata_from_fcurves(
+                    layout_metadata = fwrap_metadata.build_track_metadata_from_fcurves(
                         bone_name=_blender_bone_name, action=processed_action
                     )
                     if layout_metadata:
@@ -1718,7 +1676,7 @@ def export_mtar(context: bpy.types.Context,
     force_highest_bit_encoding = export_props.force_highest_bit_encoding
 
     # Determine whether to run FCurve cleaning based on UI toggles
-    export_clean_threshold = get_effective_export_fcurve_clean_threshold(export_props)
+    export_clean_threshold = blender_properties.get_effective_export_fcurve_clean_threshold(export_props)
 
     # Capture original animation state before any processing
     original_armature_action = None
@@ -1786,7 +1744,7 @@ def export_mtar(context: bpy.types.Context,
         Debug.log("No track mapping provided — falling back to armature bone order. "
                        "Original binary track order is not guaranteed without a mapping file.")
         bone_names = [bone.name for bone in armature.data.bones]
-        for track_idx, (_base_name, segments) in enumerate(group_bones_by_segment(bone_names)):
+        for track_idx, (_base_name, segments) in enumerate(fwrap_misc_export.group_bones_by_segment(bone_names)):
             for seg_idx, seg_bone_name in segments:
                 track_segment_bone_mapping.set_segment_mapping(
                     track_idx, seg_idx, seg_bone_name, BoneParameters(fox_name=seg_bone_name)
@@ -1813,7 +1771,7 @@ def export_mtar(context: bpy.types.Context,
 
     # Find and parse layout track action
     Debug.log("\nSearching for layout track action...")
-    layout_action = try_find_layout_track_action()
+    layout_action = util_blender_animation.try_find_layout_track_action()
     metadata_dict = None
     
     # Collect actions to export first (needed for metadata merging in old-format)
@@ -1828,7 +1786,7 @@ def export_mtar(context: bpy.types.Context,
     if gani_selection_str and actions_to_export:
         total_actions = len(actions_to_export)
         try:
-            selected_indices = parse_index_selection(gani_selection_str, total_actions)
+            selected_indices = util_parsing.parse_index_selection(gani_selection_str, total_actions)
             # Keep actions in original order; filter by selected indices
             actions_to_export = [action for idx, action in enumerate(actions_to_export) if idx in selected_indices]
             Debug.log(f"Filtered GANI export selection: {len(actions_to_export)} of {total_actions} actions selected")
@@ -1842,7 +1800,7 @@ def export_mtar(context: bpy.types.Context,
     if layout_action:
         # GANI2 / new-format: Parse metadata from layout track action
         Debug.log("\nParsing layout track metadata (GANI2/new-format)...")
-        metadata_dict = get_all_track_metadata_from_action(layout_action)
+        metadata_dict = fwrap_metadata.get_all_track_metadata_from_action(layout_action)
 
         # Finalize mapping using layout metadata so missing per-segment mappings
         # (i.e., tracks that only had a base mapping defined) are populated.
@@ -1892,7 +1850,7 @@ def export_mtar(context: bpy.types.Context,
     # Set MTAR version and flags (Step 5a: fallback to per-GANI for old-format)
     # This determines whether to use new format (GANI2) or old format (FoxData)
     all_export_actions = [sd.action for sd in actions_to_export if sd.action]
-    mtar_props = read_mtar_properties_from_any_action(layout_action, all_export_actions)
+    mtar_props = fwrap_metadata.read_mtar_properties_from_any_action(layout_action, all_export_actions)
     writer.set_mtar_version(
         mtar_props.get(mtar_const.MTAR_VERSION, 201403250),
         mtar_props.get(mtar_const.MTAR_FLAGS, 0x1000)
@@ -1916,8 +1874,8 @@ def export_mtar(context: bpy.types.Context,
     # Find motion points and shader nodes armature based purely on scene state
     Debug.log("\n=== Motion Points & Shader Nodes Detection ===")
 
-    motion_points_armature = auto_detect_motion_points_armature(armature)
-    shader_nodes_armature = auto_detect_shader_nodes_armature(armature)
+    motion_points_armature = util_blender_armature.auto_detect_motion_points_armature(armature)
+    shader_nodes_armature = util_blender_armature.auto_detect_shader_nodes_armature(armature)
 
     if motion_points_armature:
         Debug.log(f"Detected motion points armature: {motion_points_armature.name}")
@@ -1936,25 +1894,25 @@ def export_mtar(context: bpy.types.Context,
     if motion_points_armature:
         # Detach the auxiliary motion points armature so its export is not influenced
         # by any parenting/transform offsets from the main armature.
-        parent = detach_armature_for_export(motion_points_armature)
+        parent = util_blender_armature.detach_armature_for_export(motion_points_armature)
         try:
             # Build MotionPointsList from armature bones (but do not write header count yet - it is computed at write time)
-            motion_points_wrapper = build_motion_points_list_from_armature(motion_points_armature)
+            motion_points_wrapper = tools_motion_points_exporter.build_motion_points_list_from_armature(motion_points_armature)
             motion_points_list = motion_points_wrapper.to_motion_point_list2()
 
             # Collect motion point actions
-            motion_point_actions_data = collect_motion_point_actions(
+            motion_point_actions_data = tools_motion_points_exporter.collect_motion_point_actions(
                 motion_points_armature, use_nla, export_clean_threshold
             )
 
             if motion_point_actions_data:
                 Debug.log(f"Found {len(motion_point_actions_data)} motion point action(s)")
                 # Build lookup map for motion-point actions by GANI index
-                motion_point_actions_by_gani_index = build_motion_point_action_maps(motion_point_actions_data)
+                motion_point_actions_by_gani_index = fwrap_misc_export.build_motion_point_action_maps(motion_point_actions_data)
             else:
                 Debug.log("No motion point actions found (motion points list will be exported without animations)")
         finally:
-            restore_armature_after_export(motion_points_armature, parent)
+            util_blender_armature.restore_armature_after_export(motion_points_armature, parent)
     else:
         Debug.log("Motion points will not be exported")
     
@@ -1970,12 +1928,12 @@ def export_mtar(context: bpy.types.Context,
 
     if shader_nodes_armature and not writer.is_new_format:
         Debug.log(f"Found shader nodes armature: {shader_nodes_armature.name}")
-        shader_nodes_actions_data = collect_shader_nodes_actions(
+        shader_nodes_actions_data = tools_gani1_shader_exporter.collect_shader_nodes_actions(
             shader_nodes_armature, use_nla, export_clean_threshold
         )
         if shader_nodes_actions_data:
             Debug.log(f"Found {len(shader_nodes_actions_data)} shader node action(s)")
-            shader_nodes_actions_by_gani_index = build_shader_action_maps(shader_nodes_actions_data)
+            shader_nodes_actions_by_gani_index = fwrap_misc_export.build_shader_action_maps(shader_nodes_actions_data)
         else:
             Debug.log("No shader node actions found")
     elif shader_nodes_armature and writer.is_new_format:
@@ -2025,7 +1983,7 @@ def export_mtar(context: bpy.types.Context,
         effective_metadata_dict = metadata_dict
         if layout_action is None and action_data.action is not None:
             # Old-format: per-GANI metadata overrides the merged dict for this strip
-            per_strip_dict = get_all_track_metadata_from_action(action_data.action)
+            per_strip_dict = fwrap_metadata.get_all_track_metadata_from_action(action_data.action)
             effective_metadata_dict = per_strip_dict if per_strip_dict else metadata_dict
             if per_strip_dict:
                 Debug.log("  Using per-GANI metadata for this strip (overrides merged layout)")
@@ -2057,13 +2015,13 @@ def export_mtar(context: bpy.types.Context,
         motion_point_action_data: Optional[ExportActionData] = None
 
         if motion_point_actions_data:
-            motion_point_action_data = find_motion_point_action_for_gani(gani_name, motion_point_actions_by_gani_index)
+            motion_point_action_data = fwrap_misc_export.find_motion_point_action_for_gani(gani_name, motion_point_actions_by_gani_index)
 
         if motion_point_action_data:
             Debug.log(f"\n  Exporting motion points for GANI '{gani_name}': {motion_point_action_data.action.name}")
 
             # MetaData: Build metadata dict for motion points by analyzing the action and armature
-            motion_point_metadata_dict: Dict[str, TrackMetaData] = build_motion_point_metadata_dict(motion_points_armature, motion_point_action_data.action)
+            motion_point_metadata_dict: Dict[str, fwrap_metadata.TrackMetaData] = tools_motion_points_exporter.build_motion_point_metadata_dict(motion_points_armature, motion_point_action_data.action)
             Debug.log(f"    Built metadata from {len(motion_point_metadata_dict)} motion point bone(s)")
 
             # Export motion point tracks
@@ -2103,7 +2061,7 @@ def export_mtar(context: bpy.types.Context,
         Debug.start_timer(f"4.{action_idx}.3 Motion Events")
 
         # Read motion events from the action if present
-        motion_events = read_motion_events_from_action(gani_action)
+        motion_events = fwrap_motionevent.read_motion_events_from_action(gani_action)
 
         motion_events_data = None
         if motion_events:
@@ -2126,9 +2084,9 @@ def export_mtar(context: bpy.types.Context,
         if shader_nodes_actions_data:
             # Detach the auxiliary shader nodes armature so its export is not influenced
             # by any parenting/transform offsets from the main armature.
-            shader_node_parent = detach_armature_for_export(shader_nodes_armature)
+            shader_node_parent = util_blender_armature.detach_armature_for_export(shader_nodes_armature)
             try:
-                shader_node_action_data: Optional[ExportActionData] = find_shader_action_for_gani(
+                shader_node_action_data: Optional[ExportActionData] = fwrap_misc_export.find_shader_action_for_gani(
                     gani_name, shader_nodes_actions_by_gani_index
                 )
 
@@ -2138,7 +2096,7 @@ def export_mtar(context: bpy.types.Context,
                         f"{shader_node_action_data.action.name}"
                     )
 
-                    shader_metadata_dict = build_shader_nodes_metadata_dict(
+                    shader_metadata_dict = tools_gani1_shader_exporter.build_shader_nodes_metadata_dict(
                         shader_nodes_armature, shader_node_action_data.action
                     )
                     Debug.log(
@@ -2159,11 +2117,11 @@ def export_mtar(context: bpy.types.Context,
                         Debug.log(
                             f"    Exported {len(flat_shader_tracks)} shader unit track(s)"
                         )
-                        property_names, property_tracks = group_shader_tracks_by_property(
+                        property_names, property_tracks = tools_gani1_shader_exporter.group_shader_tracks_by_property(
                             flat_shader_tracks, shader_nodes_armature
                         )
                         if property_names:
-                            property_headers = collect_shader_property_headers(
+                            property_headers = tools_gani1_shader_exporter.collect_shader_property_headers(
                                 shader_node_action_data.action, property_names
                             )
                             shader_nodes_data = GaniExportShaderData(
@@ -2188,7 +2146,7 @@ def export_mtar(context: bpy.types.Context,
                         f"- shader nodes will be skipped for this GANI"
                     )
             finally:
-                restore_armature_after_export(shader_nodes_armature, shader_node_parent)
+                util_blender_armature.restore_armature_after_export(shader_nodes_armature, shader_node_parent)
         else:
             Debug.log(f"    No shader node action for GANI '{gani_name}'")
 
@@ -2201,7 +2159,7 @@ def export_mtar(context: bpy.types.Context,
         # Read frame rate from layout action header properties (stored during import); default 60.
         # For old-format (no layout action), fall back to reading from the per-GANI action.
         header_action = layout_action if layout_action is not None else action_data.action
-        header_props = read_track_header_properties_from_action(header_action)
+        header_props = fwrap_metadata.read_track_header_properties_from_action(header_action)
         frame_rate = header_props.get(gani_const.TRKH_FRAME_RATE, 60)
 
         # Create GaniExportData object
@@ -2218,9 +2176,9 @@ def export_mtar(context: bpy.types.Context,
         )
 
         # Merge node_params from tracks and shader actions for lossless round-trip
-        node_params = merge_node_params(
-            iter_all_node_params_from_action(gani_action),
-            iter_all_node_params_from_action(shader_node_action_data.action) if shader_node_action_data else None,
+        node_params = fwrap_metadata.merge_node_params(
+            fwrap_metadata.iter_all_node_params_from_action(gani_action),
+            fwrap_metadata.iter_all_node_params_from_action(shader_node_action_data.action) if shader_node_action_data else None,
         )
         gani_data.node_params = node_params or None
 

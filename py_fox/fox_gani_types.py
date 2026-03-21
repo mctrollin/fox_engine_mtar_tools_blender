@@ -6,30 +6,11 @@ from dataclasses import dataclass
 from typing import BinaryIO, List, Optional
 import struct
 
-from ..py_utilities.utilities_binary_write import write_padding, align_length
-from ..py_utilities.utilities_binary_read import (
-    read_unaligned_bits,
-    read_unaligned_quaternion,
-    read_float,
-    read_vector2,
-    read_vector3,
-    read_vector4,
-    read_anim_half,
-)
-from ..py_utilities.utilities_binary_write import (
-    write_unaligned_bits,
-    write_unaligned_quaternion,
-    write_float,
-    write_vector2,
-    write_vector3,
-    write_vector4,
-    write_anim_half,
-    align_buffer,
-    align_bytearray,
-)
 from ..py_core.core_logging import Debug
-from ..py_utilities.utilities_transforms import make_quaternion_list_compatible
 
+from ..py_utilities import util_binary_write
+from ..py_utilities import util_binary_read
+from ..py_utilities import util_transforms
 
 from .fox_misc_types import StrCode32
 from .fox_gani_enums import SegmentType, TrackUnitFlags
@@ -105,29 +86,29 @@ class AnimKeyframe:
         # Rotations (Quaternions)
         if segment_type in [SegmentType.QUAT, SegmentType.QUAT_DIFF]:
             bit_pos = data_offset * 8  # Convert byte offset to bit offset
-            quat, bit_pos = read_unaligned_quaternion(file_data, bit_pos, component_bit_size)
+            quat, bit_pos = util_binary_read.read_unaligned_quaternion(file_data, bit_pos, component_bit_size)
             keyframes.append(AnimKeyframe(frame=0, value=quat))  # First keyframe: delta=0
             
             if not is_static:
                 while accumulated_frame < frame_count:
-                    frame_delta, bit_pos = read_unaligned_bits(file_data, bit_pos, 8)
+                    frame_delta, bit_pos = util_binary_read.read_unaligned_bits(file_data, bit_pos, 8)
                     accumulated_frame += frame_delta
                     if frame_delta < 1:
                         Debug.log_warning(f"Import: Invalid frame_delta {frame_delta} at accumulated frame {accumulated_frame} (segment={segment_type})")
                     elif frame_delta > 255:
                         Debug.log_warning(f"Import: frame_delta {frame_delta} exceeds 8-bit range at accumulated frame {accumulated_frame} (segment={segment_type})")
-                    quat, bit_pos = read_unaligned_quaternion(file_data, bit_pos, component_bit_size)
+                    quat, bit_pos = util_binary_read.read_unaligned_quaternion(file_data, bit_pos, component_bit_size)
                     
                     # Ensure quaternion stays in same hemisphere as previous keyframe
                     prev_quat = keyframes[-1].data.value if keyframes else None
-                    quat = make_quaternion_list_compatible(quat, prev_quat)
+                    quat = util_transforms.make_quaternion_list_compatible(quat, prev_quat)
                     
                     keyframes.append(AnimKeyframe(frame=frame_delta, value=quat))  # Store delta directly
         
         # 3D Vectors (Positions, etc.)
         elif segment_type in [SegmentType.VECTOR3, SegmentType.VECTOR_DIFF]:
             offset = data_offset
-            vec, offset = read_vector3(file_data, offset, component_bit_size)
+            vec, offset = util_binary_read.read_vector3(file_data, offset, component_bit_size)
             keyframes.append(AnimKeyframe(frame=0, value=vec))  # First keyframe: delta=0
             
             if not is_static:
@@ -137,7 +118,7 @@ class AnimKeyframe:
                     accumulated_frame += frame_delta
                     if frame_delta < 1:
                         Debug.log_warning(f"Import: Invalid frame_delta {frame_delta} at accumulated frame {accumulated_frame} (segment={segment_type})")
-                    vec, offset = read_vector3(file_data, offset, component_bit_size)
+                    vec, offset = util_binary_read.read_vector3(file_data, offset, component_bit_size)
                     if abs(vec[0]) > 100 or abs(vec[1]) > 100 or abs(vec[2]) > 100:
                         Debug.log_error(f"Vector segment ({segment_type}) too big ({vec})")
                     keyframes.append(AnimKeyframe(frame=frame_delta, value=vec))  # Store delta directly
@@ -146,9 +127,9 @@ class AnimKeyframe:
         elif segment_type == SegmentType.FLOAT:
             offset = data_offset
             if component_bit_size == 16:
-                value, offset = read_anim_half(file_data, offset)
+                value, offset = util_binary_read.read_anim_half(file_data, offset)
             else:  # component_bit_size == 32
-                value, offset = read_float(file_data, offset)
+                value, offset = util_binary_read.read_float(file_data, offset)
             keyframes.append(AnimKeyframe(frame=0, value=[value]))  # First keyframe: delta=0
             
             if not is_static:
@@ -159,15 +140,15 @@ class AnimKeyframe:
                     if frame_delta < 1:
                         Debug.log_warning(f"Import: Invalid frame_delta {frame_delta} at accumulated frame {accumulated_frame} (segment={segment_type})")
                     if component_bit_size == 16:
-                        value, offset = read_anim_half(file_data, offset)
+                        value, offset = util_binary_read.read_anim_half(file_data, offset)
                     else:  # component_bit_size == 32
-                        value, offset = read_float(file_data, offset)
+                        value, offset = util_binary_read.read_float(file_data, offset)
                     keyframes.append(AnimKeyframe(frame=frame_delta, value=[value]))  # Store delta directly
         
         # 2D Vectors
         elif segment_type == SegmentType.VECTOR2:
             offset = data_offset
-            vec, offset = read_vector2(file_data, offset, component_bit_size)
+            vec, offset = util_binary_read.read_vector2(file_data, offset, component_bit_size)
             keyframes.append(AnimKeyframe(frame=0, value=vec))  # First keyframe: delta=0
             
             if not is_static:
@@ -177,13 +158,13 @@ class AnimKeyframe:
                     accumulated_frame += frame_delta
                     if frame_delta < 1:
                         Debug.log_warning(f"Import: Invalid frame_delta {frame_delta} at accumulated frame {accumulated_frame} (segment={segment_type})")
-                    vec, offset = read_vector2(file_data, offset, component_bit_size)
+                    vec, offset = util_binary_read.read_vector2(file_data, offset, component_bit_size)
                     keyframes.append(AnimKeyframe(frame=frame_delta, value=vec))  # Store delta directly
         
         # 4D Vectors
         elif segment_type == SegmentType.VECTOR4:
             offset = data_offset
-            vec, offset = read_vector4(file_data, offset, component_bit_size)
+            vec, offset = util_binary_read.read_vector4(file_data, offset, component_bit_size)
             keyframes.append(AnimKeyframe(frame=0, value=vec))  # First keyframe: delta=0
             
             if not is_static:
@@ -193,7 +174,7 @@ class AnimKeyframe:
                     accumulated_frame += frame_delta
                     if frame_delta < 1:
                         Debug.log_warning(f"Import: Invalid frame_delta {frame_delta} at accumulated frame {accumulated_frame} (segment={segment_type})")
-                    vec, offset = read_vector4(file_data, offset, component_bit_size)
+                    vec, offset = util_binary_read.read_vector4(file_data, offset, component_bit_size)
                     keyframes.append(AnimKeyframe(frame=frame_delta, value=vec))  # Store delta directly
         
         else:
@@ -241,7 +222,7 @@ class AnimKeyframe:
             
             # Write initial quaternion (bit-packed)
             initial_quat = keyframes[0].data.value
-            bit_pos, prev_axis = write_unaligned_quaternion(buffer, bit_pos, initial_quat, component_bit_size)
+            bit_pos, prev_axis = util_binary_write.write_unaligned_quaternion(buffer, bit_pos, initial_quat, component_bit_size)
             
             # Write subsequent keyframes if this is not a static track
             if has_frames and len(keyframes) > 1:
@@ -258,11 +239,11 @@ class AnimKeyframe:
                         frame_delta = 255
                     
                     # Write frame delta (8 bits)
-                    bit_pos = write_unaligned_bits(buffer, bit_pos, frame_delta, 8)
+                    bit_pos = util_binary_write.write_unaligned_bits(buffer, bit_pos, frame_delta, 8)
                     
                     # Write quaternion, passing prev_axis for stable hemisphere selection
                     quat = keyframes[i].data.value
-                    bit_pos, prev_axis = write_unaligned_quaternion(buffer, bit_pos, quat, component_bit_size, prev_axis)
+                    bit_pos, prev_axis = util_binary_write.write_unaligned_quaternion(buffer, bit_pos, quat, component_bit_size, prev_axis)
             
             # Ensure buffer is byte-aligned first (round up bit_pos to next byte)
             byte_size = (bit_pos + 7) // 8
@@ -270,7 +251,7 @@ class AnimKeyframe:
                 buffer.extend(bytes(byte_size - len(buffer)))
             
             # Align to 2-byte boundary (FAlign(2) in binary template)
-            align_bytearray(buffer, 2)
+            util_binary_write.align_bytearray(buffer, 2)
             
             return bytes(buffer)
         
@@ -280,7 +261,7 @@ class AnimKeyframe:
             
             # Write initial vector3
             initial_vec = keyframes[0].data.value
-            write_vector3(buffer, initial_vec, component_bit_size)
+            util_binary_write.write_vector3(buffer, initial_vec, component_bit_size)
             
             # Write subsequent keyframes if this is not a static track
             if has_frames and len(keyframes) > 1:
@@ -301,10 +282,10 @@ class AnimKeyframe:
                     
                     # Write vector3
                     vec = keyframes[i].data.value
-                    write_vector3(buffer, vec, component_bit_size)
+                    util_binary_write.write_vector3(buffer, vec, component_bit_size)
             
             # Align to 2-byte boundary (FAlign(2) in binary template)
-            align_buffer(buffer, 2)
+            util_binary_write.align_buffer(buffer, 2)
             
             return buffer.getvalue()
         
@@ -315,9 +296,9 @@ class AnimKeyframe:
             # Write initial float
             initial_value = keyframes[0].data.value[0] if isinstance(keyframes[0].data.value, list) else keyframes[0].data.value
             if component_bit_size == 16:
-                write_anim_half(buffer, initial_value)
+                util_binary_write.write_anim_half(buffer, initial_value)
             else:  # component_bit_size == 32
-                write_float(buffer, initial_value)
+                util_binary_write.write_float(buffer, initial_value)
             
             # Write subsequent keyframes if this is not a static track
             if has_frames and len(keyframes) > 1:
@@ -339,12 +320,12 @@ class AnimKeyframe:
                     # Write float
                     value = keyframes[i].data.value[0] if isinstance(keyframes[i].data.value, list) else keyframes[i].data.value
                     if component_bit_size == 16:
-                        write_anim_half(buffer, value)
+                        util_binary_write.write_anim_half(buffer, value)
                     else:  # component_bit_size == 32
-                        write_float(buffer, value)
+                        util_binary_write.write_float(buffer, value)
             
             # Align to 2-byte boundary (FAlign(2) in binary template)
-            align_buffer(buffer, 2)
+            util_binary_write.align_buffer(buffer, 2)
             
             return buffer.getvalue()
         
@@ -354,7 +335,7 @@ class AnimKeyframe:
             
             # Write initial vector2
             initial_vec = keyframes[0].data.value
-            write_vector2(buffer, initial_vec, component_bit_size)
+            util_binary_write.write_vector2(buffer, initial_vec, component_bit_size)
             
             # Write subsequent keyframes if this is not a static track
             if has_frames and len(keyframes) > 1:
@@ -375,10 +356,10 @@ class AnimKeyframe:
                     
                     # Write vector2
                     vec = keyframes[i].data.value
-                    write_vector2(buffer, vec, component_bit_size)
+                    util_binary_write.write_vector2(buffer, vec, component_bit_size)
             
             # Align to 2-byte boundary (FAlign(2) in binary template)
-            align_buffer(buffer, 2)
+            util_binary_write.align_buffer(buffer, 2)
             
             return buffer.getvalue()
         
@@ -388,7 +369,7 @@ class AnimKeyframe:
             
             # Write initial vector4
             initial_vec = keyframes[0].data.value
-            write_vector4(buffer, initial_vec, component_bit_size)
+            util_binary_write.write_vector4(buffer, initial_vec, component_bit_size)
             
             # Write subsequent keyframes if this is not a static track
             if has_frames and len(keyframes) > 1:
@@ -409,10 +390,10 @@ class AnimKeyframe:
                     
                     # Write vector4
                     vec = keyframes[i].data.value
-                    write_vector4(buffer, vec, component_bit_size)
+                    util_binary_write.write_vector4(buffer, vec, component_bit_size)
             
             # Align to 2-byte boundary (FAlign(2) in binary template)  
-            align_buffer(buffer, 2)
+            util_binary_write.align_buffer(buffer, 2)
             
             return buffer.getvalue()
         
@@ -479,7 +460,7 @@ class TrackHeader:
             bw.write(struct.pack('<I', offset))
         
         # Write 12 bytes of padding after unit offsets (observed in binary files)
-        write_padding(bw, 12)
+        util_binary_write.write_padding(bw, 12)
 
 
 @dataclass
@@ -666,7 +647,7 @@ class TrackMiniHeader:
 
         # Align to 4 bytes
         pos = br.tell()
-        aligned = align_length(pos, 4)
+        aligned = util_binary_write.align_length(pos, 4)
         if aligned != pos:
             br.seek(aligned)
 
@@ -703,7 +684,7 @@ class TrackMiniHeader:
         
         # Align to 4 bytes
         pos = bw.tell()
-        aligned = align_length(pos, 4)
+        aligned = util_binary_write.align_length(pos, 4)
         if aligned != pos:
             bw.write(bytes(aligned - pos))
         
@@ -712,7 +693,7 @@ class TrackMiniHeader:
             seg_header.write(bw)
         
         # Write 16 bytes padding
-        write_padding(bw, 16)
+        util_binary_write.write_padding(bw, 16)
     
     def get_size(self, unit_count: int, segment_count: int) -> int:
         """Calculate the total size of the TrackMiniHeader when written.
@@ -729,7 +710,7 @@ class TrackMiniHeader:
         size += unit_count  # unit_flags: 1 byte each
         
         # Align to 4 bytes
-        size = align_length(size, 4)
+        size = util_binary_write.align_length(size, 4)
         
         size += segment_count * Gani2TrackData.ENTRY_SIZE  # segment_headers: 4 bytes each
         size += 16  # padding
@@ -750,7 +731,7 @@ class TrackMiniHeader:
         offset += unit_count  # unit_flags: 1 byte each
         
         # Align to 4 bytes
-        offset = align_length(offset, 4)
+        offset = util_binary_write.align_length(offset, 4)
         
         return offset
     
@@ -893,7 +874,7 @@ class EventUnitInfo:
 
         # Align to 4 bytes
         pos = br.tell()
-        aligned = align_length(pos, 4)
+        aligned = util_binary_write.align_length(pos, 4)
         if aligned != pos:
             br.seek(aligned)
 
@@ -955,7 +936,7 @@ class EventUnitInfo:
         
         # Align to 4 bytes
         pos = bw.tell()
-        aligned = align_length(pos, 4)
+        aligned = util_binary_write.align_length(pos, 4)
         if aligned != pos:
             bw.write(bytes(aligned - pos))
         
@@ -973,7 +954,7 @@ class EventUnitInfo:
             param_b = (param_hash >> 32) & 0xFFFFFFFF
             bw.write(struct.pack('<II', param_a, param_b))
     
-    def _get_size(self) -> int:
+    def get_size(self) -> int:
         """Calculate total size of this EventUnitInfo in bytes."""
         size = 0
         
@@ -994,7 +975,7 @@ class EventUnitInfo:
             # format == 3 (INFINITE) adds nothing
         
         # Align to 4 bytes after time sections
-        size = align_length(size, 4)
+        size = util_binary_write.align_length(size, 4)
         
         # Int params (4 bytes each)
         size += self.int_param_count * 4
@@ -1072,7 +1053,7 @@ class EvpData:
         for event in self.events:
             event.write(bw)
     
-    def _calculate_unit_offsets(self) -> None:
+    def calculate_unit_offsets(self) -> None:
         """Calculate offsets for each EventUnitInfo within this EvpData.
         
         UnitOffsets are relative to the start of this EvpData entry.
@@ -1097,12 +1078,12 @@ class EvpData:
             self.unit_offsets.append(current_offset)
             
             # Calculate size of this EventUnitInfo
-            event_size = event._get_size()
+            event_size = event.get_size()
             
             # Advance offset for next event
             current_offset += event_size
     
-    def _get_size(self) -> int:
+    def get_size(self) -> int:
         """Calculate total size of this EvpData entry in bytes."""
         # Header size
         size = 8  # category_name (4) + unit_count (2) + cache_offset (2)
@@ -1112,7 +1093,7 @@ class EvpData:
         
         # All events
         for event in self.events:
-            size += event._get_size()
+            size += event.get_size()
         
         return size
 
@@ -1206,10 +1187,10 @@ class EvpHeader:
             self.entry_offsets.append(current_offset)
             
             # Calculate unit offsets for this EvpData
-            evp_data._calculate_unit_offsets()
+            evp_data.calculate_unit_offsets()
             
             # Calculate size of this EvpData entry
-            evp_data_size = evp_data._get_size()
+            evp_data_size = evp_data.get_size()
             
             # Advance offset for next entry
             current_offset += evp_data_size

@@ -19,16 +19,14 @@ import bpy
 
 from ..py_core.core_logging import Debug
 
-from ..py_utilities.utilities_blender_animation import (
-    iter_action_fcurves,
-    is_relevant_strip,
-    extract_bone_name_from_data_path,
-)
+from ..py_utilities import util_blender_animation
 
-from ..py_foxwrap.foxwrap_metadata import TrackMetaData
-from ..py_foxwrap.foxwrap_misc_export_types import ExportActionData
-from ..py_foxwrap.foxwrap_misc_export import collect_armature_actions, build_track_metadata_dict_from_fcurves
-from ..py_foxwrap.foxwrap_motionpoint_types import MotionPointWrapper, MotionPointEntryWrapper
+from ..py_fox.fox_misc_types import StrCode32
+
+from ..py_foxwrap.fwrap_metadata_types import TrackMetaData
+from ..py_foxwrap.fwrap_misc_export_types import ExportActionData
+from ..py_foxwrap.fwrap_motionpoint_types import MotionPointWrapper, MotionPointEntryWrapper
+from ..py_foxwrap import fwrap_misc_export
 
 
 def build_motion_points_list_from_armature(
@@ -72,9 +70,9 @@ def build_motion_points_list_from_armature(
     if motion_points_armature.animation_data:
         for nla_track in motion_points_armature.animation_data.nla_tracks:
             for strip in nla_track.strips:
-                if strip.action and is_relevant_strip(strip):
-                    for fcurve in iter_action_fcurves(strip.action):
-                        bone_name = extract_bone_name_from_data_path(fcurve.data_path)
+                if strip.action and util_blender_animation.is_relevant_strip(strip):
+                    for fcurve in util_blender_animation.iter_action_fcurves(strip.action):
+                        bone_name = util_blender_animation.extract_bone_name_from_data_path(fcurve.data_path)
                         if bone_name:
                             bones_with_animation.add(bone_name)
                 else:
@@ -155,19 +153,18 @@ def build_motion_point_metadata_dict(
         ``{bone_name: TrackMetaData}`` for every bone present in *action*.
     """
     # Motion-point bone names are decimal hash strings; compute hash by parsing.
-    def _mtp_hash(bone_name: str, bone: 'bpy.types.Bone') -> int:
+    def _mtp_hash(bone_name: str, bone: bpy.types.Bone) -> int:
         try:
             return int(bone_name)
         except ValueError:
-            from ..py_fox.fox_misc_types import StrCode32
             return StrCode32.from_string(bone_name).to_int()
 
-    return build_track_metadata_dict_from_fcurves(
+    return fwrap_misc_export.build_track_metadata_dict_from_fcurves(
         armature=motion_points_armature,
         action=action,
         armature_label="motion points",
         bone_skip_predicate=None,
-        name_hash_extractor=_mtp_hash,
+        name_hash_extractor_fn=_mtp_hash,
         warn_on_missing_metadata=False,
     )
 
@@ -188,7 +185,7 @@ def collect_motion_point_actions(
     Returns:
         List of :class:`ExportActionData` objects.
     """
-    return collect_armature_actions(
+    return fwrap_misc_export.collect_armature_actions(
         motion_points_armature, use_nla,
         track_type_label="motion points",
         export_clean_threshold=export_clean_threshold,
