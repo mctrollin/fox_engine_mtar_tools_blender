@@ -14,71 +14,7 @@ import math
 import bpy
 from bpy.types import UILayout
 
-from .py_utilities import util_parsing
-
-
-def count_filter_file_valid_entries(filter_filepath: str) -> int:
-    """Count non-empty, non-comment entries in a GANI filter file."""
-    if not filter_filepath or not os.path.exists(filter_filepath):
-        return 0
-
-    count = 0
-    try:
-        with open(filter_filepath, 'r', encoding='utf-8', errors='ignore') as f:
-            for line in f:
-                entry = line.strip()
-                if not entry or entry.startswith('#'):
-                    continue
-                count += 1
-    except Exception:
-        count = 0
-    return count
-
-
-def prepare_gani_selection_indices(selection_str: str, max_count: int, index_mode: str):
-    """Return interpreted index list from selection string or filter mode.
-
-    index_mode:
-      - 'HEADER': use text as header index values
-      - 'DATA': use text as data index values
-      - 'AUTO': allow both
-    """
-    selection_str = (selection_str or "").strip()
-    if not selection_str:
-        return [], []
-
-    header_indices = []
-    data_indices = []
-
-    for raw in [p.strip() for p in selection_str.splitlines() if p.strip()]:
-        mode = None
-        value_str = raw
-        if raw.lower().startswith('h') and raw[1:].isdigit():
-            mode = 'HEADER'
-            value_str = raw[1:]
-        elif raw.lower().startswith('d') and raw[1:].isdigit():
-            mode = 'DATA'
-            value_str = raw[1:]
-        elif raw.isdigit():
-            mode = index_mode if index_mode in ('HEADER', 'DATA') else 'AUTO'
-
-        if mode is None:
-            continue
-
-        try:
-            value = int(value_str)
-        except ValueError:
-            continue
-
-        if value < 0 or (max_count is not None and value >= max_count):
-            continue
-
-        if mode == 'HEADER' or mode == 'AUTO':
-            header_indices.append(value)
-        if mode == 'DATA' or mode == 'AUTO':
-            data_indices.append(value)
-
-    return header_indices, data_indices
+from .py_utilities import util_filtering
 
 
 def draw_bool_prop_checkbox_icon(layout: UILayout, props, property_name: str,
@@ -108,7 +44,6 @@ def draw_bool_prop_checkbox_icon(layout: UILayout, props, property_name: str,
         icon = 'CHECKBOX_HLT' if value else 'CHECKBOX_DEHLT'
     label_text = text if text is not None else None
     layout.prop(props, property_name, icon=icon, text=label_text, **prop_kwargs)
-
 
 
 def draw_progress_bar(layout: UILayout, props) -> None:
@@ -216,7 +151,7 @@ def draw_gani_selection_filter(
 
         if os.path.exists(filter_file_abs):
             row = box.row()
-            valid_filter_lines = count_filter_file_valid_entries(filter_file_abs)
+            valid_filter_lines = util_filtering.count_filter_file_valid_entries(filter_file_abs)
             row.label(text=f"Filter entries: {valid_filter_lines}", icon='CHECKMARK')
             # Max possible is bounded by available GANI count
             if total_count is not None:
@@ -233,7 +168,7 @@ def draw_gani_selection_filter(
     selection_str = getattr(indices_props, index_prop_name, "").strip()
 
     if selection_str:
-        header_indices, data_indices = prepare_gani_selection_indices(selection_str, total_count, 'AUTO')
+        header_indices, data_indices = util_filtering.prepare_gani_selection_indices(selection_str, total_count, 'AUTO')
         selected_count = len(set(header_indices + data_indices))
         if selected_count == 0:
             parse_error_msg = "No valid indices in selection"

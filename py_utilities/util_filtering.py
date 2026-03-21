@@ -6,6 +6,70 @@ from ..py_core.core_logging import Debug
 from . import util_hashing
 
 
+def count_filter_file_valid_entries(filter_filepath: str) -> int:
+    """Count non-empty, non-comment entries in a GANI filter file."""
+    if not filter_filepath or not os.path.exists(filter_filepath):
+        return 0
+
+    count = 0
+    try:
+        with open(filter_filepath, 'r', encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                entry = line.strip()
+                if not entry or entry.startswith('#'):
+                    continue
+                count += 1
+    except Exception:
+        count = 0
+    return count
+
+
+def prepare_gani_selection_indices(selection_str: str, max_count: int, index_mode: str):
+    """Return interpreted index list from selection string or filter mode.
+
+    index_mode:
+      - 'HEADER': use text as header index values
+      - 'DATA': use text as data index values
+      - 'AUTO': allow both
+    """
+    selection_str = (selection_str or "").strip()
+    if not selection_str:
+        return [], []
+
+    header_indices = []
+    data_indices = []
+
+    for raw in [p.strip() for p in selection_str.splitlines() if p.strip()]:
+        mode = None
+        value_str = raw
+        if raw.lower().startswith('h') and raw[1:].isdigit():
+            mode = 'HEADER'
+            value_str = raw[1:]
+        elif raw.lower().startswith('d') and raw[1:].isdigit():
+            mode = 'DATA'
+            value_str = raw[1:]
+        elif raw.isdigit():
+            mode = index_mode if index_mode in ('HEADER', 'DATA') else 'AUTO'
+
+        if mode is None:
+            continue
+
+        try:
+            value = int(value_str)
+        except ValueError:
+            continue
+
+        if value < 0 or (max_count is not None and value >= max_count):
+            continue
+
+        if mode == 'HEADER' or mode == 'AUTO':
+            header_indices.append(value)
+        if mode == 'DATA' or mode == 'AUTO':
+            data_indices.append(value)
+
+    return header_indices, data_indices
+
+
 def normalize_gani_path(path_str: str) -> str:
     """Normalize a GANI path string for filter comparison.
 
@@ -178,4 +242,3 @@ def is_gani_path_allowed(
         return False
 
     return True
-
