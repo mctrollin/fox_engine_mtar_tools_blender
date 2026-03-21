@@ -21,7 +21,75 @@ from .blender_properties import get_effective_import_bake_decimate_error
 
 from .py_utilities import util_transforms, util_debug, util_blender_animation, util_fcurve_processing, util_hashing_cityhash
 
+from .py_fox.fox_mtar_constants import TABL_PATH
 from .py_foxwrap import fwrap_metadata
+
+# Shared regex for verbose h/d naming in strip/action names
+_PATH_H_D_RE = re.compile(r"(?:^|\.)h(?P<h>\d+)_d(?P<d>\d+)(?:\.|$)")
+
+
+def _parse_clipboard_index_lines(clipboard_text: str, index_mode: str):
+    """Parse clipboard lines into index entries with header/data mode."""
+    parsed = []
+    invalid = []
+
+    for line in (clipboard_text or "").splitlines():
+        raw = line.strip()
+        if not raw:
+            continue
+
+        if raw.lower().startswith('h') and raw[1:].strip().isdigit():
+            parsed.append(('HEADER', int(raw[1:].strip())))
+            continue
+        if raw.lower().startswith('d') and raw[1:].strip().isdigit():
+            parsed.append(('DATA', int(raw[1:].strip())))
+            continue
+
+        if raw.isdigit():
+            if index_mode == 'HEADER':
+                parsed.append(('HEADER', int(raw)))
+            elif index_mode == 'DATA':
+                parsed.append(('DATA', int(raw)))
+            else:
+                parsed.append(('AUTO', int(raw)))
+            continue
+
+        invalid.append(raw)
+
+    return parsed, invalid
+
+
+def _get_h_d_from_strip(strip):
+    """Extract (h,d) indices from strip or strip.action name using verbose naming."""
+    name = strip.name or ''
+    if not name and strip.action:
+        name = strip.action.name or ''
+
+    m = _PATH_H_D_RE.search(name)
+    if not m and strip.action and strip.action.name:
+        m = _PATH_H_D_RE.search(strip.action.name)
+
+    if not m:
+        return None
+
+    return int(m.group('h')), int(m.group('d'))
+
+
+def _find_matching_strips(armature, header_set, data_set):
+    """Yield strips matching header/data index sets."""
+    if not armature or not armature.animation_data:
+        return
+
+    nla_tracks = getattr(armature.animation_data, 'nla_tracks', [])
+    for track in nla_tracks:
+        for strip in track.strips:
+            hd = _get_h_d_from_strip(strip)
+            if not hd:
+                continue
+            h_idx, d_idx = hd
+            if (h_idx in header_set) or (d_idx in data_set):
+                yield track, strip, h_idx, d_idx
+
 
 # Import bake helpers from tools module (keep top-level to prevent import loops)
 from .py_tools import tools_animation_bake, tools_hash_generator
@@ -280,6 +348,200 @@ class MTAR_OT_CopyTransformDebugResults(Operator):
         context.window_manager.clipboard = clipboard_text
         Debug.report_and_log(self, 'INFO', "Transform results copied to clipboard")
         
+        return {'FINISHED'}
+
+
+class MTAR_OT_DebugCollectNLAPathClipboard(Operator):
+    """Collect action Path metadata from named verbose NLA indices in clipboard."""
+    bl_idname = "mtar.debug_collect_nla_path_clipboard"
+    bl_label = "Collect NLA Path from Clipboard"
+    bl_description = "Read hN/dN list from clipboard, collect matching NLA action Path values, write results to clipboard"
+
+    def execute(self, context: Context) -> set:
+        props = context.scene.mtar_debug_transform_properties
+        index_mode = props.debug_clipboard_index_mode
+
+        clipboard_text = context.window_manager.clipboard or ""
+        lines = [line.strip() for line in clipboard_text.splitlines() if line.strip()]
+
+        if not lines:
+            Debug.report_and_log(self, 'INFO', "Clipboard is empty")
+            context.window_manager.clipboard = ""
+            props.debug_clipboard_matched_paths = ""
+            return {'FINISHED'}
+
+        requested_header_indices = set()
+        requested_data_indices = set()
+        invalid_lines = []
+
+        for line in lines:
+            raw = line
+            mode = None
+            value = None
+
+            if raw.lower().startswith('h'):
+                mode = 'HEADER'
+                value = raw[1:]
+            elif raw.lower().startswith('d'):
+                mode = 'DATA'
+                value = raw[1:]
+            else:
+                value = raw
+                if index_mode in ('HEADER', 'DATA'):
+                    mode = index_mode
+                else:
+                    mode = 'AUTO'
+
+            try:
+                n = int(value)
+            except Exception:
+                invalid_lines.append(raw)
+                continue
+
+            if mode == 'HEADER':
+                requested_header_indices.add(n)
+            elif mode == 'DATA':
+                requested_data_indices.add(n)
+            else:  # AUTO
+                requested_header_indices.add(n)
+                requested_data_indices.add(n)
+
+        found_paths = []
+        found_set = set()
+        matched_any = False
+
+        armature = context.active_object
+        if not armature or armature.type != 'ARMATURE':
+            Debug.report_and_log(self, 'ERROR', "Active object is not an armature")
+            return {'FINISHED'}
+
+        nla = getattr(armature.animation_data, 'nla_tracks', None) if armature.animation_data else None
+        if not nla:
+            Debug.report_and_log(self, 'ERROR', "No NLA tracks found on active armature")
+            return {'FINISHED'}
+
+        path_re = re.compile(r"(?:^|\.)h(?P<h>\d+)_d(?P<d>\d+)(?:\.|$)")
+
+        for track in nla:
+            for strip in track.strips:
+                action = strip.action
+                if not action:
+                    continue
+
+                # find h/d in strip name first, fallback to action name
+                src_name = strip.name or action.name
+                m = path_re.search(src_name)
+                if not m and action.name:
+                    m = path_re.search(action.name)
+
+                if not m:
+                    continue
+
+                h_idx = int(m.group('h'))
+                d_idx = int(m.group('d'))
+
+                matches_header = h_idx in requested_header_indices
+                matches_data = d_idx in requested_data_indices
+
+                if not (matches_header or matches_data):
+                    continue
+
+                matched_any = True
+                path_val = None
+                if TABL_PATH in action.keys():
+                    path_val = str(action[TABL_PATH]).strip()
+
+                if path_val:
+                    if path_val not in found_set:
+                        found_set.add(path_val)
+                        found_paths.append(path_val)
+
+        if invalid_lines:
+            Debug.log(f"Ignored non-int lines from clipboard: {invalid_lines}")
+
+        if not matched_any:
+            Debug.log(f"No matching indices found for headers {sorted(requested_header_indices)} or data {sorted(requested_data_indices)}")
+
+        output_text = "\n".join(found_paths)
+        context.window_manager.clipboard = output_text
+        props.debug_clipboard_matched_paths = output_text
+
+        Debug.report_and_log(self, 'INFO', f"Collected {len(found_paths)} unique Path values")
+
+        return {'FINISHED'}
+
+
+class MTAR_OT_DebugSelectNLAByClipboardIndex(Operator):
+    """Select first matching NLA strip by first parsed index from clipboard."""
+    bl_idname = "mtar.debug_select_nla_by_clipboard_index"
+    bl_label = "Select NLA Strip by Clipboard Index"
+    bl_description = "Read first index from clipboard and select matching verbose hN_dN NLA strip"
+
+    def execute(self, context: Context) -> set:
+        props = context.scene.mtar_debug_transform_properties
+        index_mode = props.debug_clipboard_index_mode
+
+        clipboard_text = context.window_manager.clipboard or ""
+        entries, invalid_lines = _parse_clipboard_index_lines(clipboard_text, index_mode)
+
+        if invalid_lines:
+            Debug.log(f"Ignored invalid clipboard lines: {invalid_lines}")
+
+        if not entries:
+            Debug.report_and_log(self, 'WARNING', "No valid index found in clipboard")
+            return {'FINISHED'}
+
+        first_mode, first_val = entries[0]
+
+        header_set = set()
+        data_set = set()
+
+        if first_mode == 'HEADER':
+            header_set.add(first_val)
+        elif first_mode == 'DATA':
+            data_set.add(first_val)
+        else:
+            header_set.add(first_val)
+            data_set.add(first_val)
+
+        armature = context.active_object
+        if not armature or armature.type != 'ARMATURE':
+            Debug.report_and_log(self, 'ERROR', "Active object is not an armature")
+            return {'FINISHED'}
+
+        if not armature.animation_data or not getattr(armature.animation_data, 'nla_tracks', None):
+            Debug.report_and_log(self, 'ERROR', "Active armature has no NLA tracks")
+            return {'FINISHED'}
+
+        # Deselect all NLA tracks/strips first
+        for track in armature.animation_data.nla_tracks:
+            track.select = False
+            for strip in track.strips:
+                strip.select = False
+
+        selected = False
+        selected_path = None
+        selected_name = ""
+        selected_h = None
+        selected_d = None
+
+        for track, strip, h_idx, d_idx in _find_matching_strips(armature, header_set, data_set):
+            track.select = True
+            strip.select = True
+            selected = True
+            selected_name = strip.name
+            selected_h = h_idx
+            selected_d = d_idx
+            selected_path = strip.action[TABL_PATH] if strip.action and TABL_PATH in strip.action.keys() else None
+            break
+
+        if selected:
+            Debug.report_and_log(self, 'INFO', f"Selected strip '{selected_name}' (h{selected_h}_d{selected_d})")
+            if selected_path is not None:
+                props.debug_clipboard_matched_paths = str(selected_path)
+            return {'FINISHED'}
+
+        Debug.report_and_log(self, 'WARNING', f"No NLA strip found for first index entry: {entries[0]}")
         return {'FINISHED'}
 
 

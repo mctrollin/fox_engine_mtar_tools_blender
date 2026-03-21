@@ -15,12 +15,7 @@ from ..py_core.core_logging import Debug
 
 from .. import blender_properties
 
-from ..py_utilities import util_transforms
-from ..py_utilities import util_blender_animation
-from ..py_utilities import util_parsing
-
-from ..py_utilities import util_blender_armature
-from ..py_utilities import util_fcurve_processing
+from ..py_utilities import util_transforms, util_blender_animation, util_parsing, util_blender_armature, util_fcurve_processing
 
 from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox import fox_mtar_constants as mtar_const
@@ -40,7 +35,7 @@ from ..py_foxwrap.fwrap_misc_export_types import (
     ExportActionData, 
 )
 from ..py_foxwrap.fwrap_mapping_types import BoneParameters
-from ..py_foxwrap import fwrap_misc, fwrap_motionevent, fwrap_metadata, fwrap_misc_export, fwrap_mapping
+from ..py_foxwrap import fwrap_misc, fwrap_motionevent, fwrap_metadata, fwrap_misc_export, fwrap_mapping, fwrap_filtering
 from ..py_foxwrap.fwrap_mtar_writer import MtarWriter
 from ..py_foxwrap.fwrap_mtar_reader import MtarReader
 
@@ -1781,21 +1776,32 @@ def export_mtar(context: bpy.types.Context,
         export_clean_threshold=export_clean_threshold
     )
 
-    # Apply GANI index filter if requested
-    gani_selection_str = export_props.gani_indices_str.strip()
-    if gani_selection_str and actions_to_export:
-        total_actions = len(actions_to_export)
-        try:
-            selected_indices = util_parsing.parse_index_selection(gani_selection_str, total_actions)
-            # Keep actions in original order; filter by selected indices
-            actions_to_export = [action for idx, action in enumerate(actions_to_export) if idx in selected_indices]
-            Debug.log(f"Filtered GANI export selection: {len(actions_to_export)} of {total_actions} actions selected")
-            if not actions_to_export:
-                Debug.log_error("No actions selected for export after applying GANI index filter")
-                return {'CANCELLED': 'No GANI indices selected'}
-        except ValueError as e:
-            Debug.log_error(f"Invalid GANI selection string: {e}")
-            return {'CANCELLED': f'Invalid GANI selection: {e}'}
+    # Apply GANI index filter if requested (skipped when filter file mode is active)
+    if not props.use_gani_filter_file:
+        gani_selection_str = export_props.gani_indices_str.strip()
+        if gani_selection_str and actions_to_export:
+            total_actions = len(actions_to_export)
+            try:
+                selected_indices = util_parsing.parse_index_selection(gani_selection_str, total_actions)
+                # Keep actions in original order; filter by selected indices
+                actions_to_export = [action for idx, action in enumerate(actions_to_export) if idx in selected_indices]
+                Debug.log(f"Filtered GANI export selection: {len(actions_to_export)} of {total_actions} actions selected")
+                if not actions_to_export:
+                    Debug.log_error("No actions selected for export after applying GANI index filter")
+                    return {'CANCELLED': 'No GANI indices selected'}
+            except ValueError as e:
+                Debug.log_error(f"Invalid GANI selection string: {e}")
+                return {'CANCELLED': f'Invalid GANI selection: {e}'}
+    else:
+        Debug.log("GANI filter file mode enabled; ignoring index string selection")
+
+    actions_to_export = fwrap_filtering.filter_gani_export_actions(
+        actions_to_export,
+        bpy.path.abspath(props.gani_filter_txt_filepath) if props.use_gani_filter_file else None,
+    )
+
+    if not actions_to_export:
+        return {'CANCELLED': 'No export animations matched the filter'}
 
     if layout_action:
         # GANI2 / new-format: Parse metadata from layout track action

@@ -7,12 +7,78 @@ module breaks remaining interdependencies and gives a single home for
 common helpers.
 """
 
+import os
 from typing import Optional
-
 import math
+
+import bpy
 from bpy.types import UILayout
 
 from .py_utilities import util_parsing
+
+
+def count_filter_file_valid_entries(filter_filepath: str) -> int:
+    """Count non-empty, non-comment entries in a GANI filter file."""
+    if not filter_filepath or not os.path.exists(filter_filepath):
+        return 0
+
+    count = 0
+    try:
+        with open(filter_filepath, 'r', encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                entry = line.strip()
+                if not entry or entry.startswith('#'):
+                    continue
+                count += 1
+    except Exception:
+        count = 0
+    return count
+
+
+def prepare_gani_selection_indices(selection_str: str, max_count: int, index_mode: str):
+    """Return interpreted index list from selection string or filter mode.
+
+    index_mode:
+      - 'HEADER': use text as header index values
+      - 'DATA': use text as data index values
+      - 'AUTO': allow both
+    """
+    selection_str = (selection_str or "").strip()
+    if not selection_str:
+        return [], []
+
+    header_indices = []
+    data_indices = []
+
+    for raw in [p.strip() for p in selection_str.splitlines() if p.strip()]:
+        mode = None
+        value_str = raw
+        if raw.lower().startswith('h') and raw[1:].isdigit():
+            mode = 'HEADER'
+            value_str = raw[1:]
+        elif raw.lower().startswith('d') and raw[1:].isdigit():
+            mode = 'DATA'
+            value_str = raw[1:]
+        elif raw.isdigit():
+            mode = index_mode if index_mode in ('HEADER', 'DATA') else 'AUTO'
+
+        if mode is None:
+            continue
+
+        try:
+            value = int(value_str)
+        except ValueError:
+            continue
+
+        if value < 0 or (max_count is not None and value >= max_count):
+            continue
+
+        if mode == 'HEADER' or mode == 'AUTO':
+            header_indices.append(value)
+        if mode == 'DATA' or mode == 'AUTO':
+            data_indices.append(value)
+
+    return header_indices, data_indices
 
 
 def draw_bool_prop_checkbox_icon(layout: UILayout, props, property_name: str,
@@ -107,18 +173,22 @@ def draw_estimated_operation_time(
         warn_row.operator("wm.console_toggle", text="", icon="CONSOLE")
 
 
-def draw_gani_index_filter(
+def draw_gani_selection_filter(
     layout: UILayout,
-    props,
-    prop_name: str,
+    main_props,
+    indices_props,
+    index_prop_name: str,
     total_count: int | None,
-) -> tuple[int | None, list[int] | None, Optional[str]]:
-    """Draw a GANI index selector and display selection status or parse errors.
+) -> int | None:
+    """Draw either a GANI index selector or a file-based filter selector.
+
+    This helper unifies the logic for import and export GANI selection.
 
     Args:
         layout: UI layout to draw into.
-        props: PropertyGroup containing the selection string property.
-        prop_name: Name of the selection property (e.g. "gani_indices_str").
+        main_props: Top-level property group containing use_gani_filter_file and gani_filter_txt_filepath.
+        indices_props: Import/export property group containing gani_indices_str.
+        index_prop_name: Name of the index selection string property (e.g. "gani_indices_str").
         total_count: Total number of available GANIs, used for validating selection.
             If None, only the input field is shown but no count/error message is displayed.
 
@@ -127,26 +197,51 @@ def draw_gani_index_filter(
     """
 
     box = layout.box()
-    box.prop(props, prop_name, text="", icon='FILTER')
+    row = box.row(align=True)
+
+    if main_props.use_gani_filter_file:
+        row.prop(main_props, "gani_filter_txt_filepath", text="", icon='FILE_TEXT')
+    else:
+        row.prop(indices_props, index_prop_name, text="", icon='FILTER')
+
+    row.prop(main_props, "use_gani_filter_file", text="", icon='FILE_TEXT')
+
+    # Filter by path selection file -------------------------------
+    if main_props.use_gani_filter_file:
+        row = box.row()
+        filter_file_abs = bpy.path.abspath(main_props.gani_filter_txt_filepath.strip())
+        if not filter_file_abs:
+            row.label(text="Filter file not set", icon='ERROR')
+            return None
+
+        if os.path.exists(filter_file_abs):
+            row = box.row()
+            valid_filter_lines = count_filter_file_valid_entries(filter_file_abs)
+            row.label(text=f"Filter entries: {valid_filter_lines}", icon='CHECKMARK')
+            # Max possible is bounded by available GANI count
+            if total_count is not None:
+                return min(valid_filter_lines, total_count)
+            return valid_filter_lines
+        else:
+            row.label(text="Filter file missing", icon='ERROR')
+            return None
 
     if total_count is None:
-        return None, None, None
+        return None
 
-    selection_str = getattr(props, prop_name, "").strip()
-
-    selected_indices: list[int] | None = None
-    selected_count: int | None = None
-    parse_error_msg: Optional[str] = None
+    # Filter by index selection string -------------------------------
+    selection_str = getattr(indices_props, index_prop_name, "").strip()
 
     if selection_str:
-        try:
-            selected_indices = util_parsing.parse_index_selection(selection_str, total_count)
-            selected_count = len(selected_indices)
-        except ValueError as e:
-            parse_error_msg = str(e)
-            selected_count = 0
+        header_indices, data_indices = prepare_gani_selection_indices(selection_str, total_count, 'AUTO')
+        selected_count = len(set(header_indices + data_indices))
+        if selected_count == 0:
+            parse_error_msg = "No valid indices in selection"
+        else:
+            parse_error_msg = None
     else:
         selected_count = total_count
+        parse_error_msg = None
 
     if parse_error_msg:
         err_row = box.row()
@@ -157,4 +252,4 @@ def draw_gani_index_filter(
         row = box.row()
         row.label(text=label_text, icon='CHECKMARK')
 
-    return selected_count, selected_indices, parse_error_msg
+    return selected_count

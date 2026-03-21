@@ -128,9 +128,12 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
         mtar_box = box_export.box()
         mtar_box.prop(props, "mapping_filepath", text="", icon='TEXT')
 
-        # Optional GANI selection filter (similar to import UI)
-        selected_count, _, _ = blender_panel_shared.draw_gani_index_filter(
-            layout, export_props, "gani_indices_str", export_count
+        selected_count = blender_panel_shared.draw_gani_selection_filter(
+            layout,
+            props,
+            export_props,
+            "gani_indices_str",
+            export_count
         )
 
         if settings_props.show_advanced_settings:

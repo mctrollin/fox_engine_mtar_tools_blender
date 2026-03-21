@@ -17,7 +17,7 @@ from ..py_foxwrap.fwrap_misc_types import TrackDataBlobWrapper, Tracks
 from ..py_foxwrap.fwrap_misc_import_types import GaniImportData
 from ..py_foxwrap.fwrap_mapping_types import BoneParameters, TransformConstraintEntry
 from ..py_foxwrap.fwrap_motionpoint_types import MotionPointWrapper
-from ..py_foxwrap import fwrap_metadata, fwrap_misc, fwrap_misc_import, fwrap_motionevent, fwrap_motionpoint, fwrap_mapping
+from ..py_foxwrap import fwrap_metadata, fwrap_misc, fwrap_misc_import, fwrap_motionevent, fwrap_motionpoint, fwrap_mapping, fwrap_filtering
 from ..py_foxwrap.fwrap_mtar_reader import MtarReader
 
 # TODO: tools should not import other tools
@@ -1009,6 +1009,17 @@ def import_mtar_data(
         Debug.log("Importing all GANIs")
         all_gani_data = reader.read_all_ganies()
         Debug.log(f"Found {len(all_gani_data)} GANI file(s)")
+
+    all_gani_data = fwrap_filtering.filter_gani_import_data(
+        all_gani_data,
+        bpy.path.abspath(context.scene.mtar_properties.gani_filter_txt_filepath) if context.scene.mtar_properties.use_gani_filter_file else None,
+        gani_hash_dict=gani_hash_dict,
+    )
+
+    if not all_gani_data:
+        Debug.log_warning("No GANI files available after filtering; import cancelled")
+        Debug.stop_timer("MTAR Import")
+        return ({'CANCELLED': 'No GANI animations matched the filter'}, None)
 
     # Reverse-sort GANIs to match the order of the data in the file instead of the order in the header
     try:

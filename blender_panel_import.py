@@ -8,10 +8,8 @@ from bpy.types import Context, UILayout
 
 from .py_foxwrap.fwrap_mtar_reader import MtarReader
 
-from .blender_operators_import import (
-    MTAR_OT_GenerateTrackMappingTemplateFile,
-    MTAR_OT_ImportAnimationFromMTAR
-)
+from .blender_operators_import import MTAR_OT_GenerateTrackMappingTemplateFile, MTAR_OT_ImportAnimationFromMTAR
+
 from . import blender_panel_shared
 
 
@@ -73,13 +71,14 @@ def draw_import_page(layout: UILayout, context: Context) -> None:
     row.prop(props, "mapping_filepath", text="", icon='TEXT')
     row.operator("mtar.generate_track_mapping_template_file", text="", icon='FILE_NEW')
 
-    # Optional GANI selection filter (similar to export UI)
-    selected_count, _, _ = blender_panel_shared.draw_gani_index_filter(
-        layout, import_props, "gani_indices_str", header_info.file_count if header_info else None
+    selected_count = blender_panel_shared.draw_gani_selection_filter(
+        layout,
+        props,
+        import_props,
+        "gani_indices_str",
+        header_info.file_count if header_info else None
     )
 
-            
-    
     if settings_props.show_advanced_settings:
         adv_box = box_gani.box()
         adv_box.alert = True

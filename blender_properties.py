@@ -498,6 +498,25 @@ class MTAR_PG_Properties(PropertyGroup):
         maxlen=1024
     ))
 
+    use_gani_filter_file: BoolProperty(
+        name="Use GANI Filter File",
+        description=(
+            "When enabled, GANI index selection is ignored and selection is performed "
+            "based on the GANI filter file (include/exclude entries)."
+        ),
+        default=False,
+    )
+
+    gani_filter_txt_filepath: StringProperty(**_file_path_kwargs(
+        name="GANI Allowlist File",
+        description=(
+            "Path to a text file containing GANI allowlist entries (hash or path per line). "
+            "If provided, only matching GANIs will be imported or exported."
+        ),
+        default="",
+        maxlen=1024
+    ))
+
 def register():
     bpy.utils.register_class(MTAR_PG_ImportProperties)
     bpy.utils.register_class(MTAR_PG_ExportProperties)

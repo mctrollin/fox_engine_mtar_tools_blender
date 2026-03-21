@@ -21,6 +21,8 @@ from .blender_operators_debug import (
     MTAR_OT_CreateTransformDummies,
     MTAR_OT_CopySingleResult,
     MTAR_OT_CopyTransformDebugResults,
+    MTAR_OT_DebugCollectNLAPathClipboard,
+    MTAR_OT_DebugSelectNLAByClipboardIndex,
     # Bake
     MTAR_OT_DebugRunBake,
     MTAR_OT_DebugSetupGraphContext,
@@ -91,6 +93,24 @@ class MTAR_PG_DebugTransformProperties(PropertyGroup):
         maxlen=1024
     )
 
+    debug_clipboard_index_mode: bpy.props.EnumProperty(
+        name="Index Mode",
+        description="Interpret clipboard indices as header (h) or data (d) indices",
+        items=[
+            ('HEADER', "Header Index", "Interpret plain numbers as hN"),
+            ('DATA', "Data Index", "Interpret plain numbers as dN"),
+            ('AUTO', "Auto (prefix-h/d)", "Require explicit hN/dN prefix for exact mode, otherwise try both"),
+        ],
+        default='AUTO'
+    )
+
+    debug_clipboard_matched_paths: StringProperty(
+        name="Matched Paths",
+        description="Collected Path values returned to clipboard and shown for convenience",
+        default="",
+        maxlen=8192
+    )
+
     # which debug page is currently active in the unified panel
     debug_active_tab: bpy.props.EnumProperty(
         name="Page",
@@ -99,6 +119,7 @@ class MTAR_PG_DebugTransformProperties(PropertyGroup):
             ('BAKE', "Bake", "Animation bake tools"),
             ('HASH', "Hash", "External hash generator"),
             ('MAP_R', "Map R", "Map_R parameter debug"),
+            ('MISC', "Misc", "Miscellaneous debug tools"),
         ],
         default='TRANSFORM'
     )
@@ -545,6 +566,29 @@ def draw_hash_page(layout: UILayout, context: Context) -> None:
             err_box.label(text=f"Python Error: {props.hash_generator_py_error}")
 
 
+def draw_misc_page(layout: UILayout, context: Context) -> None:
+    """Draw miscellaneous debug tools (clipboard index → PathCollector)."""
+    props = context.scene.mtar_debug_transform_properties
+
+    cfg_box = layout.box()
+    cfg_box.label(text="Clipboard Path Extractor", icon='FILE_TICK')
+    col = cfg_box.column(align=True)
+    col.label(text="Works only when imported with verbose names (hN_dN)", icon='INFO')
+    col.label(text="Input: one index per line (hN, dN or raw number)")
+    col.prop(props, "debug_clipboard_index_mode", text="Interpret as")
+    col.label(text="Outputs unique Path values to clipboard")
+
+    row = cfg_box.row(align=True)
+    row.operator("mtar.debug_collect_nla_path_clipboard", text="Collect Paths from Clipboard", icon='EXPORT')
+
+    row = cfg_box.row(align=True)
+    row.operator("mtar.debug_select_nla_by_clipboard_index", text="Select Strip by Clipboard Index", icon='RESTRICT_SELECT_OFF')
+
+    out_box = layout.box()
+    out_box.label(text="Last matched Path results", icon='INFO')
+    out_box.label(text=props.debug_clipboard_matched_paths or "(none)")
+
+
 class MTAR_PT_DebugMainPanel(Panel):
     """Unified debug panel with tabs."""
     bl_label = "Debug Tools"
@@ -570,6 +614,8 @@ class MTAR_PT_DebugMainPanel(Panel):
             draw_hash_page(layout, context)
         elif tab == 'MAP_R':
             blender_panel_debug_map_r.draw_map_r_page(layout, context)
+        elif tab == 'MISC':
+            draw_misc_page(layout, context)
 
 # Registration
 classes = (
@@ -580,6 +626,8 @@ classes = (
     MTAR_OT_CreateTransformDummies,
     MTAR_OT_CopySingleResult,
     MTAR_OT_CopyTransformDebugResults,
+    MTAR_OT_DebugCollectNLAPathClipboard,
+    MTAR_OT_DebugSelectNLAByClipboardIndex,
     # Bake
     MTAR_OT_DebugRunBake,
     MTAR_OT_DebugSetupGraphContext,

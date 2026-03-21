@@ -151,6 +151,11 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                 traceback.print_exc()
                 Debug.stop_timer("Import Operator")
                 return {'CANCELLED'}
+
+        # Use filter file selection instead of index string if toggled
+        if context.scene.mtar_properties.use_gani_filter_file:
+            Debug.log("GANI filter file mode enabled; ignoring index string selection")
+            gani_indices = None
         
         # Initialize progress bar
         wm: bpy.types.WindowManager = context.window_manager
