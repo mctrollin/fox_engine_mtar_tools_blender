@@ -367,7 +367,8 @@ def configure_action(action: bpy.types.Action,
                      frame_start: int = 0,
                      frame_end: int = 0,
                      use_fake_user: bool = True,
-                     use_frame_range: bool = True) -> None:
+                     use_frame_range: bool = True,
+                     use_cyclic: bool = False) -> None:
     """Configure a Blender action with standard settings.
     
     Sets up the action's frame range, fake user flag, and other common properties.
@@ -378,8 +379,10 @@ def configure_action(action: bpy.types.Action,
         frame_end: End frame for the action's manual frame range
         use_fake_user: Whether to enable fake user (prevents deletion when unused)
         use_frame_range: Whether to enable manual frame range
+        use_cyclic: Whether the action loops (sets action.use_cyclic)
     """
     action.use_fake_user = use_fake_user
+    action.use_cyclic = use_cyclic
     
     if use_frame_range:
         action.frame_start = frame_start
@@ -399,7 +402,7 @@ def assign_action_to_datablock(datablock: bpy.types.ID, action: bpy.types.Action
       - ARMATURE -> MTAR_ARMATURE_SLOT_NAME
       - otherwise -> MTAR_OBJECT_SLOT_NAME
     A custom slot (e.g. MTAR_SHADER_SLOT_NAME) can be supplied for
-    non-standard armatures such as shader‑nodes rigs.
+    non-standard armatures such as shader-nodes rigs.
 
     Args:
         datablock: Any ID datablock that supports animation_data (e.g. an Object/Armature)
@@ -754,7 +757,7 @@ def get_action_slot(action: bpy.types.Action, slot_name: Optional[str] = None) -
             Debug.log(f"  Created slot '{slot_name}' on action '{action.name}'")
             return new_slot
         except Exception as e:
-            raise RuntimeError(f"Could not create slot '{slot_name}' on action '{getattr(action, 'name', '<unknown>')}': {e}")
+            raise RuntimeError(f"Could not create slot '{slot_name}' on action '{getattr(action, 'name', '<unknown>')}': {e}") from e
 
     # No explicit slot name: legacy behavior
     # Prefer an explicit 'Legacy Slot' if present
@@ -1083,8 +1086,8 @@ def ensure_action_fcurve(action: bpy.types.Action, data_path: str, index: int, d
                             if action_group_name is not None:
                                 return chbag.fcurves.new(data_path=data_path, index=index, group_name=action_group_name)
                             return chbag.fcurves.new(data_path=data_path, index=index)
-                    except Exception as e:
-                        Debug.log_warning(f"chbag.fcurves.new also failed for action '{getattr(action, 'name', '<unknown>')}', path '{data_path}', index {index}: {e}")
+                    except Exception as e2:
+                        Debug.log_warning(f"chbag.fcurves.new also failed for action '{getattr(action, 'name', '<unknown>')}', path '{data_path}', index {index}: {e2}")
     except Exception as e:
         Debug.log_warning(f"anim_utils import/availability error: {e}")
         # anim_utils not available; continue
@@ -1132,8 +1135,8 @@ def ensure_action_fcurve(action: bpy.types.Action, data_path: str, index: int, d
                         if action_group_name is not None:
                             return ch.fcurves.new(data_path=data_path, index=index, group_name=action_group_name)
                         return ch.fcurves.new(data_path=data_path, index=index)
-                except Exception as e:
-                    Debug.log_warning(f"ch.fcurves.new failed on channel '{getattr(ch, 'name', '<unknown>')}' for action '{getattr(action, 'name', '<unknown>')}', path '{data_path}', index {index}: {e}")
+                except Exception as e2:
+                    Debug.log_warning(f"ch.fcurves.new failed on channel '{getattr(ch, 'name', '<unknown>')}' for action '{getattr(action, 'name', '<unknown>')}', path '{data_path}', index {index}: {e2}")
                     continue
     except Exception as e:
         Debug.log_warning(f"Error iterating channelbag collections on action '{getattr(action, 'name', '<unknown>')}': {e}")
@@ -1195,8 +1198,8 @@ def remove_action_fcurve(action: bpy.types.Action, fcurve) -> None:
                     if to_remove is not None:
                         ch.fcurves.remove(to_remove)
                         return
-                except Exception as e:
-                    Debug.log_warning(f"Identity-based ch.fcurves remove search failed on channel '{getattr(ch, 'name', '<unknown>')}' for action '{getattr(action, 'name', '<unknown>')}': {e}")
+                except Exception as e2:
+                    Debug.log_warning(f"Identity-based ch.fcurves remove search failed on channel '{getattr(ch, 'name', '<unknown>')}' for action '{getattr(action, 'name', '<unknown>')}': {e2}")
                     continue
     except Exception as e:
         Debug.log_warning(f"Error iterating channelbag collections while removing fcurve on action '{getattr(action, 'name', '<unknown>')}': {e}")

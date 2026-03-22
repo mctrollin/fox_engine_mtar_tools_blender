@@ -87,3 +87,12 @@ class TrackUnitFlags(IntEnum):
         return flags
 
 
+class MotionGraphFootFitFlags(IntEnum):  
+    """Flags for the MotionGraphFootFitInfo cache entry in the 'ag' EvpData category.
+
+    Source: anim_common.bt FOOT_FIT_INFO_FLAGS enum.
+    """
+    IS_LOOP    = 0x1  # Animation loops
+    START_LEFT = 0x2  # Left foot arrives first (MTEV_AG_SYNC_L event has the lowest start frame)
+
+

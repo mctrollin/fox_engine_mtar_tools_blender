@@ -450,7 +450,9 @@ class MtarWriter:
             Tuple of (motion_point_tracks_offset, motion_point_tracks_data_size)
             Returns (0, 0) for old format or if no motion points
         """
-        if not self.is_new_format or not gani_data.gani_motion_points_data:
+        if (not self.is_new_format or
+                not gani_data.gani_motion_points_data or
+                not gani_data.gani_motion_points_data.motion_point_tracks):
             return 0, 0
         
         Debug.log(f"    Writing Motion Points GANI: {gani_data.gani_name}")
@@ -588,6 +590,8 @@ class MtarWriter:
         if self.is_new_format:
             Debug.log("  Phase 2: Writing Motion Events GANIs...")
             for file_idx, gani_data in enumerate(self.gani_data_list):
+                # if gani_data.gani_path_hash == 18181032995612392029:
+                #     Debug.log("bla")
                 if gani_data.gani_motion_events_data:
                     gani_name = gani_data.gani_name
                     Debug.log(f"    Writing Motion Events GANI #{file_idx}: {gani_name}")

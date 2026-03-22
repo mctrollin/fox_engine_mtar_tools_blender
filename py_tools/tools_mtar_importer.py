@@ -10,7 +10,7 @@ from ..py_utilities.util_blender_armature_types import BoneSpec
 
 from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_fox.fox_mtar_types import MtarTableList, MtarTableList2, MtarHeader, is_new_mtar_format
-from ..py_fox.fox_gani_types import SegmentType
+from ..py_fox.fox_gani_types import SegmentType, TrackUnitFlags
 from ..py_fox.fox_frig_types import FrigFile
 
 from ..py_foxwrap.fwrap_misc_types import TrackDataBlobWrapper, Tracks
@@ -399,9 +399,12 @@ def create_animation_actions(
 
         Debug.log(f"Track frame range: 0 - {gani_frame_count}")
         
+        # Detect LOOP flag: any track with TrackUnitFlags.LOOP sets use_cyclic on the action
+        is_loop = any(TrackUnitFlags.LOOP in gani_track.unit_flags for gani_track in data.gani_bone_tracks)
+
         # Configure action with frame range from MTAR file header
-        util_blender_animation.configure_action(action, frame_start=0, frame_end=gani_frame_count)
-        Debug.log(f"  Configured action frame range: 0 - {gani_frame_count}")
+        util_blender_animation.configure_action(action, frame_start=0, frame_end=gani_frame_count, use_cyclic=is_loop)
+        Debug.log(f"  Configured action frame range: 0 - {gani_frame_count}, use_cyclic={is_loop}")
 
         # Update offset for next strip (used for calculating total frame range)
         current_frame_offset += gani_frame_count

@@ -53,3 +53,12 @@ SHADER_HDR_PREFIX = "shader_hdr_"
 
 # MotionEventHeader fields
 EVPH_VERSION = "Version"
+
+# EvpData category hash constants (StrCode32 of category name string)
+EVPDATA_CATEGORY_AG_HASH = 2079928349  # 'ag'
+
+# Motion event name hashes for the 'ag' EvpData category — used to derive the AnimGraph cache.
+# Source: anim_common.bt EvpData EventCache, MotionGraphFootFitEventCacheData comment.
+MTEV_AG_SYNC_L_HASH      = 877721620   # MTEV_AG_SYNC_L  — left foot sync
+MTEV_AG_SYNC_R_HASH      = 3647133869  # MTEV_AG_SYNC_R  — right foot sync
+MTEV_AG_TAG_CONTROL_HASH = 3487515216  # AddCurrentNodeTag / RemoveCurrentNodeTag (tag string params)

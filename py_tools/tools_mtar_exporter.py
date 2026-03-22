@@ -107,7 +107,7 @@ def _convert_import_gani_to_export_gani(
     )
 
     motion_points_data = None
-    if import_data.gani_mtp_tracks is not None:
+    if import_data.gani_mtp_tracks:
         motion_points_data = GaniExportMotionPointsData(
             motion_point_tracks=import_data.gani_mtp_tracks,
             motion_point_track_header=import_data.gani_motion_point_track_header
@@ -118,6 +118,17 @@ def _convert_import_gani_to_export_gani(
         motion_events_data = GaniMotionEventsData(
             motion_events=import_data.gani_events
         )
+
+    # Propagate LOOP flag to the 'ag' category EvpData so the cache is re-derived correctly
+    if motion_events_data is not None and import_data.gani_bone_tracks:
+        is_loop = any(
+            TrackUnitFlags.LOOP in track.unit_flags
+            for track in import_data.gani_bone_tracks
+        )
+        if is_loop:
+            for evp_data in motion_events_data.motion_events.data:
+                if evp_data.category_name.to_int() == gani_const.EVPDATA_CATEGORY_AG_HASH:
+                    evp_data.is_loop = True
 
     shader_nodes_data = None
     if import_data.gani1_shader_tracks:

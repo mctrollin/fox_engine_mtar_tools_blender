@@ -13,7 +13,8 @@ from ..py_utilities import util_binary_read
 from ..py_utilities import util_transforms
 
 from .fox_misc_types import StrCode32
-from .fox_gani_enums import SegmentType, TrackUnitFlags
+from .fox_gani_enums import SegmentType, TrackUnitFlags, MotionGraphFootFitFlags
+from . import fox_gani_constants as gani_const
 
 
 
@@ -989,6 +990,95 @@ class EventUnitInfo:
         return size
 
 
+def _build_ag_cache(events: List['EventUnitInfo'], is_loop: bool) -> bytes:
+    """Build the binary cache blob for the 'ag' (AnimGraph) EvpData category.
+
+    The cache is fully derived from event data and the is_loop flag — it is never
+    stored persistently. Call this whenever the cache bytes are needed.
+
+    Binary layout (offsets relative to cache start):
+      +0   FramesOffset (uint32) — offset to Frames[] relative to this field (cache_start+0)
+      +4   FrameCount   (uint32)
+      +8   StartFrame   (int32)  — -(first sync frame) if loop, else 0
+      +12  Flags        (uint32) — IS_LOOP=0x1, START_LEFT=0x2
+      +16  TagsOffset   (uint32) — offset to Tags[] relative to this field (cache_start+16)
+      +20  TagCount     (uint32)
+      +24  Frames[FrameCount]         (uint32 each, absolute frame numbers)
+      +24+FrameCount*4  Tags[TagCount] (uint64 each)
+
+    Source: anim_common.bt AnimGraphEventCache / MotionGraphFootFitEventCacheData.
+
+    Args:
+        events:  EventUnitInfo list from the 'ag' EvpData category.
+        is_loop: Whether the animation loops (action.use_cyclic or TrackUnitFlags.LOOP).
+
+    Returns:
+        Binary cache blob, or empty bytes if no MTEV_AG_SYNC_L/R events are present.
+    """
+    # Collect sync frame boundaries from SYNC_L/R sections
+    # We need all distinct switches, e.g. [0-12,12-36,36-62] -> [0,12,36,62]
+    sync_boundaries: List[tuple] = []  # (frame, is_left)
+    tag_hashes: List[int] = []
+
+    for event in events:
+        event_hash = event.name.to_int()
+        if event_hash == gani_const.MTEV_AG_SYNC_L_HASH:
+            for section in event.time_sections:
+                sync_boundaries.append((section.start_frame, True))
+                if section.end_frame >= 0:
+                    sync_boundaries.append((section.end_frame, True))
+        elif event_hash == gani_const.MTEV_AG_SYNC_R_HASH:
+            for section in event.time_sections:
+                sync_boundaries.append((section.start_frame, False))
+                if section.end_frame >= 0:
+                    sync_boundaries.append((section.end_frame, False))
+        elif event_hash == gani_const.MTEV_AG_TAG_CONTROL_HASH:
+            tag_hashes.extend(event.string_params)
+
+    # No SYNC events → no cache needed
+    if not sync_boundaries:
+        return b''
+
+    # Sort boundaries then remove duplicates by frame number
+    sync_boundaries.sort(key=lambda x: x[0])
+    frame_list = []
+    seen_frames = set()
+    for frame, _is_left in sync_boundaries:
+        if frame in seen_frames:
+            continue
+        seen_frames.add(frame)
+        frame_list.append(frame)
+
+    frame_count = len(frame_list)
+    start_frame = -frame_list[0] if is_loop else 0
+
+    # Determine whether first boundary belongs to left sync to set START_LEFT
+    first_is_left = sync_boundaries[0][1] if sync_boundaries else False
+
+    flags = 0
+    if is_loop:
+        flags |= int(MotionGraphFootFitFlags.IS_LOOP)
+    if first_is_left:
+        flags |= int(MotionGraphFootFitFlags.START_LEFT)
+
+    tag_count = len(tag_hashes)
+
+    # Self-relative pointer: FramesOffset field is at cache_start+0; frame data starts at cache_start+24
+    frames_offset = 24
+    # Self-relative pointer: TagsOffset field is at cache_start+16; tag data starts after frames
+    tags_data_abs_from_cache_start = 24 + frame_count * 4
+    tags_offset = (tags_data_abs_from_cache_start - 16) if tag_count > 0 else 0
+    
+    buf = io.BytesIO()
+    buf.write(struct.pack('<IIiI', frames_offset, frame_count, start_frame, flags))
+    buf.write(struct.pack('<II', tags_offset, tag_count))
+    for f in frame_list:
+        buf.write(struct.pack('<I', f & 0xFFFFFFFF))  # uint in binary template; mask handles negative frames
+    for t in tag_hashes:
+        buf.write(struct.pack('<Q', t & 0xFFFFFFFFFFFFFFFF))
+
+    return buf.getvalue()
+
 @dataclass
 class EvpData:
     """Event packet data for a specific category."""
@@ -997,7 +1087,7 @@ class EvpData:
     cache_offset: int  # ushort
     unit_offsets: List[int]
     events: List[EventUnitInfo]
-    # cache: bytes | None = None  # Cache data (not fully implemented)
+    is_loop: bool = False  # Not serialized; controls ag-category cache derivation at write time
 
     @classmethod
     def read(cls, br: BinaryIO, endian: str = '<') -> 'EvpData':
@@ -1038,20 +1128,44 @@ class EvpData:
     
     def write(self, bw: BinaryIO) -> None:
         """Write EvpData to binary stream.
-        
+
+        For the 'ag' category the AnimGraph cache blob is always re-derived from
+        the event list and is_loop flag, so no cache state needs to be stored.
+        For all other categories, cache_offset is forced to 0 (unsupported).
+
         Note: unit_offsets should be calculated by EvpHeader._calculate_offsets() before calling this.
         """
-        # Write header: category_name must be StrCode32 (strict invariant)
         category_name_int = self.category_name.to_int()
-        bw.write(struct.pack('<IHH', category_name_int, self.unit_count, self.cache_offset))
-        
+
+        # Derive cache for 'ag' category; always recomputed to avoid stale data
+        cache_bytes = b''
+        computed_cache_offset = 0
+        if category_name_int == gani_const.EVPDATA_CATEGORY_AG_HASH:
+            cache_bytes = _build_ag_cache(self.events, self.is_loop)
+            if cache_bytes:
+                events_total = sum(event.get_size() for event in self.events)
+                computed_cache_offset = 8 + self.unit_count * 4 + events_total
+        elif self.cache_offset != 0:
+            Debug.log_warning(
+                f"EvpData.write: non-ag category (hash={category_name_int}) has "
+                f"cache_offset={self.cache_offset}; cache not supported for this "
+                f"category, writing cache_offset=0"
+            )
+
+        # Write header: category_name must be StrCode32 (strict invariant)
+        bw.write(struct.pack('<IHH', category_name_int, self.unit_count, computed_cache_offset))
+
         # Write unit offsets
         if self.unit_count > 0:
             bw.write(struct.pack(f'<{self.unit_count}I', *self.unit_offsets))
-        
+
         # Write events
         for event in self.events:
             event.write(bw)
+
+        # Write cache blob (ag category only)
+        if cache_bytes:
+            bw.write(cache_bytes)
     
     def calculate_unit_offsets(self) -> None:
         """Calculate offsets for each EventUnitInfo within this EvpData.
@@ -1087,14 +1201,18 @@ class EvpData:
         """Calculate total size of this EvpData entry in bytes."""
         # Header size
         size = 8  # category_name (4) + unit_count (2) + cache_offset (2)
-        
+
         # Unit offsets array
         size += self.unit_count * 4
-        
+
         # All events
         for event in self.events:
             size += event.get_size()
-        
+
+        # Cache blob (ag category only; always re-derived)
+        if self.category_name.to_int() == gani_const.EVPDATA_CATEGORY_AG_HASH:
+            size += len(_build_ag_cache(self.events, self.is_loop))
+
         return size
 
 
