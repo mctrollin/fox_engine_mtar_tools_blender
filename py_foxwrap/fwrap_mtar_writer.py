@@ -335,10 +335,7 @@ class MtarWriter:
         # segment_count per GANI = total segments across all tracks in that GANI's tracks_data.
         # For new format: the shared CommonInfo layout_track already has the canonical count.
         if not self.is_new_format:
-            segment_count = max(
-                (gd.count_segments() for gd in self.gani_data_list),
-                default=self.layout_track.header.segment_count,
-            )
+            segment_count = max((gd.count_segments() for gd in self.gani_data_list), default=self.layout_track.header.segment_count)
         else:
             segment_count = self.layout_track.header.segment_count
         
@@ -369,7 +366,7 @@ class MtarWriter:
         else:
             # Old format: use GaniWriter
             for gani_data in self.gani_data_list:
-                gani_bytes = self._write_old_gani_bytes(gani_data)
+                gani_bytes = self._write_old_gani_bytes(gani_data) # TODO: move _write_old_gani_bytes to a better spot
                 gani_bytes_list.append(gani_bytes)
                 Debug.log(f"    {gani_data.name}: {len(gani_bytes)} bytes (FoxData)")
         

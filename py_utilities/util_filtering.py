@@ -4,6 +4,7 @@ from typing import Dict, Optional, Set, Tuple
 from ..py_core.core_logging import Debug
 
 from . import util_hashing
+from . import util_parsing
 
 
 def count_filter_file_valid_entries(filter_filepath: str) -> int:
@@ -25,49 +26,19 @@ def count_filter_file_valid_entries(filter_filepath: str) -> int:
 
 
 def prepare_gani_selection_indices(selection_str: str, max_count: int, index_mode: str):
-    """Return interpreted index list from selection string or filter mode.
+    """Return interpreted index list from selection string.
 
-    index_mode:
-      - 'HEADER': use text as header index values
-      - 'DATA': use text as data index values
-      - 'AUTO': allow both
+    This uses parse_index_selection() from util_parsing and matches the old index-filter
+    behavior (ranges, single indices, inclusions, exclusions).
+
+    index_mode is kept for compatibility but not used.
     """
     selection_str = (selection_str or "").strip()
     if not selection_str:
-        return [], []
+        return []
 
-    header_indices = []
-    data_indices = []
-
-    for raw in [p.strip() for p in selection_str.splitlines() if p.strip()]:
-        mode = None
-        value_str = raw
-        if raw.lower().startswith('h') and raw[1:].isdigit():
-            mode = 'HEADER'
-            value_str = raw[1:]
-        elif raw.lower().startswith('d') and raw[1:].isdigit():
-            mode = 'DATA'
-            value_str = raw[1:]
-        elif raw.isdigit():
-            mode = index_mode if index_mode in ('HEADER', 'DATA') else 'AUTO'
-
-        if mode is None:
-            continue
-
-        try:
-            value = int(value_str)
-        except ValueError:
-            continue
-
-        if value < 0 or (max_count is not None and value >= max_count):
-            continue
-
-        if mode == 'HEADER' or mode == 'AUTO':
-            header_indices.append(value)
-        if mode == 'DATA' or mode == 'AUTO':
-            data_indices.append(value)
-
-    return header_indices, data_indices
+    # parse_index_selection can raise ValueError for invalid syntax/range out of bounds
+    return util_parsing.parse_index_selection(selection_str, max_count)
 
 
 def normalize_gani_path(path_str: str) -> str:
@@ -86,6 +57,162 @@ def normalize_gani_path(path_str: str) -> str:
         normalized = normalized[:-5]
     normalized = normalized.rstrip('/')
     return normalized
+
+
+def _parse_filter_index_line(line: str):
+    """Parse a hN/dN index entry from a filter line, or return None."""
+    if not line:
+        return None
+
+    stripped = line.strip()
+    if stripped.lower().startswith('h') and stripped[1:].isdigit():
+        return 'HEADER', int(stripped[1:])
+    if stripped.lower().startswith('d') and stripped[1:].isdigit():
+        return 'DATA', int(stripped[1:])
+    return None
+
+
+def load_gani_filter_list_with_indices(
+    filter_path: str,
+    gani_hash_dict: Optional[Dict[int, str]] = None,
+) -> Tuple[Set[int], Set[int], Set[str], Set[str], Set[int], Set[int], Set[int], Set[int]]:
+    """Load a GANI filter file containing hashes, paths or header/data indices."""
+    allowed_hashes: Set[int] = set()
+    excluded_hashes: Set[int] = set()
+    allowed_paths: Set[str] = set()
+    excluded_paths: Set[str] = set()
+    allowed_header_indices: Set[int] = set()
+    excluded_header_indices: Set[int] = set()
+    allowed_data_indices: Set[int] = set()
+    excluded_data_indices: Set[int] = set()
+
+    if not filter_path:
+        return (
+            allowed_hashes,
+            excluded_hashes,
+            allowed_paths,
+            excluded_paths,
+            allowed_header_indices,
+            excluded_header_indices,
+            allowed_data_indices,
+            excluded_data_indices,
+        )
+
+    if not os.path.exists(filter_path):
+        Debug.log_warning(f"GANI filter file not found: {filter_path}")
+        return (
+            allowed_hashes,
+            excluded_hashes,
+            allowed_paths,
+            excluded_paths,
+            allowed_header_indices,
+            excluded_header_indices,
+            allowed_data_indices,
+            excluded_data_indices,
+        )
+
+    reverse_hash_dict: Dict[str, int] = {}
+    if gani_hash_dict:
+        for hash_val, path_val in gani_hash_dict.items():
+            reverse_hash_dict[normalize_gani_path(path_val)] = hash_val
+
+    try:
+        with open(filter_path, encoding='utf-8') as f:
+            for raw_line in f:
+                line = raw_line.strip()
+                if not line or line.startswith('#'):
+                    continue
+
+                exclude = False
+                if line.startswith('!'):
+                    exclude = True
+                    line = line[1:].strip()
+                    if not line:
+                        continue
+
+                parsed_index = _parse_filter_index_line(line)
+                if parsed_index is not None:
+                    mode, value = parsed_index
+                    if mode == 'HEADER':
+                        if exclude:
+                            excluded_header_indices.add(value)
+                        else:
+                            allowed_header_indices.add(value)
+                    else:
+                        if exclude:
+                            excluded_data_indices.add(value)
+                        else:
+                            allowed_data_indices.add(value)
+                    continue
+
+                target_hash = None
+                target_path = None
+
+                if util_hashing.is_gani_path_a_hash(line):
+                    try:
+                        target_hash = util_hashing.parse_gani_hash_str(line)
+                    except ValueError:
+                        continue
+                else:
+                    target_path = normalize_gani_path(line)
+
+                if target_hash is not None:
+                    if exclude:
+                        excluded_hashes.add(target_hash)
+                    else:
+                        allowed_hashes.add(target_hash)
+                    if gani_hash_dict and target_hash in gani_hash_dict:
+                        resolved_path = normalize_gani_path(gani_hash_dict[target_hash])
+                        if exclude:
+                            excluded_paths.add(resolved_path)
+                        else:
+                            allowed_paths.add(resolved_path)
+                    continue
+
+                if target_path:
+                    if exclude:
+                        excluded_paths.add(target_path)
+                    else:
+                        allowed_paths.add(target_path)
+
+                    if reverse_hash_dict and target_path in reverse_hash_dict:
+                        mapped_hash = reverse_hash_dict[target_path]
+                        if exclude:
+                            excluded_hashes.add(mapped_hash)
+                        else:
+                            allowed_hashes.add(mapped_hash)
+
+                    if reverse_hash_dict and target_path.endswith('.gani'):
+                        alt_no_ext = normalize_gani_path(target_path)
+                        if alt_no_ext in reverse_hash_dict:
+                            mapped_hash = reverse_hash_dict[alt_no_ext]
+                            if exclude:
+                                excluded_hashes.add(mapped_hash)
+                            else:
+                                allowed_hashes.add(mapped_hash)
+
+                    if reverse_hash_dict and not target_path.startswith('/Assets/'):
+                        alt = '/Assets/' + target_path
+                        if alt in reverse_hash_dict:
+                            mapped_hash = reverse_hash_dict[alt]
+                            if exclude:
+                                excluded_hashes.add(mapped_hash)
+                            else:
+                                allowed_hashes.add(mapped_hash)
+
+    except OSError as e:
+        Debug.log_warning(f"Failed to read GANI filter file '{filter_path}': {e}")
+
+    return (
+        allowed_hashes,
+        excluded_hashes,
+        allowed_paths,
+        excluded_paths,
+        allowed_header_indices,
+        excluded_header_indices,
+        allowed_data_indices,
+        excluded_data_indices,
+    )
 
 
 def load_gani_filter_list(filter_path: str, gani_hash_dict: Optional[Dict[int, str]] = None) -> Tuple[Set[int], Set[int], Set[str], Set[str]]:

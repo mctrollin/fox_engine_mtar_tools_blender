@@ -168,12 +168,16 @@ def draw_gani_selection_filter(
     selection_str = getattr(indices_props, index_prop_name, "").strip()
 
     if selection_str:
-        header_indices, data_indices = util_filtering.prepare_gani_selection_indices(selection_str, total_count, 'AUTO')
-        selected_count = len(set(header_indices + data_indices))
-        if selected_count == 0:
-            parse_error_msg = "No valid indices in selection"
-        else:
-            parse_error_msg = None
+        try:
+            selected_indices = util_filtering.prepare_gani_selection_indices(selection_str, total_count, 'AUTO')
+            selected_count = len(set(selected_indices))
+            if selected_count == 0:
+                parse_error_msg = "No valid indices in selection"
+            else:
+                parse_error_msg = None
+        except ValueError as e:
+            selected_count = 0
+            parse_error_msg = str(e)
     else:
         selected_count = total_count
         parse_error_msg = None

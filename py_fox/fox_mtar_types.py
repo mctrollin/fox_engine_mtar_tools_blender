@@ -13,6 +13,11 @@ class MtarFlags(IntEnum):
     HasSkelList = 0x4000 # MTAR_FLAGS_HAS_SKEL_LIST
 
 
+def is_new_mtar_format(flags: int) -> bool:
+    """Return True if MTAR flags indicate new (GANI2/CommonInfo) format."""
+    return bool(flags & MtarFlags.UseMini)
+
+
 @dataclass
 class MtarHeader:
     version: int # uint

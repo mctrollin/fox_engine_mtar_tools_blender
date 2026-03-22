@@ -7,7 +7,7 @@ from typing import List, Optional, Tuple
 
 from ..py_core.core_logging import Debug
 
-from ..py_fox.fox_mtar_types import MtarHeader, MtarTableList2, MtarTableList
+from ..py_fox.fox_mtar_types import MtarHeader, MtarTableList2, MtarTableList, is_new_mtar_format
 from ..py_fox.fox_foxdata_types import FoxDataHeader
 
 from .fwrap_gani2_reader import Gani2Reader
@@ -88,7 +88,7 @@ class MtarReader:
                 # seek to first file table entry
                 f.seek(MtarHeader.SIZE)
                 try:
-                    if header.flags & 0x1000:
+                    if is_new_mtar_format(header.flags):
                         # new-format: table entries are 32 bytes
                         table = MtarTableList2.read(f)
                         # GANI2 files do not store a version number we can easily
@@ -112,7 +112,7 @@ class MtarReader:
                 file_count=header.file_count,
                 total_size_mb=file_size / (1024 * 1024),
                 has_common_info=header.common_info_offset > 0,
-                is_new_format=bool(header.flags & 0x1000),
+                is_new_format=is_new_mtar_format(header.flags),
                 gani_version=gani_version,
             )
 
@@ -152,7 +152,7 @@ class MtarReader:
             
             # Check file size is large enough for header + file table
             # Calculate based on format version
-            entry_size = MtarTableList2.SIZE if (header.flags & 0x1000) else MtarTableList.SIZE
+            entry_size = MtarTableList2.SIZE if is_new_mtar_format(header.flags) else MtarTableList.SIZE
             min_size = MtarHeader.SIZE + (header.file_count * entry_size)
             if file_size < min_size:
                 return False, f"File too small: {file_size} bytes (needs at least {min_size})"
@@ -215,7 +215,7 @@ class MtarReader:
         
         # Read header
         header = MtarHeader.read(br)
-        self.is_new_format = bool(header.flags & 0x1000)
+        self.is_new_format = is_new_mtar_format(header.flags)
         self.mtar_version = header.version
         self.mtar_flags = header.flags
         

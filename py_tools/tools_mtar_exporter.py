@@ -22,6 +22,7 @@ from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_fox.fox_gani_types import AnimKeyframe, SegmentType, TrackUnitFlags, TrackHeader, TrackUnit, TrackData, TrackDataBlob
 from ..py_fox.fox_frig_types import RigUnitType
 from ..py_fox.fox_misc_types import StrCode32
+from ..py_fox.fox_mtar_types import is_new_mtar_format
 
 from ..py_foxwrap.fwrap_misc_import_types import GaniImportData
 from ..py_foxwrap.fwrap_misc_types import TrackUnitWrapper, Tracks, TrackDataBlobWrapper
@@ -1693,6 +1694,8 @@ def export_mtar(context: bpy.types.Context,
         Debug.log_error(f"  Error: Object '{armature.name}' is not an armature")
         return {'CANCELLED': 'Object is not an armature'}
 
+    # Reference File - check and prepare
+    # Do this here to fail early before we start with the slow and long running work
     reference_reader = None
     if use_reference_mtar:
         reference_filepath = bpy.path.abspath(props.import_props.mtar_filepath)
@@ -1712,13 +1715,13 @@ def export_mtar(context: bpy.types.Context,
             return {'CANCELLED': f'Invalid reference MTAR: {err}'}
 
         # Read reference GANIs — also populates self.common_info, self.layout_track, etc.
-        ref_ganies = reference_reader.read_all_ganies()
+        ref_ganies_import_data = reference_reader.read_all_ganies()
 
         if not reference_reader.common_info and not reference_reader.layout_track:
             Debug.log_error("  Error: Could not read layout track from reference MTAR")
             return {'CANCELLED': 'Invalid reference MTAR layout'}
 
-        Debug.log(f"Reference MTAR export active: {reference_filepath} ({len(ref_ganies)} GANIs)")
+        Debug.log(f"Reference MTAR export active: {reference_filepath} ({len(ref_ganies_import_data)} GANIs)")
     
     Debug.log(f"Exporting armature: {armature.name}")
 
@@ -2195,44 +2198,51 @@ def export_mtar(context: bpy.types.Context,
         else:
             Debug.log(f"  Added GANI data: '{gani_name}' ({frame_count} frames)")
 
-    # Reference mode: merge current export GANIs into the reference set (by path hash)
+    # Reference mode: 
+    # Merge current export GANIs into the reference set (by path hash)
     if use_reference_mtar and reference_reader:
-        Debug.log(f"  Reference mode: merging {len(writer.gani_data_list)} export GANI(s) into {len(ref_ganies)} reference entries...")
-        ref_gani_export_list: List[GaniExportData] = []
-        for gani_idx, ref_import in enumerate(ref_ganies):
-            if not ref_import.file_header:
+        Debug.log(f"  Reference mode: merging {len(writer.gani_data_list)} export GANI(s) into {len(ref_ganies_import_data)} reference entries...")
+        
+        # Convert imported gani data to the required export gani data type.
+        ref_ganies_export_data: List[GaniExportData] = []
+        for gani_idx, ref_gani_import_data in enumerate(ref_ganies_import_data):
+            if not ref_gani_import_data.file_header:
                 Debug.log_warning(f"  Reference GANI #{gani_idx} has no file_header, skipping")
                 continue
-            ref_hash = ref_import.file_header.path
-            ref_gani_export_list.append(_convert_import_gani_to_export_gani(ref_import, reference_path_hash=ref_hash))
+            ref_gani_path = ref_gani_import_data.file_header.path
+            ref_ganies_export_data.append(_convert_import_gani_to_export_gani(ref_gani_import_data, reference_path_hash=ref_gani_path))
 
-        ref_map = {g.path_hash: idx for idx, g in enumerate(ref_gani_export_list) if g.path_hash is not None}
+        ref_map = {rged.path_hash: idx for idx, rged in enumerate(ref_ganies_export_data) if rged.path_hash is not None}
         replaced_count = 0
 
-        for updated in writer.gani_data_list:
+        # Try to replace the to-export ganies in the reference data
+        for to_export_gani_data in writer.gani_data_list:
+            # We match per hash, so compute one first
             try:
-                gom_hash = writer.compute_gani_path_hash(updated)
+                export_gani_path_hash = writer.compute_gani_path_hash(to_export_gani_data)
             except ValueError as e:
                 Debug.log_warning(f"Skipping export GANI due to missing path hash: {e}")
                 continue
 
-            if gom_hash in ref_map:
-                ref_gani_export_list[ref_map[gom_hash]] = updated
+            # Now try to find a place to put our to-export data in
+            if export_gani_path_hash in ref_map:
+                ref_ganies_export_data[ref_map[export_gani_path_hash]] = to_export_gani_data
                 replaced_count += 1
             else:
-                Debug.log_warning(f"GANI hash 0x{gom_hash:016X} not found in reference MTAR, skipping")
+                Debug.log_warning(f"GANI hash 0x{export_gani_path_hash:016X} not found in reference MTAR, skipping")
 
         if replaced_count == 0:
             Debug.log_error("No export animations matched reference MTAR hashes")
             return {'CANCELLED': 'No matching animations in reference MTAR'}
 
         skipped_count = len(writer.gani_data_list) - replaced_count
-        Debug.log(f"  Reference mode: replaced {replaced_count} of {len(ref_gani_export_list)} GANI(s); "
+        Debug.log(f"  Reference mode: replaced {replaced_count} of {len(ref_ganies_export_data)} GANI(s); "
                   f"{skipped_count} export GANI(s) had no match in reference and were skipped")
         if skipped_count > 0:
             Debug.log_warning(f"  {skipped_count} export GANI(s) were not written because their hash was not found in the reference MTAR")
 
-        writer.gani_data_list = ref_gani_export_list
+        # Now swap the merged data into the export pipeline
+        writer.gani_data_list = ref_ganies_export_data
 
         # Override writer metadata with reference properties
         if reference_reader.common_info and reference_reader.common_info.layout_track:
@@ -2246,13 +2256,15 @@ def export_mtar(context: bpy.types.Context,
             writer.set_motion_points_list(None)
 
         # Warn if reference format differs from current export format
-        ref_is_new_format = bool(reference_reader.mtar_flags & 0x1000)
+        ref_is_new_format = is_new_mtar_format(reference_reader.mtar_flags)
         if ref_is_new_format != writer.is_new_format:
-            Debug.log_warning(
+            Debug.log_error(
                 f"  Reference MTAR format ({'new/GANI2' if ref_is_new_format else 'old/FoxData'}) "
                 f"differs from export format ({'new/GANI2' if writer.is_new_format else 'old/FoxData'}). "
                 "Output MTAR may be structurally inconsistent."
             )
+            return {'CANCELLED': 'No matching animations in reference MTAR'}
+        
         writer.set_mtar_version(reference_reader.mtar_version, reference_reader.mtar_flags)
 
     Debug.stop_timer("4. Animations")
@@ -2290,15 +2302,14 @@ def export_mtar(context: bpy.types.Context,
     writer.write()
     Debug.stop_timer("5. Writing MTAR file")
 
-    # Build animation names for the info file using the writer helper so we
-    # reuse the same naming logic (handles NLA strips and active actions).
-    animation_names = [writer.get_animation_name_for_gani(gd) for gd in writer.gani_data_list]
-
     # Write the info file with animation names
     Debug.log("\n6. Writing animation info file... ++++++++++++++++++++++++++++++++++++++++++++")
     
     # Only write the info file if the export setting is enabled
     if export_props.info_file:
+        # Build animation names for the info file using the writer helper so we
+        # reuse the same naming logic (handles NLA strips and active actions).
+        animation_names = [writer.get_animation_name_for_gani(gd) for gd in writer.gani_data_list]
         mtar_path = Path(filepath)
         info_filepath = mtar_path.with_name(f"{mtar_path.stem}.mtar.info.txt")
         try:

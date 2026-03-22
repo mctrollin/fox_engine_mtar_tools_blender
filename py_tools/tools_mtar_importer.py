@@ -9,7 +9,7 @@ from ..py_utilities import util_blender_animation, util_naming, util_blender_arm
 from ..py_utilities.util_blender_armature_types import BoneSpec
 
 from ..py_fox import fox_mtar_constants as mtar_const
-from ..py_fox.fox_mtar_types import MtarTableList, MtarTableList2, MtarHeader
+from ..py_fox.fox_mtar_types import MtarTableList, MtarTableList2, MtarHeader, is_new_mtar_format
 from ..py_fox.fox_gani_types import SegmentType
 from ..py_fox.fox_frig_types import FrigFile
 
@@ -238,7 +238,7 @@ def create_animation_actions(
     Debug.log(f"create_animation_actions received {len(all_gani_data)} GANI data objects")
     
     # Detect old-format vs new-format MTAR
-    is_old_format = not bool(mtar_flags & 0x1000)  # UseMini flag absent = old format
+    is_old_format = not is_new_mtar_format(mtar_flags)  # UseMini flag absent = old format
     Debug.log(f"Format detected: {'old (GANI1/FoxData)' if is_old_format else 'new (GANI2/CommonInfo)'}")
     
     # Create layout track action to store metadata
@@ -1104,7 +1104,7 @@ def import_mtar_data(
         # Read MTAR header to get file count and format
         header = MtarHeader.read(f)
         # Dispatch based on format: old format uses 16-byte MtarTableList, new format uses 32-byte MtarTableList2
-        is_new_format = (header.flags & 0x1000) != 0
+        is_new_format = is_new_mtar_format(header.flags)
         read_func = MtarTableList2.read if is_new_format else MtarTableList.read
         all_headers_raw = [read_func(f) for _ in range(header.file_count)]
     

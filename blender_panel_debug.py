@@ -13,7 +13,7 @@ from bpy.props import PointerProperty, StringProperty
 
 from .blender_properties import _file_path_kwargs
 
-from . import blender_panel_debug_map_r
+from . import blender_panel_debug_map_r, blender_panel_debug_transform, blender_panel_debug_bake, blender_panel_debug_hash, blender_panel_debug_misc
 from .blender_operators_debug import (
     # Transform
     MTAR_OT_InspectWorldSpaceTransform,
@@ -23,6 +23,18 @@ from .blender_operators_debug import (
     MTAR_OT_CopyTransformDebugResults,
     MTAR_OT_DebugCollectNLAPathClipboard,
     MTAR_OT_DebugSelectNLAByClipboardIndex,
+    MTAR_OT_DebugToggleMuteNLAByClipboardIndex,
+    MTAR_OT_DebugMuteNLAByClipboardIndex,
+    MTAR_OT_DebugUnmuteNLAByClipboardIndex,
+    MTAR_OT_DebugMuteAllNLA,
+    MTAR_OT_DebugUnmuteAllNLA,
+    MTAR_OT_DebugCopyNLAPathByFilterFile,
+    MTAR_OT_DebugCopyNLADByFilterFile,
+    MTAR_OT_DebugCopyNLAHByFilterFile,
+    MTAR_OT_DebugToggleMuteNLAByFilterFile,
+    MTAR_OT_DebugMuteNLAByFilterFile,
+    MTAR_OT_DebugUnmuteNLAByFilterFile,
+    MTAR_OT_DebugSelectNLAByFilterFile,
     # Bake
     MTAR_OT_DebugRunBake,
     MTAR_OT_DebugSetupGraphContext,
@@ -95,20 +107,13 @@ class MTAR_PG_DebugTransformProperties(PropertyGroup):
 
     debug_clipboard_index_mode: bpy.props.EnumProperty(
         name="Index Mode",
-        description="Interpret clipboard indices as header (h) or data (d) indices",
+        description="Interpret filter file dN/hN entries or numeric indices as header (h) or data (d) indices",
         items=[
             ('HEADER', "Header Index", "Interpret plain numbers as hN"),
             ('DATA', "Data Index", "Interpret plain numbers as dN"),
-            ('AUTO', "Auto (prefix-h/d)", "Require explicit hN/dN prefix for exact mode, otherwise try both"),
+            ('AUTO', "By Prefix (h<number> or d<number>)", "Require explicit hN/dN prefix for exact mode, otherwise tries both"),
         ],
         default='AUTO'
-    )
-
-    debug_clipboard_matched_paths: StringProperty(
-        name="Matched Paths",
-        description="Collected Path values returned to clipboard and shown for convenience",
-        default="",
-        maxlen=8192
     )
 
     # which debug page is currently active in the unified panel
@@ -359,236 +364,6 @@ class MTAR_PG_DebugHashProperties(PropertyGroup):
             icon_col.label(text="", icon='NONE')
 
 
-# convenience drawing helpers used by the unified debug panel ----------------
-
-def draw_transform_page(layout: UILayout, context: Context) -> None:
-    """Draw the contents originally provided by the old Transform panel."""
-    props = context.scene.mtar_debug_transform_properties
-    # Header
-    box = layout.box()
-    box.label(text="Transform Inspector", icon='OUTLINER_OB_ARMATURE')
-    
-    # Armature and Bone selection
-    config_box = layout.box()
-    config_box.label(text="Configuration", icon='SETTINGS')
-    
-    col = config_box.column(align=True)
-    col.prop(props, "debug_armature", text="Armature")
-    
-    # Only show bone selector if armature is selected
-    if props.debug_armature and props.debug_armature.type == 'ARMATURE':
-        row = col.row(align=True)
-        row.prop(props, "debug_bone_name", text="Bone")
-        if props.debug_armature.pose.bones:
-            row.operator("wm.search_menu", text="", icon='DOWNARROW_HLT')
-    
-    # Current frame info
-    info_box = layout.box()
-    col = info_box.column()
-    col.label(text=f"Current Frame: {context.scene.frame_current}", icon='PREVIEW_RANGE')
-    
-    # Action buttons
-    button_box = layout.box()
-    button_box.label(text="Inspect", icon='EYEDROPPER')
-    
-    col = button_box.column(align=True)
-    col.scale_y = 1.3
-    
-    buttons_enabled = bool(props.debug_armature and props.debug_bone_name)
-    row = col.row(align=True)
-    row.enabled = buttons_enabled
-    row.operator("mtar.inspect_world_space_transform", text="World Space", icon='WORLD')
-    
-    row = col.row(align=True)
-    row.enabled = buttons_enabled
-    row.operator("mtar.inspect_local_space_transform", text="Local Space", icon='BONE_DATA')
-    
-    row = col.row(align=True)
-    row.enabled = buttons_enabled
-    row.operator("mtar.create_transform_dummies", text="Create Dummies", icon='MESH_CIRCLE')
-    
-    # Results display
-    results_box = layout.box()
-    results_box.label(text="Results", icon='CHECKMARK')
-    
-    # World space result
-    if props.debug_world_space_result:
-        world_box = results_box.box()
-        row = world_box.row(align=True)
-        row.label(text="World Space:", icon='WORLD')
-        row.operator("mtar.copy_single_result", text="", icon='COPYDOWN').result_type = 'WORLD'
-        col = world_box.column()
-        col.label(text=props.debug_world_space_result, icon='NONE')
-    else:
-        results_box.label(text="World Space: (no result yet)", icon='WORLD')
-    
-    # Local space result
-    if props.debug_local_space_result:
-        local_box = results_box.box()
-        row = local_box.row(align=True)
-        row.label(text="Local Space:", icon='BONE_DATA')
-        row.operator("mtar.copy_single_result", text="", icon='COPYDOWN').result_type = 'LOCAL'
-        col = local_box.column()
-        col.label(text=props.debug_local_space_result, icon='NONE')
-    else:
-        results_box.label(text="Local Space: (no result yet)", icon='BONE_DATA')
-    
-    if props.debug_world_space_result or props.debug_local_space_result:
-        results_box.operator("mtar.copy_transform_debug_results", text="Copy All Results", icon='COPYDOWN')
-
-
-def draw_bake_page(layout: UILayout, context: Context) -> None:
-    """Draw the contents originally provided by the old Bake panel."""
-    props = context.scene.mtar_debug_transform_properties
-    
-    box = layout.box()
-    box.label(text="Animation Bake", icon='RENDER_ANIMATION')
-    
-    config_box = layout.box()
-    config_box.label(text="Configuration", icon='SETTINGS')
-    col = config_box.column(align=True)
-    
-    col.prop(props, "debug_armature", text="Target Armature")
-    col.prop(props, "debug_source_armature", text="Source Armature")
-    
-    row = col.row(align=True)
-    row.prop(props, "debug_bake_gani_index")
-    row.prop(props, "debug_prepare_only")
-    
-    button_box = layout.box()
-    button_box.label(text="Actions", icon='PLAY')
-    row = button_box.row(align=True)
-    row.scale_y = 1.3
-    row.enabled = bool(props.debug_armature)
-    row.operator("mtar.debug_run_bake", text="Run Bake", icon='FILE_REFRESH')
-    
-    debug_box = layout.box()
-    debug_box.label(text="Debug Tools", icon='CONSOLE')
-    row = debug_box.row(align=True)
-    row.enabled = bool(props.debug_armature)
-    row.operator("mtar.debug_setup_graph_context", text="Setup Graph Context", icon='GRAPH')
-    debug_box.label(text="Sets up graph editor for manual testing", icon='INFO')
-
-
-def draw_hash_page(layout: UILayout, context: Context) -> None:
-    """Draw the contents originally provided by the old Hash panel."""
-    props = context.scene.mtar_debug_hash_properties
-
-    exe_configured = bool(props.hash_generator_exe_path)
-
-    exe_box = layout.box()
-    exe_box.label(text="External Hash Generator", icon='FILE_SCRIPT')
-    exe_box.label(text="Needed for custom hashes.")
-    row = exe_box.row(align=True)
-    row.prop(props, "hash_generator_exe_path", text="")
-    row.operator("mtar.validate_hash_generator_exe", text="", icon='FORCE_HARMONIC')
-    exe_box.label(text="https://mgsvmoddingwiki.github.io/GzsTool/")
-
-    if not exe_configured:
-        info_box = layout.box()
-        info_box.label(text="Exe not configured — Python only", icon='INFO')
-        info_box.label(text="Configure path above for exe column")
-
-    pathcode_box = layout.box()
-    input_box = pathcode_box.box()
-    input_box.label(text="Filename", icon='IMPORT')
-    col = input_box.column(align=True)
-    col.prop(props, "hash_generator_input", text="")
-
-    button_box = pathcode_box.box()
-    col = button_box.column(align=True)
-    col.scale_y = 1.3
-
-    row = col.row(align=True)
-    row.operator("mtar.generate_hash", text="Hash", icon='PLAY')
-    row.operator("mtar.clear_hash_generator_results", text="Clear", icon='X')
-
-    results_box = pathcode_box.box()
-    results_box.label(text="Hash Results", icon='INFO')
-
-    has_py_results = bool(
-        props.hash_generator_py_hash_filename
-        or props.hash_generator_py_hash_with_extension
-        or props.hash_generator_py_hash_legacy
-    )
-    has_exe_results = bool(
-        props.hash_generator_hash_filename
-        or props.hash_generator_hash_with_extension
-        or props.hash_generator_hash_legacy
-    )
-
-    if has_py_results or has_exe_results:
-        header = results_box.row(align=False)
-        header.label(text="")
-        header.label(text="Python")
-        header.label(text="Exe")
-        header.label(text="")
-        
-        self_draw = results_box
-        # reuse the helper method originally used below
-        # we can't call self._draw_comparison_row so just replicate here
-        def _row(label, py_val, exe_val):
-            row = self_draw.row(align=True)
-            row.label(text=label)
-            row.label(text=str(py_val))
-            row.label(text=str(exe_val))
-            if py_val == exe_val and py_val:
-                row.label(text="=", icon='CHECKMARK')
-            else:
-                row.label(text="", icon='NONE')
-
-        _row("Hash Filename  (-d -h)", props.hash_generator_py_hash_filename,
-             props.hash_generator_hash_filename)
-        _row("Hash Ext       (-d -he)", props.hash_generator_py_hash_extension,
-             props.hash_generator_hash_extension)
-        _row("Hash With Ext   (-d -hwe)", props.hash_generator_py_hash_with_extension,
-             props.hash_generator_hash_with_extension)
-        _row("Legacy Hash     (-d -hl)", props.hash_generator_py_hash_legacy,
-             props.hash_generator_hash_legacy)
-
-        # decimal rows
-        _row("Filename (dec)", props.hash_generator_py_hash_filename_dec,
-             props.hash_generator_hash_filename_dec)
-        _row("Ext (dec)", props.hash_generator_py_hash_extension_dec,
-             props.hash_generator_hash_extension_dec)
-        _row("With Ext (dec)", props.hash_generator_py_hash_with_extension_dec,
-             props.hash_generator_hash_with_extension_dec)
-        _row("Legacy (dec)", props.hash_generator_py_hash_legacy_dec,
-             props.hash_generator_hash_legacy_dec)
-
-        if props.hash_generator_error:
-            err_box = results_box.box()
-            err_box.alert = True
-            err_box.label(text=f"Error: {props.hash_generator_error}")
-        if props.hash_generator_py_error:
-            err_box = results_box.box()
-            err_box.alert = True
-            err_box.label(text=f"Python Error: {props.hash_generator_py_error}")
-
-
-def draw_misc_page(layout: UILayout, context: Context) -> None:
-    """Draw miscellaneous debug tools (clipboard index → PathCollector)."""
-    props = context.scene.mtar_debug_transform_properties
-
-    cfg_box = layout.box()
-    cfg_box.label(text="Clipboard Path Extractor", icon='FILE_TICK')
-    col = cfg_box.column(align=True)
-    col.label(text="Works only when imported with verbose names (hN_dN)", icon='INFO')
-    col.label(text="Input: one index per line (hN, dN or raw number)")
-    col.prop(props, "debug_clipboard_index_mode", text="Interpret as")
-    col.label(text="Outputs unique Path values to clipboard")
-
-    row = cfg_box.row(align=True)
-    row.operator("mtar.debug_collect_nla_path_clipboard", text="Collect Paths from Clipboard", icon='EXPORT')
-
-    row = cfg_box.row(align=True)
-    row.operator("mtar.debug_select_nla_by_clipboard_index", text="Select Strip by Clipboard Index", icon='RESTRICT_SELECT_OFF')
-
-    out_box = layout.box()
-    out_box.label(text="Last matched Path results", icon='INFO')
-    out_box.label(text=props.debug_clipboard_matched_paths or "(none)")
-
-
 class MTAR_PT_DebugMainPanel(Panel):
     """Unified debug panel with tabs."""
     bl_label = "Debug Tools"
@@ -607,15 +382,15 @@ class MTAR_PT_DebugMainPanel(Panel):
         layout.separator()
         tab = props.debug_active_tab
         if tab == 'TRANSFORM':
-            draw_transform_page(layout, context)
+            blender_panel_debug_transform.draw_transform_page(layout, context)
         elif tab == 'BAKE':
-            draw_bake_page(layout, context)
+            blender_panel_debug_bake.draw_bake_page(layout, context)
         elif tab == 'HASH':
-            draw_hash_page(layout, context)
+            blender_panel_debug_hash.draw_hash_page(layout, context)
         elif tab == 'MAP_R':
             blender_panel_debug_map_r.draw_map_r_page(layout, context)
         elif tab == 'MISC':
-            draw_misc_page(layout, context)
+            blender_panel_debug_misc.draw_misc_page(layout, context)
 
 # Registration
 classes = (
@@ -628,6 +403,18 @@ classes = (
     MTAR_OT_CopyTransformDebugResults,
     MTAR_OT_DebugCollectNLAPathClipboard,
     MTAR_OT_DebugSelectNLAByClipboardIndex,
+    MTAR_OT_DebugToggleMuteNLAByClipboardIndex,
+    MTAR_OT_DebugMuteNLAByClipboardIndex,
+    MTAR_OT_DebugUnmuteNLAByClipboardIndex,
+    MTAR_OT_DebugMuteAllNLA,
+    MTAR_OT_DebugUnmuteAllNLA,
+    MTAR_OT_DebugCopyNLAPathByFilterFile,
+    MTAR_OT_DebugCopyNLADByFilterFile,
+    MTAR_OT_DebugCopyNLAHByFilterFile,
+    MTAR_OT_DebugToggleMuteNLAByFilterFile,
+    MTAR_OT_DebugMuteNLAByFilterFile,
+    MTAR_OT_DebugUnmuteNLAByFilterFile,
+    MTAR_OT_DebugSelectNLAByFilterFile,
     # Bake
     MTAR_OT_DebugRunBake,
     MTAR_OT_DebugSetupGraphContext,

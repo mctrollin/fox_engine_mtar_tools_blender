@@ -7,6 +7,7 @@ from bpy.types import Context, UILayout
 from .py_utilities import util_blender_animation
 
 from .py_fox import fox_mtar_constants as mtar_const
+from .py_fox.fox_mtar_types import is_new_mtar_format
 
 from .py_foxwrap import fwrap_metadata
 
@@ -93,7 +94,7 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
     # Show format info (detected from layout action or per-GANI fallback)
     # Only show if armature is selected (user is actively configuring an export)
     if export_props.armature:
-        is_new_format = bool(_fmt_flags & 0x1000)  # UseMini flag
+        is_new_format = is_new_mtar_format(_fmt_flags)
         
         if _layout_action:
             # Layout action exists (GANI2 / new-format)
