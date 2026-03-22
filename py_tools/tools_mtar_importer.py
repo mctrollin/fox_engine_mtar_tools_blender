@@ -954,14 +954,15 @@ def import_mtar(
     return result, imported_armature
 
 def import_mtar_data(
-        context: bpy.types.Context, 
-        filepath: str, 
-        frig: Optional[FrigFile], 
-        track_mapping: Optional[Dict[str, BoneParameters]] = None, 
-        gani_indices: Optional[List[int]] = None, 
-        custom_rig: Optional[bpy.types.Object] = None, 
+        context: bpy.types.Context,
+        filepath: str,
+        frig: Optional[FrigFile],
+        track_mapping: Optional[Dict[str, BoneParameters]] = None,
+        gani_filter_indices: Optional[List[int]] = None,
+        custom_rig: Optional[bpy.types.Object] = None,
         strip_padding: int = 10,
-        gani_hash_dict: Optional[Dict[int, str]] = None) -> Tuple[Dict[str, str], bpy.types.Object]:
+        gani_hash_dict: Optional[Dict[int, str]] = None
+        ) -> Tuple[Dict[str, str], bpy.types.Object]:
     """Import MTAR animation data and create corresponding objects and animations.
     
     Each GANI file in the MTAR becomes one Blender action.
@@ -975,7 +976,7 @@ def import_mtar_data(
         filepath: Path to the MTAR file
         frig: FrigFile object containing rig data (can be None)
         track_mapping: Optional dictionary mapping source track name to transformation data
-        gani_indices: List of GANI indices to import (None = import all, [] = import nothing)
+        gani_filter_indices: List of GANI indices to import (None = import all, [] = import nothing)
         custom_rig: Optional Rigify armature to receive animation data and constraints
         strip_padding: Number of frames to insert between animation strips (default: 10)
         
@@ -993,14 +994,16 @@ def import_mtar_data(
     # Read animation tracks - selective or all
     Debug.log("Reading MTAR file data...")
     Debug.update_progress(10, "Reading MTAR...")
-    # consolidated list of results from reader
+
+    # Read gani data
     all_gani_data: List[GaniImportData] = []
 
-    if gani_indices is not None:
-        if gani_indices:
+    # Simple index based filter
+    if gani_filter_indices is not None:
+        if gani_filter_indices:
             # Import selected GANIs
-            Debug.log(f"Selective import: GANI indices {gani_indices}")
-            results_dict = reader.read_selected_ganis(gani_indices)
+            Debug.log(f"Selective import: GANI indices {gani_filter_indices}")
+            results_dict = reader.read_selected_ganis(gani_filter_indices)
             # convert to list sorted by index
             all_gani_data = [results_dict[i] for i in sorted(results_dict.keys())]
             Debug.log(f"Imported {len(all_gani_data)} GANI file(s)")
@@ -1010,6 +1013,7 @@ def import_mtar_data(
         all_gani_data = reader.read_all_ganies()
         Debug.log(f"Found {len(all_gani_data)} GANI file(s)")
 
+    # File based filter
     all_gani_data = fwrap_filtering.filter_gani_import_data(
         all_gani_data,
         bpy.path.abspath(context.scene.mtar_properties.gani_filter_txt_filepath) if context.scene.mtar_properties.use_gani_filter_file else None,
@@ -1021,13 +1025,8 @@ def import_mtar_data(
         Debug.stop_timer("MTAR Import")
         return ({'CANCELLED': 'No GANI animations matched the filter'}, None)
 
-    # Reverse-sort GANIs to match the order of the data in the file instead of the order in the header
-    try:
-        sort_enabled = bool(context.scene.mtar_properties.settings_props.sort_gani)
-    except Exception:
-        Debug.log_warning("Missing settings property: context.scene.mtar_properties.settings_props.sort_gani")
-        sort_enabled = False
-    if sort_enabled and all_gani_data:
+    # Sorting: Reverse-sort GANIs to match the order of the data in the file instead of the order in the header
+    if all_gani_data and bool(context.scene.mtar_properties.settings_props.sort_gani):
         # sort the consolidated data objects by their embedded file_header offset
         all_gani_data = sort_gani_data_by_file_offset(all_gani_data)
 

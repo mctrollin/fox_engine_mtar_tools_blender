@@ -41,6 +41,7 @@ from ..py_foxwrap.fwrap_mtar_writer import MtarWriter
 from ..py_foxwrap.fwrap_mtar_reader import MtarReader
 
 # TODO: don't import tools into other tools
+from . import tools_mtar_importer
 from . import tools_motion_points_exporter
 from . import tools_gani1_shader_exporter
 
@@ -102,7 +103,6 @@ def _convert_import_gani_to_export_gani(
 
     tracks_data = GaniExportTracksData(
         gani_tracks=import_data.gani_bone_tracks,
-        action=None,
         source="reference"
     )
 
@@ -110,14 +110,13 @@ def _convert_import_gani_to_export_gani(
     if import_data.gani_mtp_tracks is not None:
         motion_points_data = GaniExportMotionPointsData(
             motion_point_tracks=import_data.gani_mtp_tracks,
-            action=None
+            motion_point_track_header=import_data.gani_motion_point_track_header
         )
 
     motion_events_data = None
     if import_data.gani_events is not None:
         motion_events_data = GaniMotionEventsData(
-            motion_events=import_data.gani_events,
-            action=None
+            motion_events=import_data.gani_events
         )
 
     shader_nodes_data = None
@@ -125,22 +124,31 @@ def _convert_import_gani_to_export_gani(
         shader_nodes_data = GaniExportShaderData(
             property_tracks=[s.tracks for s in import_data.gani1_shader_tracks],
             property_names=[s.property_name for s in import_data.gani1_shader_tracks],
-            action=None,
             property_headers=[None] * len(import_data.gani1_shader_tracks)
         )
 
+    # Old-format file table unknown (MtarTableList.unknown, ushort).
+    table_unknown = None
+    if import_data.file_header is not None and hasattr(import_data.file_header, 'unknown'):
+        table_unknown = import_data.file_header.unknown
+
     return GaniExportData(
-        name=f"reference_{reference_path_hash:016X}" if reference_path_hash is not None else "reference",
-        frame_count=frame_count,
-        frame_rate=frame_rate,
-        frame_start=0,
-        frame_end=frame_count,
-        tracks_data=tracks_data,
-        motion_points_data=motion_points_data,
-        motion_events_data=motion_events_data,
-        shader_nodes_data=shader_nodes_data,
-        node_params=import_data.gani_node_params,
-        path_hash=reference_path_hash,
+        gani_name=f"reference_{reference_path_hash:016X}" if reference_path_hash is not None else "reference",
+        gani_frame_count=frame_count,
+        gani_frame_rate=frame_rate,
+        gani_frame_start=0,
+        gani_frame_end=frame_count,
+        gani_tracks_data=tracks_data,
+        gani_motion_points_data=motion_points_data,
+        gani_motion_events_data=motion_events_data,
+        gani_node_params=import_data.gani_node_params,
+        gani_path_hash=reference_path_hash,
+        gani1_shader_nodes_data=shader_nodes_data,
+        gani1_table_unknown=table_unknown,
+        gani1_skeleton_list=import_data.gani_skeleton_list,
+        gani1_motion_point_list=import_data.gani1_motion_point_list,
+        gani1_motion_point_parent_list=import_data.gani1_motion_point_parent_list,
+        gani1_no_skl_list=(import_data.gani_skeleton_list is None),
     )
 
 
@@ -1720,6 +1728,10 @@ def export_mtar(context: bpy.types.Context,
         if not reference_reader.common_info and not reference_reader.layout_track:
             Debug.log_error("  Error: Could not read layout track from reference MTAR")
             return {'CANCELLED': 'Invalid reference MTAR layout'}
+        
+        # Apply sorting
+        if ref_ganies_import_data and bool(context.scene.mtar_properties.settings_props.sort_gani):
+            ref_ganies_import_data = tools_mtar_importer.sort_gani_data_by_file_offset(ref_ganies_import_data)
 
         Debug.log(f"Reference MTAR export active: {reference_filepath} ({len(ref_ganies_import_data)} GANIs)")
     
@@ -2008,9 +2020,8 @@ def export_mtar(context: bpy.types.Context,
         tracks_data = GaniExportTracksData(
             gani_tracks=gani_tracks,
             action=gani_action,
-            source=action_data.source
+            source=action_data.source,
         )
-
         Debug.stop_timer(f"4.{action_idx}.1 Main Animation Tracks")
         
         # =============================
@@ -2053,9 +2064,26 @@ def export_mtar(context: bpy.types.Context,
         motion_points_data = None
         total_units = 0
         if motion_point_tracks:
+            # Read MTP TrackHeader properties from the motion point action.
+            # This preserves unknown_b and other header fields from import.
+            mtp_track_header = None
+            if motion_point_action_data and motion_point_action_data.action:
+                mtp_header_props = fwrap_metadata.read_track_header_properties_from_action(
+                    motion_point_action_data.action
+                )
+                mtp_track_header = TrackHeader(
+                    unit_count=len(motion_point_tracks),
+                    segment_count=0,  # will be computed by writer
+                    t_id=mtp_header_props.get(gani_const.TRKH_ID, 0),
+                    unknown_a=mtp_header_props.get(gani_const.TRKH_UNKNOWN_A, 0),
+                    unknown_b=mtp_header_props.get(gani_const.TRKH_UNKNOWN_B, 0),
+                    frame_count=mtp_header_props.get(gani_const.TRKH_FRAME_COUNT, frame_count),
+                    frame_rate=mtp_header_props.get(gani_const.TRKH_FRAME_RATE, 60),
+                    unit_offsets=[],  # will be computed by writer
+                )
             motion_points_data = GaniExportMotionPointsData(
                 motion_point_tracks=motion_point_tracks,
-                action=motion_point_action_data.action if motion_point_action_data else None
+                motion_point_track_header=mtp_track_header
             )
             # Record the number of motion point units for this GANI for later validation/header calculation
             total_units = len(motion_point_tracks)
@@ -2075,8 +2103,7 @@ def export_mtar(context: bpy.types.Context,
         motion_events_data = None
         if motion_events:
             motion_events_data = GaniMotionEventsData(
-                motion_events=motion_events,
-                action=gani_action
+                motion_events=motion_events
             )
             Debug.log(f"  Found {motion_events.count} motion event categor(ies) in action")
         
@@ -2137,7 +2164,6 @@ def export_mtar(context: bpy.types.Context,
                                 property_tracks=property_tracks,
                                 property_names=property_names,
                                 property_headers=property_headers,
-                                action=shader_node_action_data.action,
                             )
                         else:
                             Debug.log_warning(
@@ -2171,17 +2197,30 @@ def export_mtar(context: bpy.types.Context,
         header_props = fwrap_metadata.read_track_header_properties_from_action(header_action)
         frame_rate = header_props.get(gani_const.TRKH_FRAME_RATE, 60)
 
+        # Compute path hash for this GANI based on action metadata if available
+        path_hash = writer.compute_gani_path_hash_from_action(gani_action)
+
+        # Read old-format file table unknown (MtarTableList.unknown) from action
+        gani1_table_unknown = None
+        if gani_action and mtar_const.TABL_UNKNOWN in gani_action.keys():
+            try:
+                gani1_table_unknown = int(gani_action[mtar_const.TABL_UNKNOWN])
+            except (TypeError, ValueError):
+                Debug.log_warning(f"Invalid {mtar_const.TABL_UNKNOWN} on action '{gani_action.name}', using default")
+
         # Create GaniExportData object
         gani_data: GaniExportData = GaniExportData(
-            name=gani_name,
-            frame_count=frame_count,
-            frame_rate=frame_rate,
-            frame_start=frame_start,
-            frame_end=frame_end,
-            tracks_data=tracks_data,
-            motion_points_data=motion_points_data,
-            motion_events_data=motion_events_data,
-            shader_nodes_data=shader_nodes_data,
+            gani_name=gani_name,
+            gani_frame_count=frame_count,
+            gani_frame_rate=frame_rate,
+            gani_frame_start=frame_start,
+            gani_frame_end=frame_end,
+            gani_tracks_data=tracks_data,
+            gani_motion_points_data=motion_points_data,
+            gani_motion_events_data=motion_events_data,
+            gani_path_hash=path_hash,
+            gani1_shader_nodes_data=shader_nodes_data,
+            gani1_table_unknown=gani1_table_unknown,
         )
 
         # Merge node_params from tracks and shader actions for lossless round-trip
@@ -2189,7 +2228,7 @@ def export_mtar(context: bpy.types.Context,
             fwrap_metadata.iter_all_node_params_from_action(gani_action),
             fwrap_metadata.iter_all_node_params_from_action(shader_node_action_data.action) if shader_node_action_data else None,
         )
-        gani_data.node_params = node_params or None
+        gani_data.gani_node_params = node_params or None
 
         # Add to writer
         writer.add_gani_data(gani_data)
@@ -2212,7 +2251,7 @@ def export_mtar(context: bpy.types.Context,
             ref_gani_path = ref_gani_import_data.file_header.path
             ref_ganies_export_data.append(_convert_import_gani_to_export_gani(ref_gani_import_data, reference_path_hash=ref_gani_path))
 
-        ref_map = {rged.path_hash: idx for idx, rged in enumerate(ref_ganies_export_data) if rged.path_hash is not None}
+        ref_map = {rged.gani_path_hash: idx for idx, rged in enumerate(ref_ganies_export_data) if rged.gani_path_hash is not None}
         replaced_count = 0
 
         # Try to replace the to-export ganies in the reference data

@@ -9,11 +9,10 @@ from ..py_core.core_logging import Debug
 
 from ..py_utilities import util_parsing
 
-from ..py_fox.fox_gani_types import TrackUnitFlags, EvpHeader
+from ..py_fox.fox_gani_types import TrackUnitFlags, EvpHeader, TrackHeader
 
 from .fwrap_mapping_types import BoneParameters
 from .fwrap_metadata_types import TrackMetaData
-from . import fwrap_metadata
 from .fwrap_misc_types import TrackUnitWrapper, Tracks
 from .fwrap_gani2_writer import Gani2Writer
 
@@ -41,43 +40,54 @@ class GaniExportTracksData:
 @dataclass
 class GaniExportMotionPointsData:
     motion_point_tracks: List[TrackUnitWrapper]
-    action: Optional[bpy.types.Action] = None
+    motion_point_track_header: Optional[TrackHeader] = None
 
 
 @dataclass
 class GaniExportShaderData:
     property_tracks: List[List[TrackUnitWrapper]]
     property_names: List[str]
-    action: Optional[bpy.types.Action] = None
     property_headers: Optional[List[Optional[Dict[str, int]]]] = None
 
 
 @dataclass
 class GaniMotionEventsData:
     motion_events: EvpHeader
-    action: Optional[bpy.types.Action] = None
 
 
 @dataclass
 class GaniExportData:
-    name: str
-    frame_count: int
-    frame_rate: int
-    frame_start: int
-    frame_end: int
-    tracks_data: GaniExportTracksData
-    motion_points_data: Optional[GaniExportMotionPointsData] = None
-    motion_events_data: Optional[GaniMotionEventsData] = None
-    shader_nodes_data: Optional[GaniExportShaderData] = None
-    node_params: Optional[Dict[str, List[Tuple[int, Union[float, str, int]]]]] = None
-    path_hash: Optional[int] = None
+    # Shared data -----
+    gani_name: str
+    gani_frame_count: int
+    gani_frame_rate: int
+    gani_frame_start: int
+    gani_frame_end: int
+    gani_tracks_data: GaniExportTracksData
+    gani_motion_points_data: Optional[GaniExportMotionPointsData] = None
+    gani_motion_events_data: Optional[GaniMotionEventsData] = None
+    gani_node_params: Optional[Dict[str, List[Tuple[int, Union[float, str, int]]]]] = None
+    gani_path_hash: Optional[int] = None
+    
+    # Old format only data -----
+    gani1_shader_nodes_data: Optional[GaniExportShaderData] = None
+    # Old-format file table 'unknown' field (MtarTableList.unknown, ushort).
+    # Distinct from TrackHeader.unknown_b — these are different binary fields.
+    gani1_table_unknown: Optional[int] = None
+    # Old-format FoxData string lists for lossless GANI1 round-trip (reference mode).
+    # In normal export these come from the Blender action; in reference mode they
+    # come from GaniImportData since there is no action.
+    gani1_skeleton_list: Optional[List[str]] = None
+    gani1_motion_point_list: Optional[List] = None
+    gani1_motion_point_parent_list: Optional[List] = None
+    gani1_no_skl_list: bool = False
 
     def count_segments(self) -> int:
-        if not self.tracks_data or not self.tracks_data.gani_tracks:
+        if not self.gani_tracks_data or not self.gani_tracks_data.gani_tracks:
             return 0
         return sum(
             len(w.segments_track_data)
-            for w in self.tracks_data.gani_tracks
+            for w in self.gani_tracks_data.gani_tracks
             if w.segments_track_data
         )
 
@@ -93,8 +103,8 @@ class GaniExportData:
             default_flags = track_unit.unit_flags if track_idx < len(layout_track.track_units) else 0
             segment_count = len(track_unit.segments_data) if track_unit and track_unit.segments_data else 0
 
-            if track_idx < len(self.tracks_data.gani_tracks):
-                gani_track = self.tracks_data.gani_tracks[track_idx]
+            if track_idx < len(self.gani_tracks_data.gani_tracks):
+                gani_track = self.gani_tracks_data.gani_tracks[track_idx]
 
                 if gani_track.unit_flags:
                     flags_value = TrackUnitFlags.track_unit_flags_to_int(gani_track.unit_flags)
@@ -118,16 +128,15 @@ class GaniExportData:
                 for _ in range(segment_count):
                     segment_bit_sizes_per_file.append(0)
 
-        if self.tracks_data.action is not None:
-            motion_params = fwrap_metadata.parse_gani_params_from_action(self.tracks_data.action)
-        elif self.node_params is not None:
-            motion_params = self.node_params.get("MOTION", [])
+        # Try get motion parameters (gani1)
+        if self.gani_node_params is not None:
+            motion_params = self.gani_node_params.get("MOTION", [])
         else:
             motion_params = []
 
         writer.write_gani_to_buffer(
-            buffer, self.tracks_data.gani_tracks, layout_track,
-            self.frame_count, self.frame_rate,
+            buffer, self.gani_tracks_data.gani_tracks, layout_track,
+            self.gani_frame_count, self.gani_frame_rate,
             params=motion_params,
             unit_flags_per_file=unit_flags_per_file,
             segment_bit_sizes_per_file=segment_bit_sizes_per_file,

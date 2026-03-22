@@ -26,7 +26,6 @@ from .fwrap_misc_types import Tracks, TrackUnitWrapper
 from .fwrap_gani2_writer import Gani2Writer
 from .fwrap_gani1_writer import GaniWriter
 from . import fwrap_metadata
-
 from ..py_tools import tools_hash_generator
 
 
@@ -167,8 +166,12 @@ class MtarWriter:
         - Invalid path (not hash, not /Assets/)  → export_custom_path_base + path + .gani
         - NLA source fallback                    → export_custom_path_base + track/strip + .gani
         """
-        action = gani_data.tracks_data.action
-        source = gani_data.tracks_data.source
+        if gani_data.gani_path_hash is not None:
+            # If path hash is explicitly set (e.g., imported reference MTAR), preserve it.
+            return f"0x{gani_data.gani_path_hash:016X}.gani"
+
+        action = getattr(gani_data.gani_tracks_data, 'action', None)
+        source = gani_data.gani_tracks_data.source
 
         if action and mtar_const.TABL_PATH in action.keys():
             gani_path_val = str(action[mtar_const.TABL_PATH])
@@ -192,7 +195,7 @@ class MtarWriter:
                 return f"{self.export_custom_path_base}{track_name}/{strip_name}.gani"
 
         # Fallback to action name with .gani extension
-        action_name = action.name if action else gani_data.name
+        action_name = action.name if action else gani_data.gani_name
         return action_name if action_name.endswith('.gani') else f"{action_name}.gani"
 
     def get_animation_name_for_gani(self, gani_data: GaniExportData) -> str:
@@ -212,101 +215,66 @@ class MtarWriter:
         """
         return self._resolve_gani_path_string(gani_data)
 
-    def compute_gani_path_hash(self, gani_data: GaniExportData) -> int:
-        """Compute the path hash for a GANI file.
+    def compute_gani_path_hash_from_action(self, action: Optional[bpy.types.Action]) -> int:
+        """Compute a GANI path hash directly from a Blender action object.
 
-        Uses an explicit path hash if present (for reference-preserved entries),
-        otherwise reads the 'gani_path' custom property from the action:
-        - Raw hash + treat_hashes_as_names=False → use hash directly.
-        - Raw hash + treat_hashes_as_names=True  → combine with export_custom_path_base,
-          hash via generator only (no dict fallback for constructed paths).
-        - Valid /Assets/ path                    → hash via generator first, then dict lookup.
-        - Invalid path (not hash, not /Assets/)  → always combine with base, hash via generator only.
-        - Raises ValueError if the hash cannot be determined or the property is missing.
+        This helper is used by the export pipeline when GaniExportData does not
+        carry the action object. The caller should store the resulting hash in
+        GaniExportData.path_hash for later MTAR file table generation.
 
         Args:
-            gani_data: GaniExportData object containing animation data
+            action: Blender action potentially containing mtar_const.TABL_PATH
 
         Returns:
-            Path hash value (64-bit integer)
+            64-bit GANI path hash
 
         Raises:
-            ValueError: If the hash cannot be determined.
+            ValueError: if action is missing mtar_const.TABL_PATH or lookup fails.
         """
-        # Prefer explicit path_hash when available (reference mode)
-        if gani_data.path_hash is not None:
-            return gani_data.path_hash
-
-        action = gani_data.tracks_data.action
-
-        # TABL_PATH is required — abort if missing
         if not action or mtar_const.TABL_PATH not in action.keys():
-            action_name = action.name if action else "None"
-            raise ValueError(
-                f"Action '{action_name}' is missing the '{mtar_const.TABL_PATH}' custom property. "
-                "Re-import the MTAR with the current version to populate this property or add it yourself."
-            )
+            raise ValueError("Could not determine GANI path hash: action has no Path metadata")
 
-        gani_path_val: str = str(action[mtar_const.TABL_PATH])
-
-        if util_hashing.is_gani_path_a_hash(gani_path_val):
+        path_value = str(action[mtar_const.TABL_PATH])
+        if util_hashing.is_gani_path_a_hash(path_value):
             if not self.treat_hashes_as_names:
-                # Raw hash — use directly
-                path_hash = util_hashing.parse_gani_hash_str(gani_path_val)
-                Debug.log(f"      Using stored hash from gani_path: 0x{path_hash:016X}")
-                return path_hash
-            # treat_hashes_as_names: treat hash as a path component, combine with base
-            combined = f"{self.export_custom_path_base}{gani_path_val}.gani"
-            Debug.log(f"      Treating hash as name component, combined path: '{combined}'")
+                return util_hashing.parse_gani_hash_str(path_value)
+            combined = f"{self.export_custom_path_base}{path_value}.gani"
             success, results, error = tools_hash_generator.hash_animation_name_from_blender_context(combined)
             if success and results.get('with_extension_dec'):
-                hash_str = results['with_extension_dec']
                 try:
-                    path_hash = util_hashing.parse_gani_hash_str(hash_str)
-                    Debug.log(f"      Hash result: 0x{path_hash:016X}")
-                    return path_hash
+                    return util_hashing.parse_gani_hash_str(results['with_extension_dec'])
                 except ValueError:
-                    Debug.log_warning(f"      Failed to parse hash result: '{hash_str}'")
-            raise ValueError(
-                f"Could not compute hash for action '{action.name}' with combined path '{combined}'. "
-                f"Hash computation failed: {error}."
-            )
+                    raise ValueError(f"Could not parse path hash from computed result: {results['with_extension_dec']}")
+            raise ValueError(f"Could not compute hash for path '{path_value}': {error}")
 
-        if _is_valid_asset_path(gani_path_val):
-            # Valid /Assets/ path — hash directly via Python
-            # Ensure .gani extension is present before hashing
-            path_to_hash = gani_path_val if gani_path_val.endswith('.gani') else f"{gani_path_val}.gani"
-            Debug.log(f"      Hashing valid asset path: '{path_to_hash}'")
+        if _is_valid_asset_path(path_value):
+            path_to_hash = path_value if path_value.endswith('.gani') else f"{path_value}.gani"
             success, results, error = tools_hash_generator.hash_animation_name_from_blender_context(path_to_hash)
             if success and results.get('with_extension_dec'):
-                hash_str = results['with_extension_dec']
-                try:
-                    path_hash = util_hashing.parse_gani_hash_str(hash_str)
-                    Debug.log(f"      Hash result: 0x{path_hash:016X}")
-                    return path_hash
-                except ValueError:
-                    Debug.log_warning(f"      Failed to parse hash result: '{hash_str}'")
-            raise ValueError(
-                f"Could not compute hash for action '{action.name}' with gani_path='{gani_path_val}'. "
-                f"Hash computation failed: {error}."
-            )
+                return util_hashing.parse_gani_hash_str(results['with_extension_dec'])
+            raise ValueError(f"Could not compute hash for path '{path_to_hash}': {error}")
 
-        # Invalid path (not a hash, not /Assets/) — always combine with base, hash via Python
-        combined = f"{self.export_custom_path_base}{gani_path_val}.gani"
-        Debug.log(f"      Invalid path, combining with base: '{combined}'")
+        combined = f"{self.export_custom_path_base}{path_value}.gani"
         success, results, error = tools_hash_generator.hash_animation_name_from_blender_context(combined)
         if success and results.get('with_extension_dec'):
-            hash_str = results['with_extension_dec']
-            try:
-                path_hash = util_hashing.parse_gani_hash_str(hash_str)
-                Debug.log(f"      Hash result: 0x{path_hash:016X}")
-                return path_hash
-            except ValueError:
-                Debug.log_warning(f"      Failed to parse hash result: '{hash_str}'")
-        raise ValueError(
-            f"Could not compute hash for action '{action.name}' with combined path '{combined}'. "
-            f"Hash computation failed: {error}."
-        )
+            return util_hashing.parse_gani_hash_str(results['with_extension_dec'])
+        raise ValueError(f"Could not compute hash for path '{combined}': {error}")
+
+    def compute_gani_path_hash(self, gani_data: GaniExportData) -> int:
+        """Compute the path hash for a GANI from the export data.
+
+        Prefers explicit path_hash if set. Falls back to action-based computation
+        if the legacy action data is still available.
+        """
+        if gani_data.gani_path_hash is not None:
+            return gani_data.gani_path_hash
+
+        Debug.log_warning("Missing gani_path_hash > needs to calculate it from action ref.")
+        action = getattr(gani_data.gani_tracks_data, 'action', None)
+        if action:
+            return self.compute_gani_path_hash_from_action(action)
+
+        raise ValueError("GANI path hash is not available; set gani_data.path_hash before writing")
 
     
     def write(self) -> None:
@@ -362,13 +330,13 @@ class MtarWriter:
             for gani_data in self.gani_data_list:
                 gani_bytes = gani_data.to_bytes(self.layout_track)
                 gani_bytes_list.append(gani_bytes)
-                Debug.log(f"    {gani_data.name}: {len(gani_bytes)} bytes (GANI2)")
+                Debug.log(f"    {gani_data.gani_name}: {len(gani_bytes)} bytes (GANI2)")
         else:
             # Old format: use GaniWriter
             for gani_data in self.gani_data_list:
                 gani_bytes = self._write_old_gani_bytes(gani_data) # TODO: move _write_old_gani_bytes to a better spot
                 gani_bytes_list.append(gani_bytes)
-                Debug.log(f"    {gani_data.name}: {len(gani_bytes)} bytes (FoxData)")
+                Debug.log(f"    {gani_data.gani_name}: {len(gani_bytes)} bytes (FoxData)")
         
         # Set flags based on format
         flags = self.flags
@@ -482,19 +450,19 @@ class MtarWriter:
             Tuple of (motion_point_tracks_offset, motion_point_tracks_data_size)
             Returns (0, 0) for old format or if no motion points
         """
-        if not self.is_new_format or not gani_data.motion_points_data:
+        if not self.is_new_format or not gani_data.gani_motion_points_data:
             return 0, 0
         
-        Debug.log(f"    Writing Motion Points GANI: {gani_data.name}")
+        Debug.log(f"    Writing Motion Points GANI: {gani_data.gani_name}")
         
         motion_point_start = buffer.tell()
         motion_point_offset_from_tracks = motion_point_start - gani_tracks_offset
         
         # Write motion point tracks as a Tracks structure
         motion_point_tracks_bytes = self._write_motion_point_tracks(
-            gani_data.motion_points_data.motion_point_tracks,
-            gani_data.frame_count,
-            gani_data.motion_points_data.action
+            gani_data.gani_motion_points_data.motion_point_tracks,
+            gani_data.gani_frame_count,
+            motion_point_track_header=gani_data.gani_motion_points_data.motion_point_track_header
         )
         buffer.write(motion_point_tracks_bytes)
         
@@ -506,9 +474,13 @@ class MtarWriter:
         
         return motion_point_offset_from_tracks, motion_point_tracks_data_size
     
-    def _build_file_table_entry(self, path_hash: int, gani_data: GaniExportData, 
-                               gani_tracks_offset: int, gani_tracks_data_size: int,
-                               motion_point_tracks_offset: int, motion_point_tracks_data_size: int) -> 'MtarTableList | MtarTableList2':
+    def _build_file_table_entry(self, path_hash: int,
+                                gani_data: GaniExportData,
+                                gani_tracks_offset: int,
+                                gani_tracks_data_size: int,
+                                motion_point_tracks_offset: int,
+                                motion_point_tracks_data_size: int
+                                ) -> 'MtarTableList | MtarTableList2':
         """Build a file table entry for a GANI file.
         
         Args:
@@ -536,18 +508,25 @@ class MtarWriter:
                 padding1=0
             )
         else:
-            # Old format: restore original 'unknown' field from action metadata if available
-            gani_action = gani_data.tracks_data.action if gani_data.tracks_data else None
-            mtar_unknown = 7  # default: observed value in real old-format files
-            if gani_action and mtar_const.TABL_UNKNOWN in gani_action:
-                try:
-                    mtar_unknown = int(gani_action[mtar_const.TABL_UNKNOWN])
-                except (TypeError, ValueError):
-                    Debug.log_warning(
-                        f"_build_file_table_entry: invalid {mtar_const.TABL_UNKNOWN} "
-                        f"on action '{getattr(gani_action, 'name', '<unknown>')}', "
-                        f"using default 7"
-                    )
+            # Old format: MtarTableList.unknown is a separate ushort field (typically 7).
+            # NOT the same as TrackHeader.unknown_b — these are distinct binary fields.
+            # Priority: explicit table_unknown > action TABL_UNKNOWN > default 7.
+            if gani_data.gani1_table_unknown is not None:
+                mtar_unknown = gani_data.gani1_table_unknown
+            else:
+                action = gani_data.gani_tracks_data.action
+                if action and mtar_const.TABL_UNKNOWN in action.keys():
+                    try:
+                        mtar_unknown = int(action[mtar_const.TABL_UNKNOWN])
+                    except (TypeError, ValueError):
+                        Debug.log_warning(
+                            f"_build_file_table_entry: invalid {mtar_const.TABL_UNKNOWN} "
+                            f"on action '{getattr(action, 'name', '<unknown>')}', "
+                            f"using default 7"
+                        )
+                        mtar_unknown = 7
+                else:
+                    mtar_unknown = 7  # default: observed value in real old-format files
             return MtarTableList(
                 path=path_hash,
                 tracks_offset=gani_tracks_offset,
@@ -573,7 +552,7 @@ class MtarWriter:
         # First pass: Write all Track GANIs and Motion Point GANIs (motion points only in new format)
         Debug.log("  Phase 1: Writing Track and Motion Point GANIs...")
         for file_idx, gani_bytes in enumerate(gani_bytes_list):
-            gani_name = self.gani_data_list[file_idx].name
+            gani_name = self.gani_data_list[file_idx].gani_name
             gani_data: GaniExportData = self.gani_data_list[file_idx]
             
             # Write Track GANI
@@ -609,8 +588,8 @@ class MtarWriter:
         if self.is_new_format:
             Debug.log("  Phase 2: Writing Motion Events GANIs...")
             for file_idx, gani_data in enumerate(self.gani_data_list):
-                if gani_data.motion_events_data:
-                    gani_name = gani_data.name
+                if gani_data.gani_motion_events_data:
+                    gani_name = gani_data.gani_name
                     Debug.log(f"    Writing Motion Events GANI #{file_idx}: {gani_name}")
                     
                     # MotionEventsOffset is an ABSOLUTE offset
@@ -618,7 +597,7 @@ class MtarWriter:
                     motion_events_offset = motion_events_start
                     
                     # Write motion events as EvpHeader
-                    evp_header = gani_data.motion_events_data.motion_events
+                    evp_header = gani_data.gani_motion_events_data.motion_events
                     evp_header.write(buffer)
                     
                     # Align to 16-byte boundary after motion events
@@ -654,7 +633,7 @@ class MtarWriter:
         
         # Call GaniWriter to write the old-format GANI blob
         # This handles FoxData header, node structure, and track payload
-        frame_rate = gani_data.frame_rate or 60
+        frame_rate = gani_data.gani_frame_rate or 60
 
         # SKL_LIST is auto-derived from gani_track names during write — names are the
         # authoritative source (set during import via _apply_stringlist_names in GaniReader).
@@ -668,20 +647,35 @@ class MtarWriter:
                 "no_skl_list, mtp_list, and mtp_parent_list cannot be preserved — "
                 "SKL_LIST will be auto-derived from track names; MTP lists will be empty."
             )
-        no_skl_list = action and action.get(fwrap_metadata.PROP_NO_SKL_LIST, 0)
-        skeleton_list = [] if no_skl_list else None  # []: suppress; None: auto-derive
-        motion_point_list = fwrap_metadata.parse_foxdata_stringlist_from_action(action, fwrap_metadata.PROP_MTP_LIST) if action else None
-        motion_point_parent_list = fwrap_metadata.parse_foxdata_stringlist_from_action(action, fwrap_metadata.PROP_MTP_PARENT_LIST) if action else None
-        node_params = gani_data.node_params if gani_data.node_params is not None else (
-            fwrap_metadata.iter_all_node_params_from_action(action) if action else {}
-        )
+        if action is not None:
+            # Normal export path: read FoxData metadata from the Blender action
+            no_skl_list = action.get(fwrap_metadata.PROP_NO_SKL_LIST, 0)
+            skeleton_list = [] if no_skl_list else None  # []: suppress; None: auto-derive
+            motion_point_list = fwrap_metadata.parse_foxdata_stringlist_from_action(action, fwrap_metadata.PROP_MTP_LIST)
+            motion_point_parent_list = fwrap_metadata.parse_foxdata_stringlist_from_action(action, fwrap_metadata.PROP_MTP_PARENT_LIST)
+            node_params = gani_data.gani_node_params if gani_data.gani_node_params is not None else (
+                fwrap_metadata.iter_all_node_params_from_action(action)
+            )
+        else:
+            # Reference export path: no Blender action — use GaniExportData fields
+            skeleton_list = gani_data.gani1_skeleton_list
+            if gani_data.gani1_no_skl_list:
+                skeleton_list = []  # suppress SKL_LIST node
+            motion_point_list = gani_data.gani1_motion_point_list
+            motion_point_parent_list = gani_data.gani1_motion_point_parent_list
+            node_params = gani_data.gani_node_params if gani_data.gani_node_params is not None else {}
+            if skeleton_list is None and motion_point_list is None:
+                Debug.log(
+                    f"Old-format GANI '{gani_data.gani_name}' (reference mode): "
+                    "SKL_LIST will be auto-derived from track names; MTP lists from import data."
+                )
         self.gani_writer.write_gani_to_buffer(
             buffer=buffer,
-            gani_tracks=gani_data.tracks_data.gani_tracks,
-            frame_count=gani_data.frame_count,
+            gani_tracks=gani_data.gani_tracks_data.gani_tracks,
+            frame_count=gani_data.gani_frame_count,
             frame_rate=frame_rate,
-            motion_point_tracks=gani_data.motion_points_data.motion_point_tracks if gani_data.motion_points_data else None,
-            motion_events=gani_data.motion_events_data.motion_events if gani_data.motion_events_data else None,
+            motion_point_tracks=gani_data.gani_motion_points_data.motion_point_tracks if gani_data.gani_motion_points_data else None,
+            motion_events=gani_data.gani_motion_events_data.motion_events if gani_data.gani_motion_events_data else None,
             skeleton_list=skeleton_list,
             motion_point_list=motion_point_list,
             motion_point_parent_list=motion_point_parent_list,
@@ -690,14 +684,14 @@ class MtarWriter:
                 [
                     (name, tracks, hdr)
                     for name, tracks, hdr in zip(
-                        gani_data.shader_nodes_data.property_names,
-                        gani_data.shader_nodes_data.property_tracks,
-                        gani_data.shader_nodes_data.property_headers
-                        if gani_data.shader_nodes_data.property_headers
-                        else [None] * len(gani_data.shader_nodes_data.property_names),
+                        gani_data.gani1_shader_nodes_data.property_names,
+                        gani_data.gani1_shader_nodes_data.property_tracks,
+                        gani_data.gani1_shader_nodes_data.property_headers
+                        if gani_data.gani1_shader_nodes_data.property_headers
+                        else [None] * len(gani_data.gani1_shader_nodes_data.property_names),
                     )
                 ]
-                if gani_data.shader_nodes_data else None
+                if gani_data.gani1_shader_nodes_data else None
             ),
         )
         
@@ -835,7 +829,8 @@ class MtarWriter:
         self.layout_track.write(buffer)
     
     def _write_motion_point_tracks(self, motion_point_tracks: List['TrackUnitWrapper'], 
-                                   frame_count: int, action: Optional[bpy.types.Action] = None) -> bytes:
+                                   frame_count: int,
+                                   motion_point_track_header: Optional[TrackHeader] = None) -> bytes:
         """Write motion point tracks as a TrackHeader structure.
         
         Motion point tracks use the same TrackHeader format as the layout track,
@@ -844,7 +839,7 @@ class MtarWriter:
         Args:
             motion_point_tracks: List of TrackUnitWrapper objects for motion points
             frame_count: Frame count for this GANI
-            action: Optional action containing custom properties for TrackHeader fields (including frame_rate)
+            motion_point_track_header: Optional TrackHeader from imported reference mode; used to preserve header fields
             
         Returns:
             Binary data containing the MotionPointTracks section
@@ -909,11 +904,30 @@ class MtarWriter:
             )
             track_units.append(track_unit)
         
-        # Read TrackHeader fields from action custom properties if available
-        header_props = fwrap_metadata.read_track_header_properties_from_action(action)
-        
+        # Determine TrackHeader source data in priority order:
+        # 1. explicit motion point header from reference mode
+        # 2. action custom properties (deprecated path)
+        # 3. defaults
+        header_obj = motion_point_track_header
+
+        if header_obj is not None:
+            header_props = {
+                gani_const.TRKH_ID: header_obj.t_id,
+                gani_const.TRKH_UNKNOWN_A: header_obj.unknown_a,
+                gani_const.TRKH_UNKNOWN_B: header_obj.unknown_b,
+                gani_const.TRKH_FRAME_RATE: header_obj.frame_rate,
+            }
+        else:
+            # Fallback to defaults if no explicit header available
+            header_props = {
+                gani_const.TRKH_ID: 0,
+                gani_const.TRKH_UNKNOWN_A: 0,
+                gani_const.TRKH_UNKNOWN_B: 1,
+                gani_const.TRKH_FRAME_RATE: 60,
+            }
+            Debug.log_warning("Unable to get motion points track header data. Using fallback which will probably not work.")
+
         # Create TrackHeader
-        # Use header_props[gani_const.TRKH_*] from action metadata instead of passed frame_rate parameter
         track_header = TrackHeader(
             unit_count=len(track_units),
             segment_count=total_segment_count,
@@ -921,7 +935,7 @@ class MtarWriter:
             unknown_a=header_props[gani_const.TRKH_UNKNOWN_A],
             unknown_b=header_props[gani_const.TRKH_UNKNOWN_B],
             frame_count=frame_count,
-            frame_rate=header_props[gani_const.TRKH_FRAME_RATE],  # Use frame_rate from action metadata
+            frame_rate=header_props[gani_const.TRKH_FRAME_RATE],
             unit_offsets=[]  # Will be calculated by Tracks.write()
         )
         
