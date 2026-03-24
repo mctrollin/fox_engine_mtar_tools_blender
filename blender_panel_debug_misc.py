@@ -11,7 +11,14 @@ def draw_misc_page(layout: UILayout, context: Context) -> None:
     cfg_box.label(text="GANI Filter File Scanner", icon='FILE_TICK')
 
     row = cfg_box.row(align=True)
-    row.prop(context.scene.mtar_properties, "gani_filter_txt_filepath", text="", icon='FILE_TEXT')
+    row.prop(context.scene.mtar_debug_transform_properties, "debug_misc_input_mode", text="")
+
+    if context.scene.mtar_debug_transform_properties.debug_misc_input_mode == 'FILTER_FILE':
+        row = cfg_box.row(align=True)
+        row.prop(context.scene.mtar_properties, "gani_filter_txt_filepath", text="", icon='FILE_TEXT')
+    elif context.scene.mtar_debug_transform_properties.debug_misc_input_mode == 'CSV':
+        row = cfg_box.row(align=True)
+        row.prop(context.scene.mtar_debug_transform_properties, "debug_misc_csv_input", text="")
 
     col = cfg_box.column(align=True)
     col.label(text="Supports hashes (hex/dec), paths, hN/dN", icon='INFO')

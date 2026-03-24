@@ -22,12 +22,12 @@ from . import blender_panel_settings, blender_panel_import, blender_panel_export
 
 
 class MTAR_PT_MainPanel(Panel):
-    """Unified N-Panel for MTAR import/export/settings."""
+    """Unified N-Panel for Fox Engine MTAR animation import/export/settings."""
     bl_label = "MTAR Animation"
     bl_idname = "MTAR_PT_main_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'MTAR'
+    bl_category = 'Fox MTAR'
 
     def draw(self, context: Context) -> None:
         layout = self.layout

@@ -312,9 +312,6 @@ def read_motion_events_from_action(action: bpy.types.Action) -> Optional[EvpHead
             unit_offsets=unit_offsets,
             events=event_units
         )
-        # For the 'ag' category, propagate the action's cyclic flag so the cache can be derived
-        if evp_data.category_name.to_int() == gani_const.EVPDATA_CATEGORY_AG_HASH:
-            evp_data.is_loop = action.use_cyclic
         evp_data_list.append(evp_data)
         entry_offsets.append(0)  # Offsets will be calculated during write
 

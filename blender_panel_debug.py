@@ -14,13 +14,14 @@ from bpy.props import PointerProperty, StringProperty
 from .blender_properties import _file_path_kwargs
 
 from . import blender_panel_debug_map_r, blender_panel_debug_transform, blender_panel_debug_bake, blender_panel_debug_hash, blender_panel_debug_misc
-from .blender_operators_debug import (
-    # Transform
+from .blender_operators_debug_transform import (
     MTAR_OT_InspectWorldSpaceTransform,
     MTAR_OT_InspectLocalSpaceTransform,
     MTAR_OT_CreateTransformDummies,
     MTAR_OT_CopySingleResult,
     MTAR_OT_CopyTransformDebugResults,
+)
+from .blender_operators_debug import (
     MTAR_OT_DebugCollectNLAPathClipboard,
     MTAR_OT_DebugSelectNLAByClipboardIndex,
     MTAR_OT_DebugToggleMuteNLAByClipboardIndex,
@@ -28,17 +29,11 @@ from .blender_operators_debug import (
     MTAR_OT_DebugUnmuteNLAByClipboardIndex,
     MTAR_OT_DebugMuteAllNLA,
     MTAR_OT_DebugUnmuteAllNLA,
-    MTAR_OT_DebugCopyNLAPathByFilterFile,
-    MTAR_OT_DebugCopyNLADByFilterFile,
-    MTAR_OT_DebugCopyNLAHByFilterFile,
-    MTAR_OT_DebugToggleMuteNLAByFilterFile,
-    MTAR_OT_DebugMuteNLAByFilterFile,
-    MTAR_OT_DebugUnmuteNLAByFilterFile,
-    MTAR_OT_DebugSelectNLAByFilterFile,
     # Bake
     MTAR_OT_DebugRunBake,
     MTAR_OT_DebugSetupGraphContext,
-    # Hash
+)
+from .blender_operators_debug_hash import (
     MTAR_OT_ValidateHashGeneratorExe,
     MTAR_OT_GenerateHash,
     MTAR_OT_CopyHashGeneratorOutput,
@@ -46,6 +41,20 @@ from .blender_operators_debug import (
     MTAR_OT_ComputeStrCode32,
     MTAR_OT_ClearStrCode32Results,
     MTAR_OT_CopyStrCode32Result,
+    MTAR_OT_UnhashPath,
+    MTAR_OT_ClearUnhashPath,
+    MTAR_OT_UnhashStrCode32,
+    MTAR_OT_ClearUnhashStrCode32,
+)
+
+from .blender_operators_debug_misc import (
+    MTAR_OT_DebugCopyNLAPathByFilterFile,
+    MTAR_OT_DebugCopyNLADByFilterFile,
+    MTAR_OT_DebugCopyNLAHByFilterFile,
+    MTAR_OT_DebugToggleMuteNLAByFilterFile,
+    MTAR_OT_DebugMuteNLAByFilterFile,
+    MTAR_OT_DebugUnmuteNLAByFilterFile,
+    MTAR_OT_DebugSelectNLAByFilterFile,
 )
 
 
@@ -105,15 +114,22 @@ class MTAR_PG_DebugTransformProperties(PropertyGroup):
         maxlen=1024
     )
 
-    debug_clipboard_index_mode: bpy.props.EnumProperty(
-        name="Index Mode",
-        description="Interpret filter file dN/hN entries or numeric indices as header (h) or data (d) indices",
+    debug_misc_input_mode: bpy.props.EnumProperty(
+        name="Input Source",
+        description="Choose whether to use the system clipboard, filter file, or CSV string source for Misc debug operations",
         items=[
-            ('HEADER', "Header Index", "Interpret plain numbers as hN"),
-            ('DATA', "Data Index", "Interpret plain numbers as dN"),
-            ('AUTO', "By Prefix (h<number> or d<number>)", "Require explicit hN/dN prefix for exact mode, otherwise tries both"),
+            ('CLIPBOARD', "Clipboard", "Use the Blender system clipboard input"),
+            ('FILTER_FILE', "Filter File", "Use the configured GANI filter file"),
+            ('CSV', "CSV String", "Use the custom comma-separated values in debug CSV field"),
         ],
-        default='AUTO'
+        default='FILTER_FILE'
+    )
+
+    debug_misc_csv_input: bpy.props.StringProperty(
+        name="CSV Input",
+        description="Comma-separated hN/dN entries or raw indices used for Misc debug operations when CSV mode is selected",
+        default="",
+        maxlen=4096,
     )
 
     # which debug page is currently active in the unified panel
@@ -300,6 +316,34 @@ class MTAR_PG_DebugHashProperties(PropertyGroup):
         maxlen=4096
     )
 
+    # Unhash PathCode64 (reverse lookup)
+    unhash_path_input: StringProperty(
+        name="PathCode64 Hash Input",
+        description="Decimal or 0x-prefixed hex PathCode64 hash to reverse-lookup in dic/path64/mtar_dictionary.txt",
+        default="",
+        maxlen=64
+    )
+    unhash_path_result: StringProperty(
+        name="PathCode64 Unhash Result",
+        description="Resolved asset path from dictionary lookup",
+        default="",
+        maxlen=4096
+    )
+
+    # Unhash StrCode32 (reverse lookup)
+    unhash_strcode32_input: StringProperty(
+        name="StrCode32 Hash Input",
+        description="Decimal or 0x-prefixed hex StrCode32 hash to reverse-lookup in dic/str32/*.txt dictionaries",
+        default="",
+        maxlen=32
+    )
+    unhash_strcode32_result: StringProperty(
+        name="StrCode32 Unhash Result",
+        description="Resolved name string from dictionary lookup",
+        default="",
+        maxlen=4096
+    )
+
 
     def _draw_comparison_row(
         self,
@@ -370,7 +414,7 @@ class MTAR_PT_DebugMainPanel(Panel):
     bl_idname = "MTAR_PT_debug_main_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'MTAR'
+    bl_category = 'Fox MTAR'
 
     def draw(self, context: Context) -> None:
         layout = self.layout
@@ -427,6 +471,10 @@ classes = (
     MTAR_OT_ComputeStrCode32,
     MTAR_OT_ClearStrCode32Results,
     MTAR_OT_CopyStrCode32Result,
+    MTAR_OT_UnhashPath,
+    MTAR_OT_ClearUnhashPath,
+    MTAR_OT_UnhashStrCode32,
+    MTAR_OT_ClearUnhashStrCode32,
     #
     MTAR_PT_DebugMainPanel,
 )

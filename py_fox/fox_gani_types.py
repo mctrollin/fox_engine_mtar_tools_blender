@@ -990,7 +990,7 @@ class EventUnitInfo:
         return size
 
 
-def _build_ag_cache(events: List['EventUnitInfo'], is_loop: bool) -> bytes:
+def _build_ag_cache(events: List['EventUnitInfo'], is_loop: bool, total_frame_count: int) -> bytes:
     """Build the binary cache blob for the 'ag' (AnimGraph) EvpData category.
 
     The cache is fully derived from event data and the is_loop flag — it is never
@@ -1011,69 +1011,108 @@ def _build_ag_cache(events: List['EventUnitInfo'], is_loop: bool) -> bytes:
     Args:
         events:  EventUnitInfo list from the 'ag' EvpData category.
         is_loop: Whether the animation loops (action.use_cyclic or TrackUnitFlags.LOOP).
+        total_frame_count: Total GANI frame length; when looped, the final frame boundary is taken from this value if greater than event boundaries.
 
     Returns:
         Binary cache blob, or empty bytes if no MTEV_AG_SYNC_L/R events are present.
     """
+    # 1 -----------------------------------------------------
     # Collect sync frame boundaries from SYNC_L/R sections
+
     # We need all distinct switches, e.g. [0-12,12-36,36-62] -> [0,12,36,62]
-    sync_boundaries: List[tuple] = []  # (frame, is_left)
+    sync_boundaries_l: List[tuple] = []  # (frame, is_left_foot)
+    sync_boundaries_r: List[tuple] = []  # (frame, is_left_foot)
     tag_hashes: List[int] = []
 
     for event in events:
         event_hash = event.name.to_int()
+        # Left Foot sync
         if event_hash == gani_const.MTEV_AG_SYNC_L_HASH:
             for section in event.time_sections:
-                sync_boundaries.append((section.start_frame, True))
+                sync_boundaries_l.append((section.start_frame, True))
                 if section.end_frame >= 0:
-                    sync_boundaries.append((section.end_frame, True))
+                    sync_boundaries_l.append((section.end_frame, True))
+        # Right Foot sync
         elif event_hash == gani_const.MTEV_AG_SYNC_R_HASH:
             for section in event.time_sections:
-                sync_boundaries.append((section.start_frame, False))
+                sync_boundaries_r.append((section.start_frame, False))
                 if section.end_frame >= 0:
-                    sync_boundaries.append((section.end_frame, False))
+                    sync_boundaries_r.append((section.end_frame, False))
+        # Tags
         elif event_hash == gani_const.MTEV_AG_TAG_CONTROL_HASH:
             tag_hashes.extend(event.string_params)
 
     # No SYNC events → no cache needed
-    if not sync_boundaries:
+    if not sync_boundaries_l and not sync_boundaries_r:
         return b''
 
-    # Sort boundaries then remove duplicates by frame number
+    # Sort boundaries then remove duplicates by frame number (preserve first foot side for boundary frame)
+    sync_boundaries = sync_boundaries_l + sync_boundaries_r
     sync_boundaries.sort(key=lambda x: x[0])
-    frame_list = []
-    seen_frames = set()
-    for frame, _is_left in sync_boundaries:
-        if frame in seen_frames:
-            continue
-        seen_frames.add(frame)
-        frame_list.append(frame)
+    frame_to_is_left = {}
+    for frame, is_left in sync_boundaries:
+        if frame not in frame_to_is_left:
+            frame_to_is_left[frame] = is_left
 
-    frame_count = len(frame_list)
-    start_frame = -frame_list[0] if is_loop else 0
+    frame_list = sorted(frame_to_is_left.keys())
+    start_frame = frame_list[0]
 
     # Determine whether first boundary belongs to left sync to set START_LEFT
-    first_is_left = sync_boundaries[0][1] if sync_boundaries else False
+    first_is_left = sync_boundaries_l[0] < sync_boundaries_r[0] if sync_boundaries_l and sync_boundaries_r else True
+
+    # 2 -----------------------------------------------------
+    # Post-process loop case to normalize the first transition frame.
+
+    if is_loop:
+        if len(frame_list) < 3:
+            frame_list.extend([0] * (3 - len(frame_list)))
+        
+        # Get stride time length
+        sync_len = frame_list[1] - frame_list[0]
+        start_frame = -frame_list[0] if first_is_left else total_frame_count - frame_list[1]
+        frame_list[0] = 0
+        frame_list[1] = total_frame_count - sync_len
+        frame_list[2] = total_frame_count
+
+    # Ensure loop endpoint includes explicit GANI length when present.
+    # Sections can exceed total_frame_count; do not clamp in that direction.
+    if not is_loop:
+        final_sync_frame = frame_list[-1]
+        if total_frame_count > final_sync_frame:
+            frame_list.append(total_frame_count)
+
+    frame_count = len(frame_list)
+
+    # 3 -----------------------------------------------------
+    # Set Flags
 
     flags = 0
     if is_loop:
         flags |= int(MotionGraphFootFitFlags.IS_LOOP)
-    if first_is_left:
+    if is_loop or first_is_left:
         flags |= int(MotionGraphFootFitFlags.START_LEFT)
 
-    tag_count = len(tag_hashes)
+
+    # 4 -----------------------------------------------------
+    # Prepare Offsets
 
     # Self-relative pointer: FramesOffset field is at cache_start+0; frame data starts at cache_start+24
     frames_offset = 24
+
     # Self-relative pointer: TagsOffset field is at cache_start+16; tag data starts after frames
+    tag_count = len(tag_hashes)
     tags_data_abs_from_cache_start = 24 + frame_count * 4
     tags_offset = (tags_data_abs_from_cache_start - 16) if tag_count > 0 else 0
-    
+
+    # 5 -----------------------------------------------------
+    # Write
+
     buf = io.BytesIO()
     buf.write(struct.pack('<IIiI', frames_offset, frame_count, start_frame, flags))
     buf.write(struct.pack('<II', tags_offset, tag_count))
     for f in frame_list:
-        buf.write(struct.pack('<I', f & 0xFFFFFFFF))  # uint in binary template; mask handles negative frames
+        # uint in binary template; mask handles negative frames
+        buf.write(struct.pack('<I', f & 0xFFFFFFFF))
     for t in tag_hashes:
         buf.write(struct.pack('<Q', t & 0xFFFFFFFFFFFFFFFF))
 
@@ -1087,7 +1126,6 @@ class EvpData:
     cache_offset: int  # ushort
     unit_offsets: List[int]
     events: List[EventUnitInfo]
-    is_loop: bool = False  # Not serialized; controls ag-category cache derivation at write time
 
     @classmethod
     def read(cls, br: BinaryIO, endian: str = '<') -> 'EvpData':
@@ -1126,7 +1164,7 @@ class EvpData:
             events=events
         )
     
-    def write(self, bw: BinaryIO) -> None:
+    def write(self, bw: BinaryIO, is_loop: bool, total_frame_count: int) -> None:
         """Write EvpData to binary stream.
 
         For the 'ag' category the AnimGraph cache blob is always re-derived from
@@ -1141,7 +1179,7 @@ class EvpData:
         cache_bytes = b''
         computed_cache_offset = 0
         if category_name_int == gani_const.EVPDATA_CATEGORY_AG_HASH:
-            cache_bytes = _build_ag_cache(self.events, self.is_loop)
+            cache_bytes = _build_ag_cache(self.events, is_loop, total_frame_count)
             if cache_bytes:
                 events_total = sum(event.get_size() for event in self.events)
                 computed_cache_offset = 8 + self.unit_count * 4 + events_total
@@ -1197,7 +1235,7 @@ class EvpData:
             # Advance offset for next event
             current_offset += event_size
     
-    def get_size(self) -> int:
+    def get_size(self, is_loop: bool, total_frame_count: int) -> int:
         """Calculate total size of this EvpData entry in bytes."""
         # Header size
         size = 8  # category_name (4) + unit_count (2) + cache_offset (2)
@@ -1211,7 +1249,7 @@ class EvpData:
 
         # Cache blob (ag category only; always re-derived)
         if self.category_name.to_int() == gani_const.EVPDATA_CATEGORY_AG_HASH:
-            size += len(_build_ag_cache(self.events, self.is_loop))
+            size += len(_build_ag_cache(self.events, is_loop, total_frame_count))
 
         return size
 
@@ -1262,13 +1300,13 @@ class EvpHeader:
             data=evp_data_list
         )
     
-    def write(self, bw: BinaryIO) -> None:
+    def write(self, bw: BinaryIO, is_loop: bool, total_frame_count: int) -> None:
         """Write EvpHeader to binary stream.
         
         Calculates all offsets internally before writing.
         """
         # Calculate all offsets before writing
-        self._calculate_offsets()
+        self._calculate_offsets(is_loop, total_frame_count)
         
         # Write header (I=uint, h=short, H=ushort to match Binary Template)
         bw.write(struct.pack('<IhH', self.version, self.count, self.padding))
@@ -1278,9 +1316,9 @@ class EvpHeader:
         
         # Write EvpData entries
         for evp_data in self.data:
-            evp_data.write(bw)
+            evp_data.write(bw, is_loop, total_frame_count)
     
-    def _calculate_offsets(self) -> None:
+    def _calculate_offsets(self, is_loop: bool, total_frame_count: int) -> None:
         """Calculate all offsets for EvpHeader and nested EvpData entries.
         
         EntryOffsets are relative to the start of EvpHeader.
@@ -1308,7 +1346,7 @@ class EvpHeader:
             evp_data.calculate_unit_offsets()
             
             # Calculate size of this EvpData entry
-            evp_data_size = evp_data.get_size()
+            evp_data_size = evp_data.get_size(is_loop, total_frame_count)
             
             # Advance offset for next entry
             current_offset += evp_data_size

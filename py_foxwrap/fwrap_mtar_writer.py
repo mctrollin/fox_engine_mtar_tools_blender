@@ -590,8 +590,8 @@ class MtarWriter:
         if self.is_new_format:
             Debug.log("  Phase 2: Writing Motion Events GANIs...")
             for file_idx, gani_data in enumerate(self.gani_data_list):
-                # if gani_data.gani_path_hash == 18181032995612392029:
-                #     Debug.log("bla")
+                if gani_data.gani_path_hash == 18181976344874083521:
+                    Debug.log("bla")
                 if gani_data.gani_motion_events_data:
                     gani_name = gani_data.gani_name
                     Debug.log(f"    Writing Motion Events GANI #{file_idx}: {gani_name}")
@@ -602,8 +602,12 @@ class MtarWriter:
                     
                     # Write motion events as EvpHeader
                     evp_header = gani_data.gani_motion_events_data.motion_events
-                    evp_header.write(buffer)
-                    
+                    loop_flag = any(
+                        TrackUnitFlags.LOOP in track.unit_flags
+                        for track in gani_data.gani_tracks_data.gani_tracks
+                    )
+                    evp_header.write(buffer, loop_flag, gani_data.gani_frame_count)
+
                     # Align to 16-byte boundary after motion events
                     util_binary_write.align_buffer(buffer, 16)
                     
