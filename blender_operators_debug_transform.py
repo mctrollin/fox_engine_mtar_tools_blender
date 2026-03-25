@@ -18,6 +18,63 @@ from .py_core.core_logging import Debug
 from .py_utilities import util_transforms, util_debug
 
 
+class MTAR_PG_DebugTransformProperties(bpy.types.PropertyGroup):
+    """Property group for debug transform inspection settings."""
+
+    debug_armature: bpy.props.PointerProperty(
+        name="Armature",
+        description="Armature to inspect",
+        type=bpy.types.Object,
+        poll=lambda self, obj: obj.type == 'ARMATURE'
+    )
+
+    debug_source_armature: bpy.props.PointerProperty(
+        name="Source Armature",
+        description="Source armature to sync (imported rig)",
+        type=bpy.types.Object,
+        poll=lambda self, obj: obj.type == 'ARMATURE'
+    )
+
+    debug_bake_gani_index: bpy.props.IntProperty(
+        name="GANI Index",
+        description="GANI index to bake (-1 = all)",
+        default=-1,
+        min=-1
+    )
+
+    debug_prepare_only: bpy.props.BoolProperty(
+        name="Prepare Only",
+        description="Only prepare the scene (mute source NLA, assign actions) without baking",
+        default=False
+    )
+
+    debug_bone_name: bpy.props.StringProperty(
+        name="Bone",
+        description="Bone to inspect",
+        default="",
+        maxlen=1024
+    )
+
+    debug_world_space_result: bpy.props.StringProperty(
+        name="World Space Result",
+        description="Last world space transform result",
+        default="",
+    )
+
+    debug_local_space_result: bpy.props.StringProperty(
+        name="Local Space Result",
+        description="Last local space transform result",
+        default="",
+    )
+
+    debug_dummy_collection_name: bpy.props.StringProperty(
+        name="Dummy Collection",
+        description="Collection name for dummy transform objects",
+        default="MTAR_Debug_Dummies",
+        maxlen=1024
+    )
+
+
 # Transform Debug Panel Operators ##################################################################
 
 class MTAR_OT_InspectWorldSpaceTransform(Operator):
@@ -74,17 +131,6 @@ class MTAR_OT_InspectWorldSpaceTransform(Operator):
             return {'FINISHED'}
         
         return {'FINISHED'}
-
-
-class MTAR_OT_InspectLocalSpaceTransform(Operator):
-    """Inspect local space transform for a bone at the current frame."""
-    bl_idname = "mtar.inspect_local_space_transform"
-    bl_label = "Inspect Local Space"
-    bl_description = "Get local space transform (relative to parent bone)"
-    
-    def execute(self, context: Context) -> set:
-        """Execute the inspection."""
-        props = context.scene.mtar_debug_transform_properties
 
 
 class MTAR_OT_CreateTransformDummies(Operator):

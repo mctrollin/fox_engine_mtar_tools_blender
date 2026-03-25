@@ -15,10 +15,258 @@ from bpy.types import Operator, Context
 from bpy.props import StringProperty
 
 from .py_core.core_logging import Debug
-from .py_tools import tools_hash_generator
-from .py_utilities import util_hashing_cityhash, util_hashing
-from .py_fox.fox_mtar_constants import TABL_PATH
 
+from .py_utilities import util_hashing_cityhash, util_hashing
+
+# from .py_fox.fox_mtar_constants import TABL_PATH
+
+from .py_tools import tools_hash_generator
+
+
+class MTAR_PG_DebugHashProperties(bpy.types.PropertyGroup):
+    """Property group for external hash generator settings."""
+
+    hash_generator_exe_path: bpy.props.StringProperty(
+        name="Hash Generator Executable",
+        description="Path to the external hash generator executable (GzsTool fork with debug output)",
+        default="",
+        maxlen=1024
+    )
+
+    hash_generator_input: bpy.props.StringProperty(
+        name="Input",
+        description="Input filename (with or without extension)",
+        default="",
+        maxlen=4096
+    )
+
+    hash_generator_hash_filename: bpy.props.StringProperty(
+        name="Hash Filename",
+        description="Hashed filename without extension (-d -h)",
+        default="",
+        maxlen=4096
+    )
+    hash_generator_hash_extension: bpy.props.StringProperty(
+        name="Hash Extension",
+        description="Hashed extension digits (-d -he)",
+        default="",
+        maxlen=4096
+    )
+    hash_generator_hash_with_extension: bpy.props.StringProperty(
+        name="Hash With Extension",
+        description="Hashed filename with extension (-d -hwe)",
+        default="",
+        maxlen=4096
+    )
+    hash_generator_hash_legacy: bpy.props.StringProperty(
+        name="Hash Legacy",
+        description="Legacy hash function (-d -hl)",
+        default="",
+        maxlen=4096
+    )
+    hash_generator_error: bpy.props.StringProperty(
+        name="Error",
+        description="Error message if conversion failed",
+        default="",
+        maxlen=4096
+    )
+
+    hash_generator_hash_filename_dec: bpy.props.StringProperty(
+        name="Hash Filename (dec)",
+        description="Decimal representation of hashed filename",
+        default="",
+        maxlen=4096
+    )
+    hash_generator_hash_extension_dec: bpy.props.StringProperty(
+        name="Hash Extension (dec)",
+        description="Decimal representation of hashed extension",
+        default="",
+        maxlen=4096
+    )
+    hash_generator_hash_with_extension_dec: bpy.props.StringProperty(
+        name="Hash With Extension (dec)",
+        description="Decimal representation of hashed filename with extension",
+        default="",
+        maxlen=4096
+    )
+    hash_generator_hash_legacy_dec: bpy.props.StringProperty(
+        name="Hash Legacy (dec)",
+        description="Decimal representation of legacy hash",
+        default="",
+        maxlen=4096
+    )
+
+    hash_generator_py_hash_filename: bpy.props.StringProperty(
+        name="Python Hash Filename",
+        description="Python CityHash: hashed filename without extension (-d -h)",
+        default="",
+        maxlen=4096
+    )
+    hash_generator_py_hash_filename_dec: bpy.props.StringProperty(
+        name="Python Hash Filename (dec)",
+        description="Python CityHash: decimal representation",
+        default="",
+        maxlen=4096
+    )
+    hash_generator_py_hash_extension: bpy.props.StringProperty(
+        name="Python Hash Extension",
+        description="Python CityHash: hashed extension digits (-d -he)",
+        default="",
+        maxlen=4096
+    )
+    hash_generator_py_hash_extension_dec: bpy.props.StringProperty(
+        name="Python Hash Extension (dec)",
+        description="Python CityHash: decimal representation",
+        default="",
+        maxlen=4096
+    )
+    hash_generator_py_hash_with_extension: bpy.props.StringProperty(
+        name="Python Hash With Extension",
+        description="Python CityHash: hashed filename with extension (-d -hwe)",
+        default="",
+        maxlen=4096
+    )
+    hash_generator_py_hash_with_extension_dec: bpy.props.StringProperty(
+        name="Python Hash With Extension (dec)",
+        description="Python CityHash: decimal representation",
+        default="",
+        maxlen=4096
+    )
+    hash_generator_py_hash_legacy: bpy.props.StringProperty(
+        name="Python Hash Legacy",
+        description="Python CityHash: legacy hash function (-d -hl)",
+        default="",
+        maxlen=4096
+    )
+    hash_generator_py_hash_legacy_dec: bpy.props.StringProperty(
+        name="Python Hash Legacy (dec)",
+        description="Python CityHash: decimal representation",
+        default="",
+        maxlen=4096
+    )
+    hash_generator_py_error: bpy.props.StringProperty(
+        name="Python Hash Error",
+        description="Error from Python CityHash computation",
+        default="",
+        maxlen=4096
+    )
+
+    strcode32_input: bpy.props.StringProperty(
+        name="Input",
+        description="Animation/track name to hash",
+        default="",
+        maxlen=4096
+    )
+    strcode32_remove_extension: bpy.props.BoolProperty(
+        name="Remove Extension",
+        description="If True, strip extension at first '.' before hashing",
+        default=True
+    )
+    strcode32_result: bpy.props.StringProperty(
+        name="StrCode32 Result",
+        description="Computed StrCode32 hash value",
+        default="",
+        maxlen=4096
+    )
+    strcode32_result_dec: bpy.props.StringProperty(
+        name="StrCode32 Result (dec)",
+        description="Decimal representation of computed StrCode32",
+        default="",
+        maxlen=4096
+    )
+    strcode32_error: bpy.props.StringProperty(
+        name="StrCode32 Error",
+        description="Error message if computation failed",
+        default="",
+        maxlen=4096
+    )
+
+    unhash_path_input: bpy.props.StringProperty(
+        name="PathCode64 Hash Input",
+        description="Decimal/hex PathCode64 hash to reverse-lookup",
+        default="",
+        maxlen=64
+    )
+    unhash_path_result: bpy.props.StringProperty(
+        name="PathCode64 Unhash Result",
+        description="Resolved asset path from dictionary lookup",
+        default="",
+        maxlen=4096
+    )
+
+    unhash_strcode32_input: bpy.props.StringProperty(
+        name="StrCode32 Hash Input",
+        description="Decimal/hex StrCode32 hash to reverse-lookup",
+        default="",
+        maxlen=32
+    )
+    unhash_strcode32_result: bpy.props.StringProperty(
+        name="StrCode32 Unhash Result",
+        description="Resolved name from dictionary lookup",
+        default="",
+        maxlen=4096
+    )
+    def _draw_comparison_row(
+        self,
+        parent,
+        label: str,
+        exe_hex: str,
+        exe_dec: str,
+        exe_key: str,
+        py_hex: str,
+        py_dec: str,
+        py_key: str,
+        exe_configured: bool,
+    ) -> None:
+        """Draw one result row with Python and exe sub-columns plus a match/mismatch icon."""
+        row_box = parent.box()
+        row_box.label(text=label, icon='NONE')
+
+        split = row_box.row(align=False)
+
+        # ---- Python column ----
+        py_col = split.column(align=True)
+        py_col.label(text="Python", icon='SCRIPTPLUGINS')
+        if py_hex:
+            py_row = py_col.row(align=True)
+            py_row.label(text=py_hex)
+            op = py_row.operator("mtar.copy_hash_generator_output", text="", icon='COPYDOWN')
+            op.result_key = py_key
+            if py_dec:
+                op_dec = py_row.operator("mtar.copy_hash_generator_output", text="", icon='SORTBYEXT')
+                op_dec.result_key = f"{py_key}_dec"
+            if py_dec:
+                py_col.label(text=f"Dec: {py_dec}", icon='NONE')
+        else:
+            py_col.label(text="—", icon='NONE')
+
+        # ---- Exe column ----
+        exe_col = split.column(align=True)
+        if exe_configured:
+            exe_col.label(text="Exe", icon='FILE_SCRIPT')
+            if exe_hex:
+                exe_row = exe_col.row(align=True)
+                exe_row.label(text=exe_hex)
+                op = exe_row.operator("mtar.copy_hash_generator_output", text="", icon='COPYDOWN')
+                op.result_key = exe_key
+                if exe_dec:
+                    op_dec = exe_row.operator("mtar.copy_hash_generator_output", text="", icon='SORTBYEXT')
+                    op_dec.result_key = f"{exe_key}_dec"
+                if exe_dec:
+                    exe_col.label(text=f"Dec: {exe_dec}", icon='NONE')
+            else:
+                exe_col.label(text="—", icon='NONE')
+        else:
+            exe_col.label(text="Exe", icon='FILE_SCRIPT')
+            exe_col.label(text="(not configured)", icon='NONE')
+
+        # ---- Match / mismatch icon ----
+        icon_col = split.column()
+        if exe_configured and py_hex and exe_hex:
+            match = py_hex.lstrip('0') == exe_hex.lstrip('0')
+            icon_col.label(text="", icon='CHECKMARK' if match else 'ERROR')
+        else:
+            icon_col.label(text="", icon='NONE')
 
 _path64_dict_cache: Optional[Dict[int, str]] = None
 
