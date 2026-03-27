@@ -8,21 +8,14 @@ def draw_hash_path(layout: UILayout, context: Context) -> None:
     props = context.scene.mtar_debug_hash_properties
 
     pathcode_box = layout.box()
-    input_box = pathcode_box.box()
-    input_box.label(text="Filename", icon='IMPORT')
-    col = input_box.column(align=True)
-    col.prop(props, "hash_generator_input", text="")
+    pathcode_box.label(text="Hash Filename", icon='HAND')
 
-    button_box = pathcode_box.box()
-    col = button_box.column(align=True)
-    col.scale_y = 1.3
+    
+    row = pathcode_box.row(align=True)
+    row.prop(props, "hash_generator_input", text="")
+    row.operator("mtar.generate_hash", text="", icon='PLAY')
+    row.operator("mtar.clear_hash_generator_results", text="", icon='X')
 
-    row = col.row(align=True)
-    row.operator("mtar.generate_hash", text="Hash", icon='PLAY')
-    row.operator("mtar.clear_hash_generator_results", text="Clear", icon='X')
-
-    results_box = pathcode_box.box()
-    results_box.label(text="Hash Results", icon='INFO')
 
     has_py_results = bool(
         props.hash_generator_py_hash_filename
@@ -36,6 +29,8 @@ def draw_hash_path(layout: UILayout, context: Context) -> None:
     )
 
     if has_py_results or has_exe_results:
+        results_box = pathcode_box.box()
+
         header = results_box.row(align=False)
         header.label(text="")
         header.label(text="Python")
@@ -83,15 +78,14 @@ def draw_unhash_path(layout: UILayout, context: Context) -> None:
     """Unhash PathCode64"""
     props = context.scene.mtar_debug_hash_properties
     unhash_path_box = layout.box()
-    unhash_path_box.label(text="Unhash PathCode64", icon='VIEWZOOM')
-    col = unhash_path_box.column(align=True)
-    col.prop(props, "unhash_path_input", text="")
+    unhash_path_box.label(text="Unhash PathCode64", icon='HAND')
     row = unhash_path_box.row(align=True)
-    row.scale_y = 1.3
-    row.operator("mtar.unhash_path", text="Unhash", icon='VIEWZOOM')
-    row.operator("mtar.clear_unhash_path", text="Clear", icon='X')
+    row.prop(props, "unhash_path_input", text="")
+    row.operator("mtar.unhash_path", text="", icon='VIEWZOOM')
+    row.operator("mtar.clear_unhash_path", text="", icon='X')
     if props.unhash_path_result:
-        result_row = unhash_path_box.row()
+        result_box = unhash_path_box.box()
+        result_row = result_box.row()
         is_path_success = props.unhash_path_result not in (
             "(not found)", "Invalid hash value", "Dictionary not found or empty"
         )
@@ -105,15 +99,14 @@ def draw_unhash_str32(layout: UILayout, context: Context) -> None:
     """Unhash StrCod32"""
     props = context.scene.mtar_debug_hash_properties
     unhash_str32_box = layout.box()
-    unhash_str32_box.label(text="Unhash StrCode32", icon='VIEWZOOM')
-    col = unhash_str32_box.column(align=True)
-    col.prop(props, "unhash_strcode32_input", text="")
+    unhash_str32_box.label(text="Unhash StrCode32", icon='HAND')
     row = unhash_str32_box.row(align=True)
-    row.scale_y = 1.3
-    row.operator("mtar.unhash_strcode32", text="Unhash", icon='VIEWZOOM')
-    row.operator("mtar.clear_unhash_strcode32", text="Clear", icon='X')
+    row.prop(props, "unhash_strcode32_input", text="")
+    row.operator("mtar.unhash_strcode32", text="", icon='VIEWZOOM')
+    row.operator("mtar.clear_unhash_strcode32", text="", icon='X')
     if props.unhash_strcode32_result:
-        result_row = unhash_str32_box.row()
+        result_box = unhash_str32_box.box()
+        result_row = result_box.row()
         is_str32_success = props.unhash_strcode32_result not in ("(not found)", "Invalid hash value")
         result_row.alert = not is_str32_success
         result_row.label(
@@ -125,20 +118,12 @@ def draw_hash_page(layout: UILayout, context: Context) -> None:
     """Draw the contents originally provided by the old Hash panel."""
     props = context.scene.mtar_debug_hash_properties
 
-    exe_configured = bool(props.hash_generator_exe_path)
-
     exe_box = layout.box()
-    exe_box.label(text="External Hash Generator", icon='FILE_SCRIPT')
-    exe_box.label(text="Needed for custom hashes.")
+    exe_box.label(text="Optional External Hash Generator", icon='FILE_SCRIPT')
     row = exe_box.row(align=True)
     row.prop(props, "hash_generator_exe_path", text="")
     row.operator("mtar.validate_hash_generator_exe", text="", icon='FORCE_HARMONIC')
     exe_box.label(text="https://mgsvmoddingwiki.github.io/GzsTool/")
-
-    if not exe_configured:
-        info_box = layout.box()
-        info_box.label(text="Exe not configured — Python only", icon='INFO')
-        info_box.label(text="Configure path above for exe column")
 
   
 
