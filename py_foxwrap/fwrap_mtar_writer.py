@@ -600,7 +600,7 @@ class MtarWriter:
                     
                     # Write motion events as EvpHeader
                     evp_header = gani_data.gani_motion_events_data.motion_events
-                    loop_flag = gani_data.gani_tracks_data.gani_tracks.is_looped()
+                    loop_flag = TrackUnitWrapper.is_looped_track_list(gani_data.gani_tracks_data.gani_tracks)
                     evp_header.write(buffer, loop_flag, gani_data.gani_frame_count)
 
                     # Align to 16-byte boundary after motion events

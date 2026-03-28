@@ -316,8 +316,12 @@ class TrackUnitWrapper:
         if not self.segments_track_data:
             return True
         return all(seg.data_blob.type in _DIFF_SEGMENT_TYPES for seg in self.segments_track_data)
+    
+    @property
+    def is_looped(self) -> bool:
+        return TrackUnitFlags.LOOP in self.unit_flags
 
-    # @staticmethod
-    # def is_looped_track_list(track_units: List['TrackUnitWrapper']) -> bool:
-    #     """Return True if any track in *track_units* has the LOOP flag set."""
-    #     return any(TrackUnitFlags.LOOP in track.unit_flags for track in track_units)
+    @staticmethod
+    def is_looped_track_list(track_units: List['TrackUnitWrapper']) -> bool:
+        """Return True if any track in *track_units* has the LOOP flag set."""
+        return any(track.is_looped for track in track_units)
