@@ -7,7 +7,6 @@ from ..py_utilities import util_filtering, util_hashing
 from ..py_fox import fox_mtar_constants as mtar_const
 
 from ..py_foxwrap_utilities.futil_action_types import ExportActionData
-
 from ..py_foxwrap.fwrap_mtar_import_types import GaniImportData
 
 

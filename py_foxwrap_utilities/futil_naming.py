@@ -5,9 +5,9 @@ Provides consistent naming format across import/export workflows.
 """
 from typing import Optional, Dict, Tuple
 
-from ..py_fox.fox_mtar_types import MtarTableList2
-
 from ..py_utilities import util_hashing
+
+from ..py_fox.fox_mtar_types import MtarTableList2
 
 
 def extract_gani_name_from_path(path_str: str) -> str:

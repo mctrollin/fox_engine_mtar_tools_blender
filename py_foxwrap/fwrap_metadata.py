@@ -849,6 +849,33 @@ def merge_track_metadata(layout_meta: TrackMetaData, action_meta: Optional[Track
     return result
 
 
+def merge_metadata_from_actions(actions: List[bpy.types.Action]) -> Dict[str, TrackMetaData]:
+    """Builds a union metadata dict from multiple per-GANI actions.
+    
+    For each track name, takes the entry with the most segments (widest definition).
+    Used for old-format GANI1 export where no shared layout action exists.
+    
+    Args:
+        actions: List of GANI actions to merge metadata from
+        
+    Returns:
+        Dictionary mapping fox_track_name -> fwrap_metadata.TrackMetaData with union of segments
+    """
+    merged: Dict[str, TrackMetaData] = {}
+    for action in actions:
+        if action is None:
+            continue
+        per_action_dict = get_all_track_metadata_from_action(action)
+        for track_name, meta in per_action_dict.items():
+            existing = merged.get(track_name)
+            if existing is None:
+                merged[track_name] = meta
+            elif len(meta.segment_types) > len(existing.segment_types):
+                # Take the entry with more segments (union)
+                merged[track_name] = meta
+    return merged
+
+
 # Segment/flags/type helpers #############################################################
 
 def _parse_segment_codes(segment_codes_str: str) -> List[SegmentType]:

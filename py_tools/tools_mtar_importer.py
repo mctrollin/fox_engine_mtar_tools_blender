@@ -10,7 +10,7 @@ from ..py_utilities.util_blender_armature_types import BoneSpec
 
 from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_fox.fox_mtar_types import MtarTableList, MtarTableList2, MtarHeader, is_new_mtar_format
-from ..py_fox.fox_gani_types import SegmentType, TrackUnitFlags
+from ..py_fox.fox_gani_types import TrackUnitFlags
 from ..py_fox.fox_frig_types import FrigFile
 
 from ..py_foxwrap_utilities import futil_filtering, futil_naming, futil_rest_pose_correction
@@ -38,64 +38,8 @@ from .tools_gani1_shader_importer import (
 FPS_59_94: float = 59.94
 
 
-# Layout and MetaData #############################################################
 
 # ... #############################################################
-
-def extract_rest_pose_from_custom_rig(all_gani_data: List[GaniImportData], custom_rig: Optional[bpy.types.Object]) -> None:
-    """Extract rest pose rotations from custom rig and merge with existing transformations.
-    
-    For each rotation track, extracts the bone's rest pose from the custom rig and:
-    - For LOCAL space tracks: Merges with existing map_r_rest_pose (or creates if missing)
-    - For WORLD space tracks: Adds to rotation_offset list
-    
-    This allows combining mapping file transformations with custom rig rest pose.
-    
-    Args:
-        all_gani_data: List of imported GaniImportData objects
-        custom_rig: Optional target armature to extract rest pose from
-    """
-    if not custom_rig or custom_rig.type != 'ARMATURE':
-        return
-    
-    Debug.log("\n=== Extracting Rest Pose from custom rig ===")
-    rest_pose_count = 0
-    
-    for gani_track in GaniImportData.iter_bone_tracks(all_gani_data):
-        for track_blob in gani_track.segments_track_data:
-            # Only apply to rotation segments
-            if track_blob.data_blob.type not in [SegmentType.QUAT, SegmentType.QUAT_DIFF]:
-                continue
-
-            # Skip as_ik_up bones - they should not be affected by rest pose corrections
-            if track_blob.as_ik_up:
-                continue
-
-            # Check if bone exists in custom rig
-            if track_blob.name not in custom_rig.data.bones:
-                continue
-
-            # Extract rest pose rotation from custom rig
-            bone = custom_rig.data.bones[track_blob.name]
-            rest_pose_dict = util_blender_armature.get_rest_pose_dict_from_bone(bone)
-
-            had_map_r_rest_pose = track_blob.map_r_rest_pose is not None
-            existing_euler = track_blob.map_r_rest_pose['euler'] if had_map_r_rest_pose else None
-
-            # Apply helper updates for both import/export semantics
-            euler_deg = futil_rest_pose_correction.apply_rest_pose_correction_to_target(track_blob, rest_pose_dict)
-
-            if track_blob.space_r:
-                Debug.log(f"  {track_blob.name} [WORLD]: Added rest pose to offset_r: ({euler_deg[0]:.1f}, {euler_deg[1]:.1f}, {euler_deg[2]:.1f})")
-            else:
-                if not had_map_r_rest_pose:
-                    Debug.log(f"  {track_blob.name} [LS]: Set rest pose from rig: ({euler_deg[0]:.1f}, {euler_deg[1]:.1f}, {euler_deg[2]:.1f})")
-                else:
-                    Debug.log(f"  {track_blob.name} [LS]: Mapping file has map_r=({existing_euler[0]:.1f}, {existing_euler[1]:.1f}, {existing_euler[2]:.1f}), using custom rig instead")
-
-            rest_pose_count += 1
-    
-    Debug.log(f"Extracted rest pose for {rest_pose_count} track(s) from custom rig")
 
 
 # Animation #############################################################
@@ -465,7 +409,7 @@ def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object,
             # Create Copy Rotation constraint if space_r is set
             if has_space_r:
                 space_type = space_r.get('space')
-                custom_bone = space_r.get('custom_bone') if space_type == 'CUSTOM' else None
+                custom_bone = fwrap_metadata.extract_space_bone_name(space_r) if space_type == 'CUSTOM' else None
 
                 if custom_bone:
                     Debug.log(f"  Creating world-space Copy Rotation constraint: {custom_rig.name}['{target_bone_name}'] <- {imported_armature.name}['{target_bone_name}'] (owner custom bone: '{custom_bone}')")
@@ -502,7 +446,7 @@ def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object,
             # Create Copy Location constraint if space_l is set
             if has_space_l:
                 space_type_l = space_l.get('space')
-                custom_bone = space_l.get('custom_bone') if space_type_l == 'CUSTOM' else None
+                custom_bone = fwrap_metadata.extract_space_bone_name(space_l) if space_type_l == 'CUSTOM' else None
 
                 if custom_bone:
                     Debug.log(f"  Creating world-space Copy Location constraint: {custom_rig.name}['{target_bone_name}'] <- {imported_armature.name}['{target_bone_name}'] (owner custom bone: '{custom_bone}')")
@@ -581,7 +525,7 @@ def setup_rig(imported_armature: bpy.types.Object, custom_rig: bpy.types.Object,
             space_ik = mapping_data.space_ik
             custom_bone = None
             if space_ik and isinstance(space_ik, dict) and space_ik.get('space') == 'CUSTOM':
-                custom_bone = space_ik.get('custom_bone')
+                custom_bone = fwrap_metadata.extract_space_bone_name(space_ik)
 
             if custom_bone:
                 if custom_bone not in custom_rig.pose.bones:
@@ -988,7 +932,7 @@ def import_mtar_data(
     # Check settings to see if rest pose correction is enabled
     enable_rest_pose = context.scene.mtar_properties.settings_props.enable_rest_pose_correction
     if custom_rig and enable_rest_pose:
-        extract_rest_pose_from_custom_rig(all_gani_data, custom_rig)
+        futil_rest_pose_correction.extract_rest_pose_from_custom_rig(all_gani_data, custom_rig)
     elif custom_rig and not enable_rest_pose:
         Debug.log("\nRest pose correction disabled in settings - skipping extraction")
     

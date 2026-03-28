@@ -16,6 +16,8 @@ from ..py_utilities import util_fcurve_processing
 from ..py_foxwrap import fwrap_metadata
 
 
+# Keyframe detection / frame collection ##############################################
+
 def get_bones_with_keyframes(action: bpy.types.Action) -> Set[str]:
     """Get set of bone names that have keyframes in the given action.
     
@@ -42,7 +44,7 @@ def get_bones_with_keyframes(action: bpy.types.Action) -> Set[str]:
     return bones_with_keyframes
 
 
-def get_keyframe_frames(action: bpy.types.Action, 
+def _get_keyframe_frames(action: bpy.types.Action, 
                         bone_names: Set[str]) -> Set[int]:
     """Get set of frame numbers that have keyframes for the specified bones.
     
@@ -73,7 +75,7 @@ def get_keyframe_frames(action: bpy.types.Action,
     return keyframe_frames
 
 
-def get_keyframe_frames_per_fcurve(action: bpy.types.Action, 
+def _get_keyframe_frames_per_fcurve(action: bpy.types.Action, 
                                     bone_names: Set[str]) -> Dict[str, Set[int]]:
     """Get frame numbers with keyframes for each fcurve data path.
     
@@ -110,7 +112,9 @@ def get_keyframe_frames_per_fcurve(action: bpy.types.Action,
     return fcurve_keyframes
 
 
-def cleanup_baked_keyframes(action: bpy.types.Action,
+# Cleanup / copy action data ##############################################
+
+def _cleanup_baked_keyframes(action: bpy.types.Action,
                             fcurve_keyframes: Dict[str, Set[int]]) -> int:
     """Remove keyframes on non-original frames after baking.
     
@@ -180,7 +184,7 @@ def cleanup_baked_keyframes(action: bpy.types.Action,
     return keyframes_removed_count
 
 # TODO: this function is not really necessary if we say: baking animations always removes the original import armature
-def copy_action_animation_data(source_action: bpy.types.Action, 
+def _copy_action_animation_data(source_action: bpy.types.Action, 
                                target_action: bpy.types.Action,
                                datablock: Optional[bpy.types.ID] = None) -> int:
     """Copy all animation data (fcurves and keyframes) from source to target action.
@@ -253,6 +257,8 @@ def copy_action_animation_data(source_action: bpy.types.Action,
     return fcurves_copied
 
 
+# Constraint + Transform reset ##############################################
+
 def remove_bone_constraints(armature: bpy.types.Object, bone_names: Set[str]) -> int:
     """Remove all constraints from specified bones.
     
@@ -280,7 +286,7 @@ def remove_bone_constraints(armature: bpy.types.Object, bone_names: Set[str]) ->
     return constraint_count
 
 
-def reset_baked_bone_transforms(armature: bpy.types.Object, bone_names: Set[str]) -> int:
+def _reset_baked_bone_transforms(armature: bpy.types.Object, bone_names: Set[str]) -> int:
     """Reset transforms on baked bones to rest pose and clear library overrides.
     
     Clears location, rotation, and scale on specified bones. For library-linked
@@ -354,6 +360,39 @@ def reset_baked_bone_transforms(armature: bpy.types.Object, bone_names: Set[str]
     return bones_reset
 
 
+def clear_armature_transforms(armature: bpy.types.Object) -> bool:
+    """Clear all pose transforms from an armature (utility moved here).
+
+    Copied from former location in blender_operators_import.py so that
+    bake/cleanup helpers live in the same module and avoid circular imports.
+    """
+    try:
+        # Make sure the armature is selected and in the scene
+        for obj in bpy.context.scene.objects:
+            obj.select_set(False)
+        armature.select_set(True)
+        bpy.context.view_layer.objects.active = armature
+        
+        # Enter pose mode
+        bpy.ops.object.mode_set(mode='POSE')
+        
+        # Select all bones
+        bpy.ops.pose.select_all(action='SELECT')
+        
+        # Clear all transforms
+        bpy.ops.pose.transforms_clear()
+        
+        # Return to object mode
+        bpy.ops.object.mode_set(mode='OBJECT')
+        
+        return True
+    except Exception as e:  # noqa: E722
+        Debug.log_warning(f"Failed to clear transforms from armature: {e}")
+        return False
+
+
+# Baking workflows ##############################################
+
 def bake_armature_constraints_to_keyframes(rig_armature: bpy.types.Object, 
                         action: Optional[bpy.types.Action] = None,
                         remove_constraints: bool = True,
@@ -414,7 +453,7 @@ def bake_armature_constraints_to_keyframes(rig_armature: bpy.types.Object,
         Debug.log(f"  Created new action '{new_action_name}'")
         
         # Copy animation data from original action to new action
-        fcurves_copied = copy_action_animation_data(action, target_action, datablock=rig_armature)
+        fcurves_copied = _copy_action_animation_data(action, target_action, datablock=rig_armature)
         if fcurves_copied > 0:
             Debug.log(f"  Copied {fcurves_copied} fcurves from original action")
         
@@ -434,7 +473,7 @@ def bake_armature_constraints_to_keyframes(rig_armature: bpy.types.Object,
         }
     
     # Get frames with keyframes (global set for frame range)
-    keyframe_frames = get_keyframe_frames(action, bones_with_keyframes)
+    keyframe_frames = _get_keyframe_frames(action, bones_with_keyframes)
     
     if not keyframe_frames:
         Debug.log_warning(f"  No keyframes found in action '{action.name}'")
@@ -449,7 +488,7 @@ def bake_armature_constraints_to_keyframes(rig_armature: bpy.types.Object,
     Debug.log(f"  Found {len(bones_with_keyframes)} bones with keyframes")
     
     # Get keyframes per fcurve for accurate cleanup
-    fcurve_keyframes = get_keyframe_frames_per_fcurve(action, bones_with_keyframes)
+    fcurve_keyframes = _get_keyframe_frames_per_fcurve(action, bones_with_keyframes)
     
     # Store current context
     current_scene = bpy.context.scene
@@ -548,7 +587,7 @@ def bake_armature_constraints_to_keyframes(rig_armature: bpy.types.Object,
             # After baking, NLA creates keyframes on every frame in the range
             # We only want keyframes on original keyframe frames per fcurve
             Debug.log("  Cleaning up keyframes...")
-            keyframes_removed_count = cleanup_baked_keyframes(target_action, fcurve_keyframes)
+            keyframes_removed_count = _cleanup_baked_keyframes(target_action, fcurve_keyframes)
 
             if keyframes_removed_count > 0:
                 Debug.log(f"  Removed {keyframes_removed_count} non-original keyframes")
@@ -606,7 +645,7 @@ def bake_armature_constraints_to_keyframes(rig_armature: bpy.types.Object,
 
             # Reset transforms on baked bones to prevent accumulation issues in subsequent bakes
             Debug.log("  Resetting transforms on baked bones...")
-            bones_reset = reset_baked_bone_transforms(rig_armature, bones_with_keyframes)
+            bones_reset = _reset_baked_bone_transforms(rig_armature, bones_with_keyframes)
             if bones_reset > 0:
                 Debug.log(f"  Reset complete for {bones_reset} bones")
 
@@ -642,7 +681,7 @@ def bake_armature_constraints_to_keyframes(rig_armature: bpy.types.Object,
             raise RuntimeError(f"Failed to bake armature action: {str(e)}") from e
 
 
-def bake_armature_nla_strips_to_keyframes(rig_armature: bpy.types.Object,
+def _bake_armature_nla_strips_to_keyframes(rig_armature: bpy.types.Object,
                              create_new_action: bool = False,
                              new_action_suffix: str = "_baked",
                              source_armature: Optional[bpy.types.Object] = None,
@@ -798,101 +837,6 @@ def bake_armature_nla_strips_to_keyframes(rig_armature: bpy.types.Object,
     }
 
 
-# ---- Helper functions moved from blender_operators_import.py ----
-
-def clear_armature_transforms(armature: bpy.types.Object) -> bool:
-    """Clear all pose transforms from an armature (utility moved here).
-
-    Copied from former location in blender_operators_import.py so that
-    bake/cleanup helpers live in the same module and avoid circular imports.
-    """
-    try:
-        # Make sure the armature is selected and in the scene
-        for obj in bpy.context.scene.objects:
-            obj.select_set(False)
-        armature.select_set(True)
-        bpy.context.view_layer.objects.active = armature
-        
-        # Enter pose mode
-        bpy.ops.object.mode_set(mode='POSE')
-        
-        # Select all bones
-        bpy.ops.pose.select_all(action='SELECT')
-        
-        # Clear all transforms
-        bpy.ops.pose.transforms_clear()
-        
-        # Return to object mode
-        bpy.ops.object.mode_set(mode='OBJECT')
-        
-        return True
-    except Exception as e:  # noqa: E722
-        Debug.log_warning(f"Failed to clear transforms from armature: {e}")
-        return False
-
-
-def delete_imported_armature(imported_armature: Optional[bpy.types.Object], 
-                            custom_rig: Optional[bpy.types.Object] = None) -> bool:
-    """Delete an imported armature after bake if requested (utility moved here).
-
-    Copied from former location in blender_operators_import.py to keep bake helpers
-    together and avoid import cycles.
-    """
-    if not imported_armature or imported_armature == custom_rig:
-        return True
-    
-    try:
-        Debug.log(f"Deleting imported armature: {imported_armature.name}")
-        for col in list(imported_armature.users_collection):
-            col.objects.unlink(imported_armature)
-        bpy.data.objects.remove(imported_armature, do_unlink=True)
-        return True
-    except Exception as e:  # noqa: E722
-        Debug.log_warning(f"Failed to delete imported armature: {e}")
-        return False
-
-
-def _handle_bake_result(bake_result: dict,
-                        custom_rig: bpy.types.Object,
-                        imported_armature: Optional[bpy.types.Object],
-                        delete_import_armature: bool = False,
-                        operator: Optional[object] = None) -> None:
-    """Internal helper to report and clean up after a bake operation.
-
-    This replaces the previous `handle_bake_result` and lives inside the bake
-    tool module so import operators can delegate cleanup without circular deps.
-    """
-    failed_strips: Optional[List[str]] = bake_result.get('failed_strips') if isinstance(bake_result, dict) else None
-
-    # Prefer to report using the passed operator if available
-    reporter = operator if operator is not None else None
-
-    if bake_result.get('success'):
-        Debug.report_and_log(reporter, 'INFO', f"Bake completed: {bake_result.get('message')}")
-        if failed_strips:
-            Debug.report_and_log(reporter, 'WARNING', f"{len(failed_strips)} strip(s) failed to bake: {', '.join(failed_strips)}")
-
-        # clear rig transforms
-        Debug.update_progress_status("Clearing rig transforms", secondary_progress=0.5)
-        if clear_armature_transforms(custom_rig):
-            Debug.report_and_log(reporter, 'INFO', "Cleared transforms from custom rig")
-        else:
-            Debug.report_and_log(reporter, 'WARNING', "Could not clear transforms from custom rig")
-
-        # delete imported armature if requested
-        Debug.update_progress_status("Deleting imported armature", secondary_progress=0.7)
-        if delete_import_armature:
-            if delete_imported_armature(imported_armature, custom_rig):
-                Debug.report_and_log(reporter, 'INFO', "Deleted imported armature after bake")
-            else:
-                Debug.report_and_log(reporter, 'WARNING', "Could not delete imported armature")
-
-        Debug.update_progress(100.0, "Post-processing complete")
-    else:
-        Debug.report_and_log(reporter, 'WARNING', f"Bake failed: {bake_result.get('message')}")
-        Debug.update_progress(100.0, "Bake failed")
-
-
 def bake_constraints_and_decimate_fcurves(
     rig_armature: bpy.types.Object,
     source_armature: Optional[bpy.types.Object] = None,
@@ -943,7 +887,7 @@ def bake_constraints_and_decimate_fcurves(
         if rig_armature.animation_data and rig_armature.animation_data.nla_tracks:
             Debug.start_timer("Bake (NLA strips)")
             try:
-                bake_res = bake_armature_nla_strips_to_keyframes(
+                bake_res = _bake_armature_nla_strips_to_keyframes(
                     rig_armature=rig_armature,
                     create_new_action=create_new_action,
                     new_action_suffix=new_action_suffix,
@@ -1024,3 +968,67 @@ def bake_constraints_and_decimate_fcurves(
     _handle_bake_result(result, rig_armature, source_armature, delete_import_armature, None)
 
     return result
+
+
+# Post-bake cleanup/housekeeping ##############################################
+
+def delete_imported_armature(imported_armature: Optional[bpy.types.Object], 
+                            custom_rig: Optional[bpy.types.Object] = None) -> bool:
+    """Delete an imported armature after bake if requested (utility moved here).
+
+    Copied from former location in blender_operators_import.py to keep bake helpers
+    together and avoid import cycles.
+    """
+    if not imported_armature or imported_armature == custom_rig:
+        return True
+    
+    try:
+        Debug.log(f"Deleting imported armature: {imported_armature.name}")
+        for col in list(imported_armature.users_collection):
+            col.objects.unlink(imported_armature)
+        bpy.data.objects.remove(imported_armature, do_unlink=True)
+        return True
+    except Exception as e:  # noqa: E722
+        Debug.log_warning(f"Failed to delete imported armature: {e}")
+        return False
+
+
+def _handle_bake_result(bake_result: dict,
+                        custom_rig: bpy.types.Object,
+                        imported_armature: Optional[bpy.types.Object],
+                        delete_import_armature: bool = False,
+                        operator: Optional[object] = None) -> None:
+    """Internal helper to report and clean up after a bake operation.
+
+    This replaces the previous `handle_bake_result` and lives inside the bake
+    tool module so import operators can delegate cleanup without circular deps.
+    """
+    failed_strips: Optional[List[str]] = bake_result.get('failed_strips') if isinstance(bake_result, dict) else None
+
+    # Prefer to report using the passed operator if available
+    reporter = operator if operator is not None else None
+
+    if bake_result.get('success'):
+        Debug.report_and_log(reporter, 'INFO', f"Bake completed: {bake_result.get('message')}")
+        if failed_strips:
+            Debug.report_and_log(reporter, 'WARNING', f"{len(failed_strips)} strip(s) failed to bake: {', '.join(failed_strips)}")
+
+        # clear rig transforms
+        Debug.update_progress_status("Clearing rig transforms", secondary_progress=0.5)
+        if clear_armature_transforms(custom_rig):
+            Debug.report_and_log(reporter, 'INFO', "Cleared transforms from custom rig")
+        else:
+            Debug.report_and_log(reporter, 'WARNING', "Could not clear transforms from custom rig")
+
+        # delete imported armature if requested
+        Debug.update_progress_status("Deleting imported armature", secondary_progress=0.7)
+        if delete_import_armature:
+            if delete_imported_armature(imported_armature, custom_rig):
+                Debug.report_and_log(reporter, 'INFO', "Deleted imported armature after bake")
+            else:
+                Debug.report_and_log(reporter, 'WARNING', "Could not delete imported armature")
+
+        Debug.update_progress(100.0, "Post-processing complete")
+    else:
+        Debug.report_and_log(reporter, 'WARNING', f"Bake failed: {bake_result.get('message')}")
+        Debug.update_progress(100.0, "Bake failed")

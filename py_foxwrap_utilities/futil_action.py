@@ -7,7 +7,11 @@ or shader-node actions for given main GANI track names.
 """
 from typing import Optional, List, Dict
 
+import bpy
+
 from ..py_core.core_logging import Debug
+
+from ..py_utilities import util_blender_animation
 
 from . import futil_naming
 from .futil_action_types import ExportActionData
@@ -86,10 +90,10 @@ def build_shader_action_maps(shader_actions: List[ExportActionData]) -> Dict[int
 
 
 def _find_action_for_gani(
-    gani_name: str,
-    by_gani_index: Dict[int, ExportActionData],
-    track_label: str = "data",
-) -> Optional[ExportActionData]:
+        gani_name: str,
+        by_gani_index: Dict[int, ExportActionData],
+        track_label: str = "data",
+    ) -> Optional[ExportActionData]:
     """Find the action matching a main GANI track name by running index.
 
     Args:
@@ -147,3 +151,99 @@ def find_shader_action_for_gani(gani_name: str, by_gani_index: Dict[int, ExportA
         Corresponding :class:`ExportActionData` or ``None``.
     """
     return _find_action_for_gani(gani_name, by_gani_index, track_label="shader nodes")
+
+
+def collect_actions_for_export_from_armature(
+        armature: bpy.types.Object,
+        use_nla: bool = True,
+        export_clean_threshold: float = 0.0
+    ) -> List[ExportActionData]:
+    """Collect actions to export based on NLA tracks or active action.
+    
+    Args:
+        armature: Armature object
+        use_nla: If True, check NLA tracks first; if False, use only active action
+        export_clean_threshold: Threshold for FCurve cleaning (0 = disabled)
+        
+    Returns:
+        List of ExportActionData objects containing action export information
+    """
+    actions_to_export = []
+    
+    if not armature.animation_data:
+        Debug.log_warning("  Warning: No animation data on armature")
+        return actions_to_export
+    
+    # Try to get actions from NLA tracks
+    if use_nla and armature.animation_data.nla_tracks:
+        Debug.log("\nCollecting actions from NLA tracks:")
+        
+        for track_idx, track in enumerate(armature.animation_data.nla_tracks):
+            if track.mute:
+                Debug.log(f"  Track {track_idx} '{track.name}': Muted (skipping)")
+                continue
+            
+            Debug.log(f"  Track {track_idx} '{track.name}':")
+            
+            for strip_idx, strip in enumerate(track.strips):
+                # Skip non-GANI strips (includes muted, layout, or negative-time strips)
+                if not util_blender_animation.is_relevant_strip(strip):
+                    Debug.log(f"    Strip {strip_idx} '{getattr(strip, 'name', '<unknown>')}': Skipping (not a GANI strip)")
+                    continue
+
+                # Calculate frame range (use strip's frame range)
+                frame_start = int(strip.frame_start)
+                frame_end = int(strip.frame_end)
+
+                
+                # Use strip name if available, otherwise action name
+                source = f'NLA Track "{track.name}" Strip "{strip.name}"'
+                
+                # Create export action data
+                export_action = ExportActionData(
+                    action=strip.action,
+                    frame_start=frame_start,
+                    frame_end=frame_end,
+                    source=source,
+                    export_clean_threshold=export_clean_threshold
+                )
+                
+                actions_to_export.append(export_action)
+                Debug.log(f"    Strip {strip_idx}: {export_action.to_string()}")
+        
+        if actions_to_export:
+            Debug.log(f"\nFound {len(actions_to_export)} action(s) in NLA tracks")
+            return actions_to_export
+        else:
+            Debug.log("\nNo unmuted NLA strips found, falling back to active action")
+    
+    # Fallback to active action
+    if armature.animation_data.action:
+        action = armature.animation_data.action
+        
+        # Skip layout track action (metadata only, not animation data)
+        if '.layout.' in action.name.lower():
+            Debug.log(f"\nActive action '{action.name}' is a layout track (skipping - metadata only)")
+        else:
+            frame_start = int(action.frame_range[0])
+            frame_end = int(action.frame_range[1])
+            
+            # Skip animations in negative time range
+            if frame_end <= 0:
+                Debug.log(f"\nActive action '{action.name}' is in negative time range {frame_start} to {frame_end} (skipping)")
+            else:
+                # Create export action data
+                export_action = ExportActionData(
+                    action=action,
+                    frame_start=frame_start,
+                    frame_end=frame_end,
+                    source='Active Action',
+                    export_clean_threshold=export_clean_threshold
+                )
+                
+                actions_to_export.append(export_action)
+                Debug.log(f"\nUsing active action: {export_action.to_string()}")
+    else:
+        Debug.log_warning("\n  Warning: No active action and no NLA strips found")
+    
+    return actions_to_export

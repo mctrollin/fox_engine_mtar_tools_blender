@@ -10,6 +10,10 @@ import bpy
 
 from ..py_core.core_logging import Debug
 
+from ..py_fox.fox_gani_enums import SegmentType
+
+from .util_blender_animation_types import FCurveCache
+
 
 # Global constants
 MTAR_ARMATURE_SLOT_NAME = 'mtar_import_armature'
@@ -241,134 +245,62 @@ def parse_data_path_components(data_path: str, armature: Optional[bpy.types.Obje
         return None
 
 
-class FCurveCache:
-    """Cache of FCurves indexed by bone name and property name.
+def build_fcurve_cache(action: bpy.types.Action) -> FCurveCache:
+    """Build a cache of fcurves indexed by bone name and property name.
     
-    This eliminates the need to scan action.fcurves repeatedly for every bone.
-    With many fcurves and many bones, this provides 20-100× speedup.
-    
-    Example usage:
-        cache = FCurveCache.build(action)
-        fcurves_for_rotation = cache.get_fcurves_for_bone(bone_name, 'rotation_quaternion')
+    Args:
+        action: Blender action containing fcurves
+        
+    Returns:
+        FCurveCache instance with all fcurves indexed
     """
-    
-    def __init__(self, cache_dict: Optional[Dict[str, Dict[str, List[bpy.types.FCurve]]]] = None):
-        """Initialize the FCurve cache.
-        
-        Args:
-            cache_dict: Pre-built cache dictionary, or None for empty cache
-        """
-        self._cache = cache_dict if cache_dict else {}
-    
-    @classmethod
-    def build(cls, action: bpy.types.Action) -> 'FCurveCache':
-        """Build a cache of fcurves indexed by bone name and property name.
-        
-        Args:
-            action: Blender action containing fcurves
-            
-        Returns:
-            FCurveCache instance with all fcurves indexed
-        """
-        cache_dict: Dict[str, Dict[str, List[bpy.types.FCurve]]] = {}
-        
-        if not action or not action_has_fcurves(action):
-            return cls(cache_dict)
-        
-        for fcurve in iter_action_fcurves(action):
-            bone_name = extract_bone_name_from_fcurve_path(fcurve.data_path)
-            if not bone_name:
-                # Non-pose-bone path (e.g. custom property or armature object transform).
-                # FCurveCache is designed for pose-bone actions; these paths are
-                # intentionally not indexed here.
-                # Common object-level paths (root motion stored on the armature object)
-                # are expected and should not spam warnings.
-                if fcurve.data_path in {
-                    "location",
-                    "rotation_quaternion",
-                    "rotation_euler",
-                    "scale",
-                }:
-                    continue
+    cache_dict: Dict[str, Dict[str, List[bpy.types.FCurve]]] = {}
 
-                Debug.log_warning(f"  FCurveCache.build: skipping non-pose-bone path '{fcurve.data_path}'")
+    if not action or not action_has_fcurves(action):
+        return FCurveCache(cache_dict)
+
+    for fcurve in iter_action_fcurves(action):
+        bone_name = extract_bone_name_from_fcurve_path(fcurve.data_path)
+        if not bone_name:
+            # Non-pose-bone path (e.g. custom property or armature object transform).
+            # FCurveCache is designed for pose-bone actions; these paths are
+            # intentionally not indexed here.
+            # Common object-level paths (root motion stored on the armature object)
+            # are expected and should not spam warnings.
+            if fcurve.data_path in {
+                "location",
+                "rotation_quaternion",
+                "rotation_euler",
+                "scale",
+            }:
                 continue
 
-            property_name = extract_property_from_fcurve_path(fcurve.data_path)
-            if not property_name:
-                continue
-            
-            # Build nested dict structure
-            if bone_name not in cache_dict:
-                cache_dict[bone_name] = {}
-            if property_name not in cache_dict[bone_name]:
-                cache_dict[bone_name][property_name] = []
-            
-            cache_dict[bone_name][property_name].append(fcurve)
-        
-        return cls(cache_dict)
-    
-    def get_fcurves_for_bone(self, bone_name: str, property_name: str) -> List[bpy.types.FCurve]:
-        """Get all fcurves for a specific bone and property.
-        
-        Args:
-            bone_name: Name of the bone
-            property_name: Name of the property (e.g., 'rotation_quaternion', 'location')
-            
-        Returns:
-            List of matching fcurves (empty list if none found)
-        """
-        if bone_name not in self._cache:
-            return []
-        if property_name not in self._cache[bone_name]:
-            return []
-        return self._cache[bone_name][property_name]
-    
-    def has_bone(self, bone_name: str) -> bool:
-        """Check if cache has fcurves for a bone.
-        
-        Args:
-            bone_name: Name of the bone to check
-            
-        Returns:
-            True if cache has entries for this bone
-        """
-        return bone_name in self._cache
-    
-    def get_bones(self) -> List[str]:
-        """Get list of all bones in the cache.
-        
-        Returns:
-            List of bone names
-        """
-        return list(self._cache.keys())
-    
-    def is_empty(self) -> bool:
-        """Check if cache is empty.
-        
-        Returns:
-            True if no bones are cached
-        """
-        return len(self._cache) == 0
-    
-    def to_dict(self) -> Dict[str, Dict[str, List[bpy.types.FCurve]]]:
-        """Get the underlying cache dictionary.
-        
-        Useful for passing to functions that expect the raw dict format.
-        
-        Returns:
-            The internal cache dictionary
-        """
-        return self._cache
+            Debug.log_warning(f"  build_fcurve_cache(): skipping non-pose-bone path '{fcurve.data_path}'")
+            continue
+
+        property_name = extract_property_from_fcurve_path(fcurve.data_path)
+        if not property_name:
+            continue
+
+        # Build nested dict structure
+        if bone_name not in cache_dict:
+            cache_dict[bone_name] = {}
+        if property_name not in cache_dict[bone_name]:
+            cache_dict[bone_name][property_name] = []
+
+        cache_dict[bone_name][property_name].append(fcurve)
+
+    return FCurveCache(cache_dict)
 
 
-
-def configure_action(action: bpy.types.Action,
-                     frame_start: int = 0,
-                     frame_end: int = 0,
-                     use_fake_user: bool = True,
-                     use_frame_range: bool = True,
-                     use_cyclic: bool = False) -> None:
+def configure_action(
+    action: bpy.types.Action,
+    frame_start: int = 0,
+    frame_end: int = 0,
+    use_fake_user: bool = True,
+    use_frame_range: bool = True,
+    use_cyclic: bool = False
+) -> None:
     """Configure a Blender action with standard settings.
     
     Sets up the action's frame range, fake user flag, and other common properties.
@@ -1434,3 +1366,219 @@ def prune_action_fcurves_to_frames(
             new_kp = fc.keyframe_points.insert(t, v, options={"FAST"})
             new_kp.interpolation = interp
         fc.update()
+
+
+def get_object_keyframe_numbers(
+    action: bpy.types.Action,
+    segment_type: SegmentType,
+    frame_start: int,
+    frame_end: int,
+) -> List[int]:
+    """Return sorted integer keyframe times from the object-level FCurves.
+
+    Used as the export frame list when a track maps to the armature object
+    itself via the ``[armature]`` mapping target.
+
+    Mirrors the NLA-offset logic of ``get_bone_keyframe_numbers_from_action``:
+    object-level FCurve keypoints are always stored at **action-relative** frame
+    numbers, but when the action lives in an NLA strip ``frame_start`` is an
+    **absolute timeline** position.  The same ``frame_offset`` applied to bone
+    FCurves must therefore also be applied here.
+    """
+    if segment_type in (SegmentType.QUAT, SegmentType.QUAT_DIFF):
+        data_path = "rotation_quaternion"
+        num_components = 4
+    else:  # VECTOR3 / VECTOR_DIFF
+        data_path = "location"
+        num_components = 3
+
+    # Convert action-relative keyframe times to the export coordinate system.
+    # For NLA exports frame_start is the strip's absolute position; for direct
+    # action exports both sides are action-relative, so offset = 0.
+    action_frame_start = int(action.frame_range[0])
+    frame_offset = frame_start - action_frame_start
+
+    frame_set: set = set()
+    for i in range(num_components):
+        fc = find_action_fcurve(action, data_path, i)
+        if fc is None:
+            continue
+        for kp in fc.keyframe_points:
+            export_frame = int(round(kp.co[0])) + frame_offset
+            if frame_start <= export_frame <= frame_end:
+                frame_set.add(export_frame)
+
+    # Always include frame_start (the mandatory first keyframe) so the frame
+    # list is never empty, matching the contract of get_bone_keyframe_numbers_from_action.
+    frame_set.add(frame_start)
+    # Include frame_end so the accumulated deltas reach FrameCount.
+    frame_set.add(frame_end)
+
+    return sorted(frame_set)
+
+
+def get_bone_keyframe_numbers_from_action(
+        action: bpy.types.Action,
+        bone_name: str,
+        segment_type: SegmentType,
+        frame_start: int,
+        frame_end: int,
+        as_ik_up: bool,
+        fcurve_cache: Optional[FCurveCache] = None
+    ) -> List[int]:
+    """Get the actual frames that have keyframes for a specific bone and segment type.
+    
+    Note: This function returns frames in the same coordinate system as frame_start/frame_end.
+    When exporting from NLA strips, frame_start/frame_end are absolute timeline positions,
+    so returned frames are also absolute. When exporting active actions, both are relative
+    to the action's frame range.
+    
+    Args:
+        action: Blender action to check
+        bone_name: Name of the bone
+        segment_type: Type of segment (rotation or location)
+        frame_start: First frame in export range (absolute for NLA, action-relative for active action)
+        frame_end: Last frame in export range (absolute for NLA, action-relative for active action)
+        bone_params: Optional bone parameters to check for special cases (e.g., as_ik_up)
+        fcurve_cache: Optional pre-built util_blender_animation.FCurveCache for fast lookups (20-100× faster than scanning action.fcurves)
+        
+    Returns:
+        Sorted list of frame numbers that have keyframes (in same coordinate system as frame_start/frame_end)
+    """
+    keyframe_frames = set()
+    
+    # Check for special case: as_ik_up vectors are stored as location in Blender
+    # but exported as rotation (quaternion) tracks
+    is_ik_up_vector = (as_ik_up and segment_type in [SegmentType.QUAT, SegmentType.QUAT_DIFF])
+    
+    # Determine which properties to check based on segment type
+    if is_ik_up_vector:
+        # IK up vector: stored as location in Blender, exported as quaternion
+        property_names = ['location']
+    elif segment_type in [SegmentType.QUAT, SegmentType.QUAT_DIFF]:
+        # Rotation - check rotation_quaternion or rotation_euler
+        property_names = ['rotation_quaternion', 'rotation_euler']
+    elif segment_type in [SegmentType.VECTOR3, SegmentType.VECTOR_DIFF,
+                          SegmentType.FLOAT, SegmentType.VECTOR2]:
+        # Location (FLOAT and VECTOR2 share the same location data_path)
+        property_names = ['location']
+    else:
+        return []
+    
+    # Get action's internal frame range to determine if we need offset conversion
+    # When action is in NLA strip, keyframes are at action-relative frames but we need absolute
+    action_frame_start = int(action.frame_range[0])
+    
+    # Calculate offset: difference between export range start and action's internal start
+    # For NLA strips: frame_start is absolute (strip.frame_start), action_frame_start is action-relative
+    # For active action: both are the same, so offset = 0
+    frame_offset = frame_start - action_frame_start
+    
+    # Collect all keyframe frames from relevant fcurves
+    if fcurve_cache and not fcurve_cache.is_empty():
+        # Use cache (fast path - 20-100× faster)
+        for property_name in property_names:
+            for fcurve in fcurve_cache.get_fcurves_for_bone(bone_name, property_name):
+                for keyframe_point in fcurve.keyframe_points:
+                    # keyframe_point.co[0] is always relative to action's internal frame range
+                    action_relative_frame = int(keyframe_point.co[0])
+                    
+                    # Convert to export coordinate system (absolute for NLA, action-relative for active)
+                    export_frame = action_relative_frame + frame_offset
+                    
+                    # Filter by export range
+                    if frame_start <= export_frame <= frame_end:
+                        keyframe_frames.add(export_frame)
+    else:
+        # Fall back to scanning action.fcurves (slow path - for backward compatibility)
+        data_paths = [build_data_path_for_bone(bone_name, prop) for prop in property_names]
+        for fcurve in iter_action_fcurves(action):
+            if fcurve.data_path in data_paths:
+                for keyframe_point in fcurve.keyframe_points:
+                    # keyframe_point.co[0] is always relative to action's internal frame range
+                    action_relative_frame = int(keyframe_point.co[0])
+                    
+                    # Convert to export coordinate system (absolute for NLA, action-relative for active)
+                    export_frame = action_relative_frame + frame_offset
+                    
+                    # Filter by export range
+                    if frame_start <= export_frame <= frame_end:
+                        keyframe_frames.add(export_frame)
+    
+    # Validate and add mandatory start frame
+    if frame_start not in keyframe_frames:
+        Debug.log_warning(f"No keyframe at frame_start {frame_start} for bone '{bone_name}' {segment_type}. Sampling from frame_start.")
+    keyframe_frames.add(frame_start)
+    
+    # Add end frame for animated tracks (static tracks have only start frame)
+    if len(keyframe_frames) > 1:
+        keyframe_frames.add(frame_end)
+    
+    return sorted(list(keyframe_frames))
+
+
+def bone_has_fcurves_for_segment(
+        bone_name: str,
+        segment_type: SegmentType,
+        as_ik_up: bool,
+        fcurve_cache: Optional[FCurveCache]
+        ) -> bool:
+    """Return True if the FCurve cache contains curves for the expected property
+    of a segment type on the given bone.
+
+    Used to detect per-GANI segment variation in old-format MTARs: if the layout
+    defines a segment but this particular action has no FCurves for it, the segment
+    should be omitted from the exported GANI.
+
+    Note: FLOAT and VECTOR2 both use the 'location' property (like VECTOR3) and are
+    distinguished only by which channel indices are present. For *presence* detection
+    (does this segment exist in this action?) we only need to know whether ANY location
+    FCurve exists — the segment type is already known from the layout metadata.
+
+    Args:
+        bone_name: Blender bone name to check.
+        segment_type: Expected segment type from layout metadata.
+        bone_params: BoneParameters for the bone (used to detect as_ik_up special case).
+        fcurve_cache: Cache to query. Returns True when cache is None (can't determine).
+
+    Returns:
+        True if FCurves are present (or cache unavailable); False if definitely absent.
+    """
+    if fcurve_cache is None:
+        return True  # Can't determine — assume present to avoid false-negatives
+
+    if segment_type in (SegmentType.QUAT, SegmentType.QUAT_DIFF):
+        # IK-up bones store rotation data as location FCurves
+        if as_ik_up:
+            return bool(fcurve_cache.get_fcurves_for_bone(bone_name, 'location'))
+        return (
+            bool(fcurve_cache.get_fcurves_for_bone(bone_name, 'rotation_quaternion')) or
+            bool(fcurve_cache.get_fcurves_for_bone(bone_name, 'rotation_euler'))
+        )
+
+    elif segment_type in (SegmentType.VECTOR3, SegmentType.VECTOR_DIFF,
+                          SegmentType.FLOAT, SegmentType.VECTOR2):
+        return bool(fcurve_cache.get_fcurves_for_bone(bone_name, 'location'))
+
+    elif segment_type == SegmentType.VECTOR4:
+        return False  # Never stored as FCurves — always pass through from layout
+
+    return False
+
+
+def find_nla_strip_and_track_for_action(
+    armature: bpy.types.Object,
+    action: bpy.types.Action
+) -> Tuple[Optional[bpy.types.NlaTrack], Optional[bpy.types.NlaStrip]]:
+    """Return the first NLA track and strip on *armature* whose strip.action is *action*.
+
+    Returns:
+        (track, strip) if found, otherwise (None, None).
+    """
+    if not armature.animation_data or not armature.animation_data.nla_tracks:
+        return (None, None)
+    for track in armature.animation_data.nla_tracks:
+        for strip in track.strips:
+            if strip.action is action:
+                return (track, strip)
+    return (None, None)

@@ -14,7 +14,6 @@ from .util_blender_armature_types import BoneSpec
 
 # Shared armature creation ####################################################
 
-
 def create_track_armature(
     context: bpy.types.Context,
     armature_name: str,
@@ -66,9 +65,6 @@ def create_track_armature(
 
 
 # Rest Pose Utilities #############################################################
-
-
-
 
 def find_known_parent_bone(bone: bpy.types.Bone, known_bone_names: Set[str]) -> Tuple[Optional[bpy.types.Bone], List[str]]:
     """Walk up parent chain to find the nearest parent bone that exists in the known bone set.
