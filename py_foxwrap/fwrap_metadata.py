@@ -291,76 +291,6 @@ def merge_node_params(
     return merged
 
 
-# GANI/MOTION shorthand helpers ####################################################################
-
-# Not used! Investigate why.
-def store_gani_params_on_action(action: bpy.types.Action, params: List[Tuple[int, Union[float, str, int]]]) -> None:
-    """Store Gani2/MOTION params as a single custom property on a Blender action.
-
-    **Wrapper around** :func:`store_node_params_on_action` **with node_key="MOTION".**
-    Kept for backward compatibility (used by GANI2 reader and old-format MOTION node params).
-
-    Args:
-        action: Blender action to store params on.
-        params: List of ``(name_hash, value)`` tuples.
-    """
-    store_node_params_on_action(action, "MOTION", params)
-
-# Not used! Investigate why.
-def parse_gani_params_from_action(action: bpy.types.Action) -> List[Tuple[int, Union[float, str, int]]]:
-    """Read Gani2/MOTION params back from a Blender action custom property.
-
-    **Wrapper around** :func:`parse_node_params_from_action` **with node_key="MOTION".**
-    Kept for backward compatibility (used by GANI2 writer and export path).
-
-    Args:
-        action: Blender action to read params from.
-
-    Returns:
-        List of ``(name_hash, value)`` tuples, or empty list if the property is
-        absent or the action carries no params.
-    """
-    return _parse_node_params_from_action(action, "MOTION")
-
-# Not used! Investigate why.
-def store_shader_node_params_on_action(
-    action: bpy.types.Action,
-    prop_name: str,
-    params: List[Tuple[int, Union[float, str, int]]],
-) -> None:
-    """Store per-property shader node params on a Blender action.
-
-    **Wrapper around** :func:`store_node_params_on_action` **with node_key=f"SHADER/{prop_name}".**
-    Kept for backward compatibility and convenience.
-
-    Args:
-        action: Blender action to store params on.
-        prop_name: Property name (e.g., "TENSION_CHEEKL").
-        params: List of ``(name_hash, value)`` tuples.
-    """
-    store_node_params_on_action(action, f"SHADER/{prop_name}", params)
-
-# Not used! Investigate why.
-def parse_shader_node_params_from_action(
-    action: bpy.types.Action,
-    prop_name: str,
-) -> List[Tuple[int, Union[float, str, int]]]:
-    """Read per-property shader node params back from a Blender action custom property.
-
-    **Wrapper around** :func:`parse_node_params_from_action` **with node_key=f"SHADER/{prop_name}".**
-    Kept for backward compatibility and convenience.
-
-    Args:
-        action: Blender action to read params from.
-        prop_name: Property name (e.g., "TENSION_CHEEKL").
-
-    Returns:
-        List of ``(name_hash, value)`` tuples, or empty list if the property is
-        absent or the action carries no params for this property.
-    """
-    return _parse_node_params_from_action(action, f"SHADER/{prop_name}")
-
-
 # FoxData stringlist helpers ####################################################################
 
 def store_foxdata_stringlist_on_action(
@@ -746,23 +676,27 @@ def build_track_metadata_from_action(layout_action: bpy.types.Action, fox_track_
 
 
 def build_track_metadata_from_fcurves(bone_name: str, action: bpy.types.Action) -> Optional[TrackMetaData]:
-    """Infer minimal TrackMetaData from action fcurves."""
+    """Infer minimal TrackMetaData from action fcurves.
+    Primarily used for fallbacks."""
     if not action or not util_blender_animation.action_has_fcurves(action):
         return None
 
     segment_types, default_bits = infer_segment_types_from_fcurves(action, bone_name)
-    if not segment_types:
+    component_bit_sizes, unit_flags, found_metadata = _extract_fcurves_metadata_from_action(action, bone_name)
+
+    if not segment_types and not found_metadata:
         return None
 
-    from ..py_fox.fox_hash_types import StrCode32
+    name_hash = StrCode32.from_string(bone_name).to_int()
 
-    return TrackMetaData(
-        track_name=bone_name,
+    return _build_track_metadata_from_fcurves_internal(
+        bone_name=bone_name,
+        name_hash=name_hash,
         segment_types=segment_types,
-        unit_flags=0,
-        name_hash=StrCode32.from_string(bone_name).to_int(),
-        component_bit_sizes=default_bits,
-        rig_unit_type=None
+        default_bits=default_bits,
+        component_bit_sizes=component_bit_sizes,
+        unit_flags=unit_flags,
+        found_metadata=found_metadata,
     )
 
 
@@ -1242,6 +1176,64 @@ def _parse_action_track_metadata(metadata_value: str) -> Optional[dict]:
     }
 
 
+def _extract_fcurves_metadata_from_action(action: bpy.types.Action, bone_name: str) -> Tuple[Optional[List[int]], int, bool]:
+    """Extract per-bone metadata overrides from action track properties."""
+    component_bit_sizes = None
+    unit_flags = 0
+    found_metadata = False
+
+    for _, track_name, metadata_str in iter_track_properties(action):
+        if track_name != bone_name:
+            continue
+
+        found_metadata = True
+        if isinstance(metadata_str, str):
+            parsed = _parse_action_track_metadata(metadata_str)
+            if parsed:
+                if parsed.get('component_bit_sizes'):
+                    component_bit_sizes = parsed['component_bit_sizes']
+                if parsed.get('flags'):
+                    flag_enums = [
+                        TrackUnitFlags[name]
+                        for name in parsed['flags']
+                        if name in TrackUnitFlags.__members__
+                    ]
+                    if flag_enums:
+                        unit_flags = TrackUnitFlags.track_unit_flags_to_int(flag_enums)
+        break
+
+    return component_bit_sizes, unit_flags, found_metadata
+
+
+def _build_track_metadata_from_fcurves_internal(
+    bone_name: str,
+    name_hash: int,
+    segment_types: List[SegmentType],
+    default_bits: Optional[List[int]],
+    component_bit_sizes: Optional[List[int]],
+    unit_flags: int,
+    found_metadata: bool,
+) -> TrackMetaData:
+    """Construct TrackMetaData for a single bone from inferred and override data."""
+    if not segment_types:
+        segment_types = []
+
+    if not segment_types and found_metadata:
+        segment_types = [SegmentType.FLOAT]
+
+    if component_bit_sizes is None:
+        component_bit_sizes = default_bits
+
+    return TrackMetaData(
+        track_name=bone_name,
+        segment_types=segment_types,
+        unit_flags=unit_flags,
+        name_hash=name_hash,
+        component_bit_sizes=component_bit_sizes,
+        rig_unit_type=None,
+    )
+
+
 def _extract_fox_bone_to_rig_unit_type_mapping(layout_action: bpy.types.Action, cache: Optional[Dict[str, Dict[str, RigUnitType]]] = None) -> Dict[str, RigUnitType]:
     """Extract fox bone name to RigUnitType mapping from layout action metadata.
     
@@ -1510,27 +1502,7 @@ def build_track_metadata_dict_from_fcurves(
         # has_rotation/has_location flags used only for the old bool-based
         # detection; they are no longer needed.
 
-        component_bit_sizes = None
-        unit_flags = 0
-        found_metadata_in_action = False
-
-        for _, track_name, metadata_str in iter_track_properties(action):
-            if track_name == bone_name:
-                found_metadata_in_action = True
-                if isinstance(metadata_str, str):
-                    parsed = _parse_action_track_metadata(metadata_str)
-                    if parsed:
-                        if parsed.get('component_bit_sizes'):
-                            component_bit_sizes = parsed['component_bit_sizes']
-                        if parsed.get('flags'):
-                            flag_enums = [
-                                TrackUnitFlags[name]
-                                for name in parsed['flags']
-                                if name in TrackUnitFlags.__members__
-                            ]
-                            if flag_enums:
-                                unit_flags = TrackUnitFlags.track_unit_flags_to_int(flag_enums)
-                break
+        component_bit_sizes, unit_flags, found_metadata_in_action = _extract_fcurves_metadata_from_action(action, bone_name)
 
         bone_present_in_action = found_metadata_in_action or has_fcurves
         if bone_present_in_action and not found_metadata_in_action:
@@ -1539,32 +1511,20 @@ def build_track_metadata_dict_from_fcurves(
         if not bone_present_in_action:
             continue
 
-        # If we haven't already inferred segment_types above, do it now.  The
-        # helper may return an empty list in pathological cases (no fcurves);
-        # fall back to metadata-only FLOAT detection as before.
-        if not segment_types:
-            segment_types = []
-        if not segment_types and found_metadata_in_action:
-            segment_types.append(SegmentType.FLOAT)
-
-        # ensure component_bit_sizes defaults are assigned when no explicit
-        # metadata was found
-        if component_bit_sizes is None:
-            component_bit_sizes = default_bits
-
         # Compute name hash
         if name_hash_extractor_fn is not None:
             name_hash_int = name_hash_extractor_fn(bone_name, bone)
         else:
             name_hash_int = StrCode32.from_string(bone_name).to_int()
 
-        metadata_dict[bone_name] = TrackMetaData(
-            track_name=bone_name,
-            segment_types=segment_types,
-            unit_flags=unit_flags,
+        metadata_dict[bone_name] = _build_track_metadata_from_fcurves_internal(
+            bone_name=bone_name,
             name_hash=name_hash_int,
+            segment_types=segment_types,
+            default_bits=default_bits,
             component_bit_sizes=component_bit_sizes,
-            rig_unit_type=None,
+            unit_flags=unit_flags,
+            found_metadata=found_metadata_in_action,
         )
 
     if missing_metadata_bones:

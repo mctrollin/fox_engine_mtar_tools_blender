@@ -24,7 +24,7 @@ from ..py_fox.fox_frig_types import RigUnitType
 from ..py_fox.fox_hash_types import StrCode32
 from ..py_fox.fox_mtar_types import is_new_mtar_format
 
-from ..py_foxwrap_utilities import futil_filtering, futil_rest_pose_correction
+from ..py_foxwrap_utilities import futil_action, futil_filtering, futil_rest_pose_correction
 from ..py_foxwrap_utilities.futil_action_types import ExportActionData
 
 from ..py_foxwrap.fwrap_mtar_import_types import GaniImportData
@@ -38,13 +38,13 @@ from ..py_foxwrap.fwrap_mtar_export_types import (
 )
 from ..py_foxwrap.fwrap_mapping_export_types import TrackSegmentBoneMapping
 from ..py_foxwrap.fwrap_mapping_types import BoneParameters
-from ..py_foxwrap import fwrap_motionevent, fwrap_metadata, fwrap_misc_export, fwrap_mapping
+from ..py_foxwrap import fwrap_motionevent, fwrap_metadata, fwrap_mapping
 from ..py_foxwrap.fwrap_mtar_writer import MtarWriter
 from ..py_foxwrap.fwrap_mtar_reader import MtarReader
 
 # TODO: don't import tools into other tools
 from . import tools_mtar_importer
-from ..py_foxwrap import fwrap_motionpoint_export
+from ..py_foxwrap import fwrap_motionpoint_export, fwrap_mapping_export
 from . import tools_gani1_shader_exporter
 
 
@@ -1581,7 +1581,7 @@ def export_gani_tracks_from_action(armature: bpy.types.Object,
             # Use the processed action (baked, cleaned, and hemisphere-fixed) when
             # deriving synthetic mapping/metadata so the frame/keyframe set matches
             # what will ultimately be exported.
-            track_segment_bone_mapping, synthetic_metadata = fwrap_misc_export.create_synthetic_mapping(
+            track_segment_bone_mapping, synthetic_metadata = fwrap_mapping_export.create_synthetic_mapping(
                 armature, processed_action, layout_metadata_dict
             )
             # Merge synthetic metadata into layout_metadata_dict
@@ -1756,7 +1756,7 @@ def export_mtar(context: bpy.types.Context,
         Debug.log("No track mapping provided — falling back to armature bone order. "
                        "Original binary track order is not guaranteed without a mapping file.")
         bone_names = [bone.name for bone in armature.data.bones]
-        for track_idx, (_base_name, segments) in enumerate(fwrap_misc_export.group_bones_by_segment(bone_names)):
+        for track_idx, (_base_name, segments) in enumerate(fwrap_mapping_export.group_bones_by_segment(bone_names)):
             for seg_idx, seg_bone_name in segments:
                 track_segment_bone_mapping.set_segment_mapping(
                     track_idx, seg_idx, seg_bone_name, BoneParameters(fox_name=seg_bone_name)
@@ -1933,7 +1933,7 @@ def export_mtar(context: bpy.types.Context,
             if motion_point_actions_data:
                 Debug.log(f"Found {len(motion_point_actions_data)} motion point action(s)")
                 # Build lookup map for motion-point actions by GANI index
-                motion_point_actions_by_gani_index = fwrap_misc_export.build_motion_point_action_maps(motion_point_actions_data)
+                motion_point_actions_by_gani_index = futil_action.build_motion_point_action_maps(motion_point_actions_data)
             else:
                 Debug.log("No motion point actions found (motion points list will be exported without animations)")
         finally:
@@ -1960,7 +1960,7 @@ def export_mtar(context: bpy.types.Context,
         )
         if shader_nodes_actions_data:
             Debug.log(f"Found {len(shader_nodes_actions_data)} shader node action(s)")
-            shader_nodes_actions_by_gani_index = fwrap_misc_export.build_shader_action_maps(shader_nodes_actions_data)
+            shader_nodes_actions_by_gani_index = futil_action.build_shader_action_maps(shader_nodes_actions_data)
         else:
             Debug.log("No shader node actions found")
     elif shader_nodes_armature and writer.is_new_format:
@@ -2041,7 +2041,7 @@ def export_mtar(context: bpy.types.Context,
         motion_point_action_data: Optional[ExportActionData] = None
 
         if motion_point_actions_data:
-            motion_point_action_data = fwrap_misc_export.find_motion_point_action_for_gani(gani_name, motion_point_actions_by_gani_index)
+            motion_point_action_data = futil_action.find_motion_point_action_for_gani(gani_name, motion_point_actions_by_gani_index)
 
         if motion_point_action_data:
             Debug.log(f"\n  Exporting motion points for GANI '{gani_name}': {motion_point_action_data.action.name}")
@@ -2128,7 +2128,7 @@ def export_mtar(context: bpy.types.Context,
             # by any parenting/transform offsets from the main armature.
             shader_node_parent = util_blender_armature.prepare_aux_armature_for_export(shader_nodes_armature)
             try:
-                shader_node_action_data: Optional[ExportActionData] = fwrap_misc_export.find_shader_action_for_gani(
+                shader_node_action_data: Optional[ExportActionData] = futil_action.find_shader_action_for_gani(
                     gani_name, shader_nodes_actions_by_gani_index
                 )
 
