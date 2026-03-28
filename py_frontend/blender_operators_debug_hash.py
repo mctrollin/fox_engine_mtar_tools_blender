@@ -14,13 +14,11 @@ import bpy
 from bpy.types import Operator, Context
 from bpy.props import StringProperty
 
-from .py_core.core_logging import Debug
+from ..py_core.core_logging import Debug
 
-from .py_utilities import util_hashing_cityhash, util_hashing
+from ..py_utilities import util_hashing_cityhash, util_hashing
 
-# from .py_fox.fox_mtar_constants import TABL_PATH
-
-from .py_tools import tools_hash_generator
+from ..py_tools import tools_hash_generator
 
 
 class MTAR_PG_DebugHashProperties(bpy.types.PropertyGroup):

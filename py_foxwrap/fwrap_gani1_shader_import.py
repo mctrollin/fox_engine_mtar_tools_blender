@@ -39,13 +39,13 @@ from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox.fox_mtar_types import MtarTableList2
 
 from .fwrap_mtar_import_types import Gani1ShaderTrackWrapper
-from .fwrap_track_types import TrackUnitWrapper
+from .fwrap_gani_track_types import TrackUnitWrapper
 from .fwrap_metadata_types import TrackMetaData
-from . import fwrap_metadata, fwrap_track
+from . import fwrap_gani_track, fwrap_metadata
 
 # TODO: Tools shoud not import other tools
-from ..py_tools.tools_gani_track_importer import import_gani_track
-from ..py_tools.tools_motion_points_importer import create_nla_strips_for_actions
+from .fwrap_gani_track_import import import_gani_track
+from .fwrap_gani_motionpoint_import import create_nla_strips_for_actions
 
 
 def _store_shader_property_header_on_action(
@@ -84,11 +84,11 @@ def _finalize_shader_tracks(shader_track: Gani1ShaderTrackWrapper) -> List[Track
      # Convert to gani tracks using decimal hashes for unit names (no unhashing —
     # the unit hashes are not in the rig/gani dictionaries and decimal preserves
     # the original StrCode32 value needed for export round-trip).
-    gani_tracks: List[TrackUnitWrapper] = fwrap_track.apply_track_naming(
+    gani_tracks: List[TrackUnitWrapper] = fwrap_gani_track.apply_track_naming(
         shader_track.tracks.as_wrapper(),
         use_decimal_only=True,
     )
-    fwrap_track.apply_segment_suffixes_to_tracks(gani_tracks)
+    fwrap_gani_track.apply_segment_suffixes_to_tracks(gani_tracks)
     return gani_tracks
 
 

@@ -3,8 +3,6 @@
 import bpy
 from bpy.types import UILayout, Context
 
-from .py_core.core_logging import Debug
-from .py_utilities import util_transforms, util_debug
 
 
 def draw_transform_page(layout: UILayout, context: Context) -> None:

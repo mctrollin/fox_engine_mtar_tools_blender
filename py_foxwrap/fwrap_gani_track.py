@@ -17,7 +17,7 @@ from ..py_fox.fox_hash_types import StrCode32
 
 from . import fwrap_metadata
 from .fwrap_mapping_types import BoneParameters
-from .fwrap_track_types import TrackUnitWrapper, TrackDataBlobWrapper
+from .fwrap_gani_track_types import TrackUnitWrapper, TrackDataBlobWrapper
 
 
 # Naming ####################################################

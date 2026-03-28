@@ -3,7 +3,6 @@
 import bpy
 from bpy.types import UILayout, Context
 
-from .py_core.core_logging import Debug
 
 
 def draw_bake_page(layout: UILayout, context: Context) -> None:

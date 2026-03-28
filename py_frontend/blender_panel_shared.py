@@ -14,7 +14,7 @@ import math
 import bpy
 from bpy.types import UILayout
 
-from .py_utilities import util_filtering
+from ..py_utilities import util_filtering
 
 
 def draw_bool_prop_checkbox_icon(layout: UILayout, props, property_name: str,

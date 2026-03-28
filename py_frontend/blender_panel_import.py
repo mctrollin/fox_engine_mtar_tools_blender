@@ -6,7 +6,7 @@ import os
 import bpy
 from bpy.types import Context, UILayout
 
-from .py_foxwrap.fwrap_mtar_reader import MtarReader
+from ..py_foxwrap.fwrap_mtar_reader import MtarReader
 
 from .blender_operators_import import MTAR_OT_GenerateTrackMappingTemplateFile, MTAR_OT_ImportAnimationFromMTAR
 

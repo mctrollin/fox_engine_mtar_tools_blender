@@ -9,11 +9,11 @@ import os
 import bpy
 from bpy.types import Operator, Context
 
-from .py_core.core_logging import Debug
+from ..py_core.core_logging import Debug
 
-from .py_fox.fox_mtar_constants import TABL_PATH
+from ..py_fox.fox_mtar_constants import TABL_PATH
 
-from .py_utilities import util_filtering, util_hashing
+from ..py_utilities import util_filtering, util_hashing
 
 
 class MTAR_PG_DebugNLAProperties(bpy.types.PropertyGroup):

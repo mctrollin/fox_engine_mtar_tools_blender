@@ -33,7 +33,7 @@ from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox.fox_hash_types import StrCode32
 
 from .fwrap_metadata_types import TrackMetaData
-from .fwrap_track_types import TrackUnitWrapper, TrackDataBlobWrapper
+from .fwrap_gani_track_types import TrackUnitWrapper, TrackDataBlobWrapper
 from . import fwrap_metadata
 
 

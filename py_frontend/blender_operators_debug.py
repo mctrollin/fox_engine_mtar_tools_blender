@@ -10,7 +10,6 @@ Hash utilities are in blender_operators_debug_hash.py.
 # pyright: reportInvalidTypeForm=false
 
 import bpy
-from bpy.types import PropertyGroup
 
 
 class MTAR_PG_DebugPanelProperties(bpy.types.PropertyGroup):

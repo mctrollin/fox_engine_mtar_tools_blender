@@ -21,8 +21,8 @@ from ..py_fox.fox_gani_types import (
     EvpHeader,
 )
 
-from .fwrap_track_types import Tracks, TrackDataBlobWrapper, TrackUnitWrapper
-from . import fwrap_track
+from .fwrap_gani_track_types import Tracks, TrackDataBlobWrapper, TrackUnitWrapper
+from . import fwrap_gani_track
 
 
 class Gani2Reader:
@@ -62,7 +62,7 @@ class Gani2Reader:
         motion_point_track_header: Optional[TrackHeader] = None
         
         # Apply naming resolution and suffixes to bone tracks
-        named_gani_tracks = fwrap_track.finalize_bone_tracks(gani_tracks, skeleton_list=skeleton_list)
+        named_gani_tracks = fwrap_gani_track.finalize_bone_tracks(gani_tracks, skeleton_list=skeleton_list)
 
         motion_events: Optional[EvpHeader] = None
         if is_new_format:
@@ -88,7 +88,7 @@ class Gani2Reader:
                 Debug.log(f"      Read {len(motion_point_gani_tracks_raw)} motion point track(s)")
                 
                 # Apply naming resolution and suffixes to motion point tracks
-                motion_point_gani_tracks = fwrap_track.finalize_tracks(motion_point_gani_tracks_raw)
+                motion_point_gani_tracks = fwrap_gani_track.finalize_tracks(motion_point_gani_tracks_raw)
 
             # MotionEvents: Handle motion events if present
             motion_events = EvpHeader.try_read_at(file_data, file_header.motion_events_offset)

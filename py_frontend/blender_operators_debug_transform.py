@@ -13,9 +13,9 @@ import bpy
 from bpy.types import Operator, Context
 from bpy.props import StringProperty
 
-from .py_core.core_logging import Debug
+from ..py_core.core_logging import Debug
 
-from .py_utilities import util_transforms, util_debug
+from ..py_utilities import util_transforms, util_debug
 
 
 class MTAR_PG_DebugTransformProperties(bpy.types.PropertyGroup):

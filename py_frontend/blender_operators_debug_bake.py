@@ -11,15 +11,15 @@ import re
 import bpy
 from bpy.types import Operator, Context
 
-from .py_core.core_logging import Debug
+from ..py_core.core_logging import Debug
 
-from .blender_properties import get_effective_import_bake_decimate_error
+from ..blender_properties import get_effective_import_bake_decimate_error
 
-from .py_utilities import util_blender_animation, util_fcurve_processing
+from ..py_utilities import util_blender_animation, util_fcurve_processing
 
-from .py_foxwrap import fwrap_metadata
+from ..py_foxwrap import fwrap_metadata
 
-from .py_tools import tools_animation_bake
+from ..py_tools import tools_animation_bake
 
 
 class MTAR_OT_DebugRunBake(Operator):

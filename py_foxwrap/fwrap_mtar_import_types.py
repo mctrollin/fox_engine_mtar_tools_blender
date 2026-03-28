@@ -9,8 +9,8 @@ from ..py_fox.fox_gani_enums import CommonInfoNodeType
 from ..py_fox.fox_gani_types import EvpHeader, TrackMiniHeader, TrackHeader
 from ..py_fox.fox_mtar_types import MtarHeader, MtarMiniDataNode, MtarTableList, MtarTableList2
 
-from .fwrap_track_types import Tracks, TrackUnitWrapper
-from .fwrap_motionpoint_types import MotionPointWrapper
+from .fwrap_gani_track_types import Tracks, TrackUnitWrapper
+from .fwrap_gani_motionpoint_types import MotionPointWrapper
 
 
 @dataclass

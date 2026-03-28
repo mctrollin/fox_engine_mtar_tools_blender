@@ -25,9 +25,10 @@ from ..py_fox import fox_gani_enums
 
 from ..py_foxwrap_utilities import futil_action, futil_filtering, futil_rest_pose_correction
 from ..py_foxwrap_utilities.futil_action_types import ExportActionData
+
 from ..py_foxwrap.fwrap_metadata_types import TrackMetaData
 from ..py_foxwrap.fwrap_mtar_import_types import GaniImportData
-from ..py_foxwrap.fwrap_track_types import TrackUnitWrapper, Tracks, TrackDataBlobWrapper
+from ..py_foxwrap.fwrap_gani_track_types import TrackUnitWrapper, Tracks, TrackDataBlobWrapper
 from ..py_foxwrap.fwrap_mtar_export_types import (
     GaniExportData, 
     GaniExportTracksData, 
@@ -37,14 +38,13 @@ from ..py_foxwrap.fwrap_mtar_export_types import (
 )
 from ..py_foxwrap.fwrap_mapping_export_types import TrackSegmentBoneMapping
 from ..py_foxwrap.fwrap_mapping_types import BoneParameters
-from ..py_foxwrap import fwrap_motionevent, fwrap_metadata, fwrap_mapping
+from ..py_foxwrap import fwrap_gani_motionevent, fwrap_gani_motionpoint_export, fwrap_gani_track, fwrap_metadata, fwrap_mapping
 from ..py_foxwrap.fwrap_mtar_writer import MtarWriter
 from ..py_foxwrap.fwrap_mtar_reader import MtarReader
-from ..py_foxwrap import fwrap_motionpoint_export, fwrap_mapping_export, fwrap_track
-
-# TODO: don't import tools into other tools
-from . import tools_mtar_importer
+from ..py_foxwrap import fwrap_mapping_export
 from ..py_foxwrap import fwrap_gani1_shader_export
+
+from . import tools_mtar_importer
 
 
 # Conversion helper ###############################################################
@@ -414,7 +414,7 @@ def export_gani_track_from_action(
         if segment_bone_name and (segment_bone_name in armature.pose.bones or use_object_level_for_track):
             # Debug.start_timer(f"export_keyframes_track(segment_bone_name={segment_bone_name})")
             # Export keyframes for this segment
-            keyframes = fwrap_track.export_keyframes_track(
+            keyframes = fwrap_gani_track.export_keyframes_track(
                 armature,
                 segment_bone_name,
                 segment_fox_mapping_params,
@@ -1043,7 +1043,7 @@ def export_mtar(context: bpy.types.Context,
         parent = util_blender_armature.prepare_aux_armature_for_export(motion_points_armature)
         try:
             # Build MotionPointsList from armature bones (but do not write header count yet - it is computed at write time)
-            motion_points_wrapper = fwrap_motionpoint_export.build_motion_points_list_from_armature(motion_points_armature)
+            motion_points_wrapper = fwrap_gani_motionpoint_export.build_motion_points_list_from_armature(motion_points_armature)
             motion_points_list = motion_points_wrapper.to_motion_point_list2()
 
             # Collect motion point actions
@@ -1170,7 +1170,7 @@ def export_mtar(context: bpy.types.Context,
             Debug.log(f"\n  Exporting motion points for GANI '{gani_name}': {motion_point_action_data.action.name}")
 
             # MetaData: Build metadata dict for motion points by analyzing the action and armature
-            motion_point_metadata_dict: Dict[str, TrackMetaData] = fwrap_motionpoint_export.build_motion_point_metadata_dict(motion_points_armature, motion_point_action_data.action)
+            motion_point_metadata_dict: Dict[str, TrackMetaData] = fwrap_gani_motionpoint_export.build_motion_point_metadata_dict(motion_points_armature, motion_point_action_data.action)
             Debug.log(f"    Built metadata from {len(motion_point_metadata_dict)} motion point bone(s)")
 
             # Export motion point tracks
@@ -1227,7 +1227,7 @@ def export_mtar(context: bpy.types.Context,
         Debug.start_timer(f"4.{action_idx}.3 Motion Events")
 
         # Read motion events from the action if present
-        motion_events = fwrap_motionevent.read_motion_events_from_action(gani_action)
+        motion_events = fwrap_gani_motionevent.read_motion_events_from_action(gani_action)
 
         motion_events_data = None
         if motion_events:

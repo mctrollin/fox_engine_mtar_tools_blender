@@ -15,7 +15,7 @@ from ..py_fox.fox_gani_enums import SegmentType
 from ..py_foxwrap.fwrap_mapping_export_types import TrackSegmentBoneMapping
 from ..py_foxwrap.fwrap_mtar_import_types import GaniImportData
 from ..py_foxwrap.fwrap_mapping_types import BoneParameters
-from ..py_foxwrap.fwrap_track_types import TrackDataBlobWrapper
+from ..py_foxwrap.fwrap_gani_track_types import TrackDataBlobWrapper
 
 
 def _apply_rest_pose_correction_to_track_blob(track_blob: TrackDataBlobWrapper, rest_pose_dict: dict) -> list:

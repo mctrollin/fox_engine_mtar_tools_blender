@@ -149,6 +149,7 @@ def _update_show_pose_markers(self, context) -> None:
     # Backwards-compatible update for the stored preference
     _apply_show_pose_markers_value(bool(self.show_pose_markers_pref))
 
+
 class MTAR_PG_ImportProperties(PropertyGroup):
     """Property group for MTAR import settings."""
     mtar_filepath: StringProperty(**_file_path_kwargs(
@@ -282,6 +283,7 @@ class MTAR_PG_ImportProperties(PropertyGroup):
         default=True
     )
 
+
 class MTAR_PG_ExportProperties(PropertyGroup):
     """Property group for MTAR export settings."""
     armature: PointerProperty(
@@ -323,9 +325,9 @@ class MTAR_PG_ExportProperties(PropertyGroup):
     use_reference_mtar: BoolProperty(
         name="Use Reference MTAR",
         description=(
-            "Use a reference MTAR file when exporting. "
-            "Only animations found by path hash in the reference will be written; "
-            "other export animations are skipped."
+            "Use a base or source MTAR file when exporting. "
+            "Exports the data of the reference file but replaces animations with the data from blender. "
+            "Only animations which exist in the reference file (matched by path hash) will be replaced."
         ),
         default=False
     )
@@ -390,6 +392,7 @@ class MTAR_PG_ExportProperties(PropertyGroup):
         precision=3
     )
 
+
 class MTAR_PG_ExecutionProperties(PropertyGroup):
     """Property group for tracking operation progress and status."""
     progress: FloatProperty(
@@ -405,7 +408,7 @@ class MTAR_PG_ExecutionProperties(PropertyGroup):
         description="Current status of the operation.",
         default="",
     )
-    
+
 
 class MTAR_PG_SettingsProperties(PropertyGroup):
     """Property group for general plugin settings."""
@@ -516,6 +519,7 @@ class MTAR_PG_Properties(PropertyGroup):
         default="",
         maxlen=1024
     ))
+
 
 def register():
     bpy.utils.register_class(MTAR_PG_ImportProperties)

@@ -5,6 +5,7 @@ Provides functionality to convert filenames to hashes using an external executab
 or pure Python CityHash implementation. Supports multiple hash operations: filename,
 extension, with extension, and legacy.
 """
+import os
 import subprocess
 from typing import Dict, Tuple
 from pathlib import Path
@@ -12,9 +13,64 @@ from pathlib import Path
 import bpy
 
 from ..py_core.core_logging import Debug
-
 from ..py_utilities import util_hashing_cityhash
 
+
+def get_dictionary_folders() -> Tuple[str, str]:
+    """Return configured dictionary folders from addon prefs with fallback defaults."""
+    default_path64 = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dic", "path64")
+    default_str32 = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dic", "str32")
+
+    try:
+        addon = bpy.context.preferences.addons.get("fox_engine_mtar_tools_blender")
+        if addon is not None:
+            prefs = addon.preferences
+            path64 = getattr(prefs, 'path64_dictionary_folder', '')
+            str32 = getattr(prefs, 'str32_dictionary_folder', '')
+            if path64:
+                default_path64 = path64
+            if str32:
+                default_str32 = str32
+    except Exception:
+        pass
+
+    return default_path64, default_str32
+
+
+def _parse_input_name_and_ext(input_string: str) -> Tuple[str, str]:
+    """Return filename (no extension) and extension (no leading dot)."""
+    if not input_string:
+        return "", ""
+    p = Path(input_string)
+    if p.suffix:
+        return p.stem, p.suffix.lstrip('.')
+    return input_string, ""
+
+
+def _make_hash_result_template() -> Dict[str, str]:
+    return {
+        'filename': '',
+        'filename_dec': '',
+        'extension': '',
+        'extension_dec': '',
+        'with_extension': '',
+        'with_extension_dec': '',
+        'legacy': '',
+        'legacy_dec': ''
+    }
+
+
+def _try_parse_decimal_value(raw_value: str) -> str:
+    if not raw_value:
+        return ''
+    token = raw_value.strip().split()[0]
+    try:
+        return str(int(token, 0))
+    except ValueError:
+        try:
+            return str(int(token, 16))
+        except ValueError:
+            return ''
 
 
 def hash_filename_all_modes(input_string: str, modes: tuple = None) -> Tuple[bool, Dict[str, str], str]:
@@ -44,22 +100,8 @@ def hash_filename_all_modes(input_string: str, modes: tuple = None) -> Tuple[boo
     if modes is None:
         modes = ('filename', 'extension', 'with_extension', 'legacy')
     
-    # Initialize results with all possible keys
-    results = {
-        'filename': '',
-        'filename_dec': '',
-        'extension': '',
-        'extension_dec': '',
-        'with_extension': '',
-        'with_extension_dec': '',
-        'legacy': '',
-        'legacy_dec': ''
-    }
-    
-    # Parse input to extract filename and extension
-    input_path = Path(input_string)
-    filename_only = input_path.stem if input_path.suffix else input_string
-    extension_only = input_path.suffix.lstrip('.') if input_path.suffix else ''
+    results = _make_hash_result_template()
+    filename_only, extension_only = _parse_input_name_and_ext(input_string)
     
     try:
         # Hash Filename: -d -h <filename>
@@ -120,7 +162,7 @@ def hash_animation_name_from_blender_context(input_string: str) -> Tuple[bool, D
         return False, {}, f"Error in Python hash: {str(e)}"
 
 
-def build_gani_hash_dictionary(dictionary_path: str) -> Dict[int, str]:
+def build_gani_hash_dictionary(dictionary_path: str = None) -> Dict[int, str]:
     """Build a GANI path hash dictionary from dic/path64/mtar_dictionary.txt using pure Python CityHash.
 
     Replaces the external executable approach with a pure-Python CityHash v1.0.3
@@ -132,7 +174,7 @@ def build_gani_hash_dictionary(dictionary_path: str) -> Dict[int, str]:
     Each phase is wrapped in a timing log so the cost of reading vs. hashing is visible.
 
     Args:
-        dictionary_path: Path to dic/path64/mtar_dictionary.txt (one plain asset path per line, no hashes)
+        dictionary_path: Optional path to mtar_dictionary.txt. If not provided, uses addon preferences or default.
 
     Returns:
         Dict mapping 64-bit hash integer to asset path string (same format as
@@ -176,7 +218,7 @@ def build_gani_hash_dictionary(dictionary_path: str) -> Dict[int, str]:
     return result
 
 
-def build_event_hash_dictionary(dictionary_path: str) -> Dict[int, str]:
+def build_event_hash_dictionary(dictionary_path: str = None) -> Dict[int, str]:
     """Build an event name hash dictionary from events_dictionary.txt using StrCode32 hashing.
 
     Reads plain event names from the dictionary file and computes StrCode32 hashes,
@@ -187,13 +229,17 @@ def build_event_hash_dictionary(dictionary_path: str) -> Dict[int, str]:
     by their binary hash values without maintaining hardcoded enum definitions.
 
     Args:
-        dictionary_path: Path to events_dictionary.txt (one plain event name per line)
+        dictionary_path: Optional path to events_dictionary.txt. If not provided, uses addon preferences or default.
 
     Returns:
         Dict mapping StrCode32 hash (32-bit int) to event name string
         (e.g., {312449893: "FX_CREATE_EFFECT_WITH_SKL", ...})
     """
     result: Dict[int, str] = {}
+
+    if not dictionary_path:
+        _, str32_folder = get_dictionary_folders()
+        dictionary_path = os.path.join(str32_folder, "events_dictionary.txt")
 
     dict_file = Path(dictionary_path)
     if not dict_file.exists():
@@ -334,17 +380,8 @@ def hash_filename_all_modes_by_external_generator(hash_generator_exe_path: str,
     Debug.log(f"Hashing with external exe: {hash_generator_exe_path}")
     Debug.log(f"  Input: {input_string}")
     
-    results = {
-        'filename': '',
-        'extension': '',
-        'with_extension': '',
-        'legacy': ''
-    }
-    
-    # Parse input to extract filename and extension
-    input_path = Path(input_string)
-    filename_only = input_path.stem if input_path.suffix else input_string
-    extension_only = input_path.suffix.lstrip('.') if input_path.suffix else ''
+    results = _make_hash_result_template()
+    filename_only, extension_only = _parse_input_name_and_ext(input_string)
     
     # Define hash operations
     operations = []
@@ -381,25 +418,7 @@ def hash_filename_all_modes_by_external_generator(hash_generator_exe_path: str,
             if result.returncode == 0:
                 output = result.stdout.strip()
                 results[operation_name] = output
-                # Attempt to parse a decimal value from the output (support hex like 0x... or plain decimal)
-                dec_value = None
-                try:
-                    token = output.split()[0]
-                    # Try automatic base detection (0x for hex) then fall back to decimal
-                    try:
-                        dec_value = int(token, 0)
-                    except ValueError:
-                        # Try explicit hex without 0x
-                        try:
-                            dec_value = int(token, 16)
-                        except ValueError:
-                            dec_value = None
-                    if dec_value is not None:
-                        results[f"{operation_name}_dec"] = str(dec_value)
-                    else:
-                        results[f"{operation_name}_dec"] = ""
-                except Exception:
-                    results[f"{operation_name}_dec"] = ""
+                results[f"{operation_name}_dec"] = _try_parse_decimal_value(output)
                 any_success = True
                 Debug.log(f"    {operation_name}: {output}")
             else:
@@ -441,110 +460,3 @@ def hash_filename_all_modes_by_external_generator(hash_generator_exe_path: str,
         for k, v in results.items():
             Debug.log_error(f"  {k}: {v}")
         return False, results, combined_error
-
-# Not used
-def hash_animation_name_from_blender_context_by_external_generator(input_string: str) -> Tuple[bool, Dict[str, str], str]:
-    """Hash animation name using the hash generator executable path configured in Blender.
-
-    Wrapper around hash_filename_all_modes() that retrieves the hash generator exe path from the
-    debug panel properties (`context.scene.mtar_debug_hash_properties.hash_generator_exe_path`).
-    
-    Args:
-        input_string: Animation name string to hash (e.g., "/Assets/tpp/Walk/walk_001")
-        
-    Returns:
-        Tuple of (success: bool, results: Dict[str, str], error: str)
-        - success: True if at least one hash succeeded
-        - results: Dictionary with keys: 'filename', 'extension', 'with_extension', 'legacy'
-        - error: Error message if all conversions failed
-    """
-    try:
-        # Get converter properties from the scene
-        if not hasattr(bpy.data, 'scenes') or not bpy.context.scene:
-            return False, {}, "No active Blender scene"
-        scene = bpy.context.scene
-        # Retrieve the executable path from the main settings (no backward compatibility)
-        # read from debug panel props rather than settings
-        if not hasattr(scene, 'mtar_debug_hash_properties') or not scene.mtar_debug_hash_properties.hash_generator_exe_path:
-            return False, {}, "Hash generator executable path not configured in debug properties"
-        exe_path = scene.mtar_debug_hash_properties.hash_generator_exe_path
-        if not exe_path:
-            return False, {}, "Hash Generator executable path not set in properties"
-        
-        # Call the main hash function
-        return hash_filename_all_modes_by_external_generator(exe_path, input_string)
-        
-    except ImportError:
-        return False, {}, "Blender not available (not running inside Blender)"
-    except Exception as e:
-        return False, {}, f"Error accessing Blender properties: {str(e)}"
-
-# Not used.
-def build_gani_hash_dictionary_by_external_generator(dictionary_path: str, hash_generator_exe_path: str) -> Dict[int, str]:
-    """Build a GANI path hash dictionary from dic/path64/mtar_dictionary.txt using the hash generator.
-
-    Replicates what BuildMtarHashDic.bat does: for each path in the dictionary file,
-    appends '.gani' and calls the external executable with -d -hwe to get the 64-bit hash,
-    then maps hash → path in the result.
-
-    Each phase is wrapped in a timing log so the cost of reading vs. hashing is visible.
-
-    Args:
-        dictionary_path: Path to dic/path64/mtar_dictionary.txt (one plain asset path per line, no hashes)
-        exe_path: Path to the hash generator executable (GzsTool)
-
-    Returns:
-        Dict mapping 64-bit hash integer to asset path string (same format as
-        load_gani_hash_dictionary, i.e. {hash_int: "/Assets/..."})
-    """
-    result: Dict[int, str] = {}
-
-    dict_file = Path(dictionary_path)
-    if not dict_file.exists():
-        Debug.log_warning(f"GANI dictionary not found: {dictionary_path}")
-        return result
-
-    exe_file = _resolve_external_generator_executable_path(hash_generator_exe_path)
-    if not exe_file.exists():
-        Debug.log_error(f"Hash generator not found: {exe_file}")
-        return result
-
-    # Phase 1: read the plain-path dictionary file
-    Debug.start_timer("Build GANI hash dict: read file")
-    try:
-        paths = [
-            line.strip()
-            for line in dict_file.read_text(encoding='utf-8').splitlines()
-            if line.strip()
-        ]
-    except OSError as e:
-        Debug.log_error(f"Failed to read dictionary file: {e}")
-        Debug.stop_timer("Build GANI hash dict: read file")
-        return result
-    Debug.stop_timer("Build GANI hash dict: read file")
-    Debug.log(f"  Read {len(paths)} paths from '{dictionary_path}'")
-
-    # Phase 2: hash every path with the external exe (-d -hwe path.gani)
-    Debug.start_timer("Build GANI hash dict: hash generation")
-    failed = 0
-    for path in paths:
-        path_with_ext = f"{path}.gani"
-        try:
-            proc = subprocess.run(
-                [str(exe_file), '-d', '-hwe', path_with_ext],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                shell=False,
-                check=False,
-            )
-            if proc.returncode == 0:
-                token = proc.stdout.strip().split()[0]
-                result[int(token, 0)] = path
-            else:
-                failed += 1
-        except Exception:
-            failed += 1
-    Debug.stop_timer("Build GANI hash dict: hash generation")
-    Debug.log(f"  Built {len(result)} hash entries ({failed} failed) from '{dictionary_path}'")
-    return result

@@ -8,19 +8,19 @@ import traceback
 import bpy
 from bpy.types import Operator, Context
 
-from .py_core.core_logging import Debug
+from ..py_core.core_logging import Debug
 
-from .blender_properties import get_effective_import_bake_decimate_error
+from ..blender_properties import get_effective_import_bake_decimate_error
 
-from .py_utilities import util_blender_state, util_parsing, util_blender_animation
+from ..py_utilities import util_blender_state, util_parsing, util_blender_animation
 
-from .py_fox.fox_frig_types import FrigFile
+from ..py_fox.fox_frig_types import FrigFile
 
-from .py_foxwrap.fwrap_mapping_types import TrackMappingData, BoneParameters
-from .py_foxwrap import fwrap_mapping
-from .py_foxwrap.fwrap_mtar_reader import MtarReader
+from ..py_foxwrap.fwrap_mapping_types import TrackMappingData, BoneParameters
+from ..py_foxwrap import fwrap_mapping
+from ..py_foxwrap.fwrap_mtar_reader import MtarReader
 
-from .py_tools import tools_hash_generator, tools_mapping, tools_mtar_importer, tools_animation_bake
+from ..py_tools import tools_hash_generator, tools_mapping, tools_mtar_importer, tools_animation_bake
 
 
 class MTAR_OT_GenerateTrackMappingTemplateFile(Operator):
@@ -166,8 +166,8 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
         # Build GANI hash dictionary on-the-fly from mtar_dictionary.txt using Python CityHash
         gani_hash_dict = None
         if import_props.import_use_hash_dictionary:
-            addon_dir = os.path.dirname(os.path.abspath(__file__))
-            dict_path = os.path.join(addon_dir, 'dic', 'path64', 'mtar_dictionary.txt')
+            path64_folder, _ = tools_hash_generator.get_dictionary_folders()
+            dict_path = os.path.join(path64_folder, 'mtar_dictionary.txt')
             Debug.start_timer("Build GANI hash dict (import)")
             gani_hash_dict = tools_hash_generator.build_gani_hash_dictionary(dict_path)
             Debug.stop_timer("Build GANI hash dict (import)")

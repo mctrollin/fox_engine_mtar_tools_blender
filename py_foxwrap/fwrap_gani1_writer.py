@@ -47,7 +47,7 @@ from ..py_fox.fox_foxdata_types import FoxDataHeader, FoxDataNode, FoxDataNodeTy
 from ..py_fox.fox_gani_types import TrackHeader, TrackUnit, EvpHeader, TrackData, TrackUnitFlags
 from ..py_fox.fox_hash_types import StrCode32
 
-from .fwrap_track_types import TrackUnitWrapper, Tracks
+from .fwrap_gani_track_types import TrackUnitWrapper, Tracks
 
 
 # FoxDataHeader.flags bit 0: set when no SKL_LIST node is written

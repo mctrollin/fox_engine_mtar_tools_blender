@@ -1,18 +1,18 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Tuple
 import os
 import traceback
 
 import bpy
-from bpy.props import BoolProperty
+from bpy.props import BoolProperty, StringProperty
 # from bpy_extras.io_utils import ImportHelper
 # from bpy.types import Context
 
 from .py_core.core_logging import Debug
 
 # from .py_tools.tools_mtar_importer import import_mtar
-from . import blender_panel_import
-from . import blender_panel_export
-from . import blender_panel
+from .py_frontend import blender_panel_import
+from .py_frontend import blender_panel_export
+from .py_frontend import blender_panel
 from . import blender_properties
 
 blender_debug_module = None
@@ -30,6 +30,32 @@ bl_info = {
 }
 
 
+def get_dictionary_folders() -> Tuple[str, str]:
+    """Return configured dictionary folders from addon prefs with fallback defaults."""
+    addon_root = os.path.dirname(__file__)
+    default_path64 = os.path.join(addon_root, "dic", "path64")
+    default_str32 = os.path.join(addon_root, "dic", "str32")
+
+    try:
+        addon = bpy.context.preferences.addons.get(__name__)
+        if addon is not None:
+            prefs = addon.preferences
+            path64 = getattr(prefs, 'path64_dictionary_folder', '')
+            str32 = getattr(prefs, 'str32_dictionary_folder', '')
+            if path64:
+                if not os.path.isabs(path64):
+                    path64 = os.path.join(addon_root, path64)
+                default_path64 = os.path.normpath(path64)
+            if str32:
+                if not os.path.isabs(str32):
+                    str32 = os.path.join(addon_root, str32)
+                default_str32 = os.path.normpath(str32)
+    except Exception:
+        pass
+
+    return default_path64, default_str32
+
+
 class MTAR_AddonPreferences(bpy.types.AddonPreferences):
     bl_idname = __name__
     
@@ -40,7 +66,7 @@ class MTAR_AddonPreferences(bpy.types.AddonPreferences):
         try:
             # If enabling debug and not already registered, try to register
             if self.enable_debug_tools and not _debug_registered:
-                from . import blender_panel_debug as _bd
+                from .py_frontend import blender_panel_debug as _bd
                 blender_debug_module = _bd
                 blender_debug_module.register()
                 # bpy.utils.register_class(MTAR_PT_DebugPanel)
@@ -67,9 +93,25 @@ class MTAR_AddonPreferences(bpy.types.AddonPreferences):
         update=_update_enable_debug
     )
 
+    path64_dictionary_folder: StringProperty(
+        name="Path64 Dictionary Folder",
+        default="dic/path64",
+        description="Folder containing dic/path64 (mtar_dictionary.txt)",
+        subtype='DIR_PATH'
+    )
+
+    str32_dictionary_folder: StringProperty(
+        name="Str32 Dictionary Folder",
+        default="dic/str32",
+        description="Folder containing dic/str32 (events_dictionary.txt)",
+        subtype='DIR_PATH'
+    )
+
     def draw(self, context):
         layout = self.layout
         layout.prop(self, 'enable_debug_tools')
+        layout.prop(self, 'path64_dictionary_folder')
+        layout.prop(self, 'str32_dictionary_folder')
 
 
 
@@ -107,7 +149,7 @@ def register() -> None:
     _debug_registered = False
     if enable_debug:
         try:
-            from . import blender_panel_debug as _bd
+            from .py_frontend import blender_panel_debug as _bd
             blender_debug_module = _bd
             blender_debug_module.register()
             _debug_registered = True

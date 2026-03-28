@@ -20,7 +20,7 @@ from ..py_fox.fox_gani_types import Gani2TrackData, SegmentType, TrackHeader, Tr
 from ..py_fox.fox_hash_types import StrCode32
 from ..py_fox.fox_frig_types import RigUnitType
 
-from .fwrap_track_types import Tracks, TrackUnitWrapper
+from .fwrap_gani_track_types import Tracks, TrackUnitWrapper
 from .fwrap_metadata_types import TrackMetaData
 
 

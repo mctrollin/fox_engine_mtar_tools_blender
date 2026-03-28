@@ -24,7 +24,7 @@ from ..py_utilities import util_blender_animation
 from ..py_fox.fox_hash_types import StrCode32
 
 from .fwrap_metadata_types import TrackMetaData
-from .fwrap_motionpoint_types import MotionPointWrapper, MotionPointEntryWrapper
+from .fwrap_gani_motionpoint_types import MotionPointWrapper, MotionPointEntryWrapper
 from . import fwrap_metadata
 
 

@@ -27,12 +27,12 @@ from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_fox.fox_gani_types import TrackHeader
 from ..py_fox.fox_mtar_types import MtarTableList2
 
-from ..py_foxwrap.fwrap_track_types import TrackUnitWrapper, Tracks
-from ..py_foxwrap.fwrap_motionpoint_types import MotionPointWrapper
-from ..py_foxwrap import fwrap_metadata
+from .fwrap_gani_track_types import TrackUnitWrapper, Tracks
+from .fwrap_gani_motionpoint_types import MotionPointWrapper
+from . import fwrap_metadata
 
 # TODO: don't import tools into other tools
-from .tools_gani_track_importer import import_gani_track
+from .fwrap_gani_track_import import import_gani_track
 
 
 
@@ -420,3 +420,34 @@ def create_and_setup_motion_points_armature(
         Debug.log("Motion point animations import complete")
 
     return armature
+
+
+
+
+
+def store_motion_point_stringlists_on_action(
+    action: bpy.types.Action,
+    mtp_list: Optional[List[str]],
+    mtp_parent_list: Optional[List[str]],
+) -> None:
+    """Store MTP_LIST and MTP_PARENT_LIST string lists on a Blender action.
+
+    These lists are only present in old-format (FoxData) GANI files and are
+    stored on the **main animation action** (not the motion-points action) so
+    that the old-format writer can reconstruct the FoxData string-list nodes
+    on re-export.
+
+    Args:
+        action:          Main animation Blender action to attach properties to.
+        mtp_list:        Motion point name strings from ``MTP_LIST`` node, or
+                         ``None`` if the node was absent.
+        mtp_parent_list: Motion point parent name strings from
+                         ``MTP_PARENT_LIST`` node, or ``None`` if absent.
+    """
+    if mtp_list is not None:
+        fwrap_metadata.store_foxdata_stringlist_on_action(action, fwrap_metadata.PROP_MTP_LIST, mtp_list)
+        Debug.log(f"  Stored {fwrap_metadata.PROP_MTP_LIST}: {len(mtp_list)} entries")
+    if mtp_parent_list is not None:
+        fwrap_metadata.store_foxdata_stringlist_on_action(action, fwrap_metadata.PROP_MTP_PARENT_LIST, mtp_parent_list)
+        Debug.log(f"  Stored {fwrap_metadata.PROP_MTP_PARENT_LIST}: {len(mtp_parent_list)} entries")
+

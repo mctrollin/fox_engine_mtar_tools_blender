@@ -15,31 +15,25 @@ from ..py_fox.fox_frig_types import FrigFile
 
 from ..py_foxwrap_utilities import futil_filtering, futil_naming, futil_rest_pose_correction
 
-from ..py_foxwrap.fwrap_track_types import Tracks
+from ..py_foxwrap.fwrap_gani_track_types import Tracks
 from ..py_foxwrap.fwrap_mtar_import_types import GaniImportData
 from ..py_foxwrap.fwrap_mapping_types import BoneParameters, TransformConstraintEntry
-from ..py_foxwrap.fwrap_motionpoint_types import MotionPointWrapper
-from ..py_foxwrap import fwrap_metadata, fwrap_motionevent, fwrap_mapping, fwrap_mapping_import, fwrap_motionpoint_import
+from ..py_foxwrap.fwrap_gani_motionpoint_types import MotionPointWrapper
 from ..py_foxwrap.fwrap_mtar_reader import MtarReader
-
-# TODO: tools should not import other tools
-from .tools_gani_track_importer import import_gani_track
-from .tools_motion_points_importer import (
-    create_nla_strips_for_actions,
-    create_motion_points_animation_actions,
-    create_and_setup_motion_points_armature,
-)
-from ..py_foxwrap.fwrap_gani1_shader_import import (
-    create_shader_animation_actions,
-    create_and_setup_shader_nodes_armature,
+from ..py_foxwrap import (
+     fwrap_gani_motionevent,
+     fwrap_metadata,
+     fwrap_mapping,
+     fwrap_mapping_import,
+     fwrap_gani_motionpoint_import,
+     fwrap_gani_track_import,
+     fwrap_gani1_shader_import
 )
 
 
-FPS_59_94: float = 59.94
+# What should this be used for?
+# FPS_59_94: float = 59.94
 
-
-
-# ... #############################################################
 
 
 # Animation #############################################################
@@ -213,7 +207,7 @@ def create_animation_actions(
                 description="Original GANI had no SKL_LIST node — suppress on re-export"
             )
             Debug.log(f"  Stored {fwrap_metadata.PROP_NO_SKL_LIST}: 1 (original had no SKL_LIST)")
-        fwrap_motionpoint_import.store_motion_point_stringlists_on_action(
+        fwrap_gani_motionpoint_import.store_motion_point_stringlists_on_action(
             action,
             data.gani1_motion_point_list,
             data.gani1_motion_point_parent_list,
@@ -221,7 +215,7 @@ def create_animation_actions(
 
         # Store motion events if present
         if data.gani_events:
-            fwrap_motionevent.store_motion_events_on_action(action, data.gani_events)
+            fwrap_gani_motionevent.store_motion_events_on_action(action, data.gani_events)
 
         # =============================
 
@@ -232,7 +226,7 @@ def create_animation_actions(
         # Process each GaniTrack in this GANI file
         Debug.log(f"Processing {len(data.gani_bone_tracks)} GaniTrack(s)...")
         for gani_track in data.gani_bone_tracks:
-            import_gani_track(context, action, gani_track)
+            fwrap_gani_track_import.import_gani_track(context, action, gani_track)
 
         Debug.log(f"Track frame range: 0 - {gani_frame_count}")
         
@@ -248,6 +242,7 @@ def create_animation_actions(
         max_frame_end = current_frame_offset
 
     return layout_action, gani_actions, max_frame_end
+
 
 # Armature #############################################################
 
@@ -714,7 +709,7 @@ def create_and_setup_armature(
 
     # Create NLA strips for animations on imported armature
     file_headers = [d.file_header for d in all_gani_data]
-    final_frame_offset = create_nla_strips_for_actions(
+    final_frame_offset = fwrap_gani_motionpoint_import.create_nla_strips_for_actions(
         nla_track,
         gani_actions,
         mtar_file_name,
@@ -727,7 +722,7 @@ def create_and_setup_armature(
     
     # Create NLA strips on custom rig if provided
     if target_nla_track:
-        create_nla_strips_for_actions(
+        fwrap_gani_motionpoint_import.create_nla_strips_for_actions(
             target_nla_track,
             gani_actions,
             mtar_file_name,
@@ -745,6 +740,7 @@ def create_and_setup_armature(
         Debug.log(f"\nSet scene frame range: 0 - {final_frame_offset} (includes {len(gani_actions)} strips + padding)")
 
     return armature
+
 
 # MTAR import #############################################################
 
@@ -997,7 +993,7 @@ def import_mtar_data(
     all_motion_point_gani_tracks = [gani_data.gani_mtp_tracks for gani_data in all_gani_data]
     all_motion_point_layouts = [gani_data.gani_motion_point_layout for gani_data in all_gani_data]
     all_motion_point_track_headers = [gani_data.gani_motion_point_track_header for gani_data in all_gani_data]
-    motion_point_actions = create_motion_points_animation_actions(
+    motion_point_actions = fwrap_gani_motionpoint_import.create_motion_points_animation_actions(
         context,
         mtar_file_name,
         all_motion_point_gani_tracks,
@@ -1013,7 +1009,7 @@ def import_mtar_data(
     # Create and setup motion points armature with animation data (optional secondary task)
     # Pass gani_actions as reference to synchronize frame offsets across armatures
     Debug.update_progress(65, "Setting up Motion Points...")
-    _motion_points_armature = create_and_setup_motion_points_armature(
+    _motion_points_armature = fwrap_gani_motionpoint_import.create_and_setup_motion_points_armature(
         context,
         mtar_file_name,
         motion_points,
@@ -1042,7 +1038,7 @@ def import_mtar_data(
 
     # Create shader nodes animation actions (old-format only; empty lists for new-format)
     Debug.update_progress(67, "Creating Shader Nodes...")
-    shader_actions = create_shader_animation_actions(
+    shader_actions = fwrap_gani1_shader_import.create_shader_animation_actions(
         context,
         mtar_file_name,
         all_shader_gani_tracks,
@@ -1056,7 +1052,7 @@ def import_mtar_data(
     # Create and setup shader nodes armature with animation data
     # Pass gani_actions as reference to synchronize frame offsets across armatures
     Debug.update_progress(68, "Setting up Shader Nodes...")
-    _shader_nodes_armature = create_and_setup_shader_nodes_armature(
+    _shader_nodes_armature = fwrap_gani1_shader_import.create_and_setup_shader_nodes_armature(
         context,
         mtar_file_name,
         all_shader_gani_tracks,

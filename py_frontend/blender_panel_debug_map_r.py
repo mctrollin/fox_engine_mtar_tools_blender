@@ -6,9 +6,9 @@ from math import radians
 import bpy
 from mathutils import Quaternion, Euler
 
-from .py_core.core_logging import Debug
+from ..py_core.core_logging import Debug
 
-from .py_utilities import util_blender_armature
+from ..py_utilities import util_blender_armature
 
 
 class MTAR_PT_DebugMapRPanel(bpy.types.Panel):

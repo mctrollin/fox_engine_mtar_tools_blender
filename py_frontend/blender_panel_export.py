@@ -4,12 +4,12 @@ Blender N-Panel for MTAR export functionality.
 import bpy
 from bpy.types import Context, UILayout
 
-from .py_utilities import util_blender_animation
+from ..py_utilities import util_blender_animation
 
-from .py_fox import fox_mtar_constants as mtar_const
-from .py_fox.fox_mtar_types import is_new_mtar_format
+from ..py_fox import fox_mtar_constants as mtar_const
+from ..py_fox.fox_mtar_types import is_new_mtar_format
 
-from .py_foxwrap import fwrap_metadata
+from ..py_foxwrap import fwrap_metadata
 
 from .blender_operators_export import MTAR_OT_ExportAnimationToMTAR
 from . import blender_panel_shared
@@ -21,11 +21,17 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
     export_props = props.export_props
     settings_props = props.settings_props
 
+    # Export file picker
+    mtar_box = layout.box()
+    mtar_box.prop(export_props, "filepath", text="", icon='CURRENT_FILE')
+    
     # Reference MTAR use option
-    ref_box = layout.box()
-    blender_panel_shared.draw_bool_prop_checkbox_icon(ref_box, export_props, "use_reference_mtar")
-    if export_props.use_reference_mtar:
-        ref_box.prop(props.import_props, "mtar_filepath", text="", icon='FILE')
+    row = mtar_box.row(align=True)
+    col = row.column()
+    col.enabled = export_props.use_reference_mtar
+    col.prop(props.import_props, "mtar_filepath", text="", icon='FILE')
+    row.prop(export_props, "use_reference_mtar", text="", icon='SEQ_SEQUENCER')
+
 
     box_export = layout.box()
 
@@ -165,9 +171,7 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
             # Export info file option
             blender_panel_shared.draw_bool_prop_checkbox_icon(adv_box, export_props, "info_file")
 
-        # Export file picker
-        mtar_box = layout.box()
-        mtar_box.prop(export_props, "filepath", text="", icon='CURRENT_FILE')
+        
 
         # Export button
         box_button = layout.box()

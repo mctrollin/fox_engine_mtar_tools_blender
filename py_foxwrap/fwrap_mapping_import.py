@@ -13,7 +13,7 @@ from ..py_core.core_logging import Debug
 
 from ..py_fox.fox_gani_types import SegmentType
 
-from ..py_foxwrap.fwrap_track_types import TrackDataBlobWrapper
+from .fwrap_gani_track_types import TrackDataBlobWrapper
 from .fwrap_mtar_import_types import GaniImportData
 from ..py_foxwrap.fwrap_mapping_types import BoneParameters
 

@@ -18,9 +18,9 @@ from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox.fox_foxdata_types import FoxDataHeader, FoxDataNode, FoxDataParamType
 from ..py_fox.fox_gani_types import TrackMiniHeader, EvpHeader, Gani2TrackData
 
-from .fwrap_track_types import Tracks, TrackUnitWrapper
+from .fwrap_gani_track_types import Tracks, TrackUnitWrapper
 from .fwrap_mtar_import_types import GaniImportData, Gani1ShaderTrackWrapper
-from . import fwrap_track
+from . import fwrap_gani_track
 
 
 class GaniReader:
@@ -203,7 +203,7 @@ class GaniReader:
                 child_pos += child_node.next_node_offset
         
         # --- Convert UNIT tracks to TrackUnitWrapper list ---
-        bone_tracks = fwrap_track.finalize_bone_tracks(
+        bone_tracks = fwrap_gani_track.finalize_bone_tracks(
             unit_tracks.as_wrapper(),
             skeleton_list=skeleton_list,
             label=f"Read gani @ (0x{gani_start:X})"
@@ -217,7 +217,7 @@ class GaniReader:
             # Always use decimal hash strings for motion point track names (no prefix, no unhashing).
             # This ensures FCurve bone paths match the decimal hash bone names in the motion points armature.
             # SKL_LIST/MTP_LIST name overrides are intentionally skipped here.
-            mtp_tracks = fwrap_track.finalize_tracks(mtp_raw_tracks.as_wrapper())
+            mtp_tracks = fwrap_gani_track.finalize_tracks(mtp_raw_tracks.as_wrapper())
             motion_point_layout = mtp_raw_tracks
             motion_point_track_header = mtp_raw_tracks.header
         

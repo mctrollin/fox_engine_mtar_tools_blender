@@ -8,7 +8,7 @@ from ..py_core.core_logging import Debug
 
 from ..py_fox.fox_gani_types import TrackUnitFlags, EvpHeader, TrackHeader
 
-from .fwrap_track_types import TrackUnitWrapper, Tracks
+from .fwrap_gani_track_types import TrackUnitWrapper, Tracks
 from .fwrap_gani2_writer import Gani2Writer
 
 

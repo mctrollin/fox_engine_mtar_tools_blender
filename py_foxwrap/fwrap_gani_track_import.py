@@ -17,8 +17,8 @@ from ..py_utilities import util_transforms, util_blender_animation
 
 from ..py_fox.fox_gani_types import SegmentType
 
-from ..py_foxwrap.fwrap_track_types import TrackUnitWrapper, TrackDataBlobWrapper
-from ..py_foxwrap.fwrap_mapping import ARMATURE_TARGET_NAME
+from .fwrap_gani_track_types import TrackUnitWrapper, TrackDataBlobWrapper
+from .fwrap_mapping import ARMATURE_TARGET_NAME
 
 
 def _import_keyframes_track_into_action(
