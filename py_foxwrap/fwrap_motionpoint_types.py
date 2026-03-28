@@ -7,7 +7,7 @@ from ..py_core.core_logging import Debug
 from ..py_utilities import util_hashing_cityhash
 
 from ..py_fox.fox_mtar_types import MotionPointList2, MotionPointEntry
-from ..py_fox.fox_misc_types import StrCode32
+from ..py_fox.fox_hash_types import StrCode32
 
 
 @dataclass

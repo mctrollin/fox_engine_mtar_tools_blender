@@ -7,7 +7,7 @@ from typing import BinaryIO, List, Optional
 from enum import IntEnum
 import struct
 
-from .fox_misc_types import StrCode32
+from .fox_hash_types import StrCode32
 
 
 class RigUnitType(IntEnum):

@@ -13,7 +13,7 @@ from .py_core.core_logging import Debug
 
 from .py_utilities import util_blender_state, util_blender_armature, util_parsing, util_blender_animation
 
-from .py_foxwrap.fwrap_misc_export_types import TrackSegmentBoneMapping
+from .py_foxwrap.fwrap_mapping_export_types import TrackSegmentBoneMapping
 from .py_foxwrap import fwrap_mapping, fwrap_metadata
 
 from .py_tools import tools_mtar_exporter

@@ -19,7 +19,7 @@ from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_fox.fox_gani_types import Gani2TrackData, SegmentType, TrackHeader, TrackUnit, TrackUnitFlags, TrackMiniHeader
 from ..py_fox.fox_frig_types import RigUnitType
 
-from .fwrap_misc_types import Tracks, TrackUnitWrapper
+from .fwrap_track_types import Tracks, TrackUnitWrapper
 from .fwrap_metadata_types import TrackMetaData
 
 
@@ -657,6 +657,7 @@ def read_mtar_properties_from_action(action: Optional[bpy.types.Action]) -> Dict
     
     return result
 
+
 def read_mtar_properties_from_any_action(
         layout_action: Optional[bpy.types.Action],
         fallback_actions: Optional[List[bpy.types.Action]] = None,
@@ -683,6 +684,7 @@ def read_mtar_properties_from_any_action(
                 if props:
                     return props
     return {}
+
 
 # Track Metadata Parsing Helpers #############################################################
 
@@ -956,8 +958,6 @@ def parse_track_metadata_generic(metadata_str: str) -> Optional[dict]:
             Debug.log_warning(f"Invalid count value '{count_str}'")
     
     return result
-
-
 
 
 def parse_track_type_from_metadata(metadata_str: str) -> Optional[RigUnitType]:
@@ -1355,7 +1355,7 @@ def build_track_metadata_from_fcurves(bone_name: str, action: bpy.types.Action) 
     if not segment_types:
         return None
 
-    from ..py_fox.fox_misc_types import StrCode32
+    from ..py_fox.fox_hash_types import StrCode32
 
     return TrackMetaData(
         track_name=bone_name,
@@ -1523,6 +1523,7 @@ def merge_track_metadata(layout_meta: TrackMetaData, action_meta: Optional[Track
         result.as_ik_up = action_meta.as_ik_up
 
     return result
+
 
 def get_all_track_metadata_from_action(action: bpy.types.Action) -> Dict[str, TrackMetaData]:
     """Parse all track structure metadata from layout track action.

@@ -25,9 +25,6 @@ from ..py_core.core_logging import Debug
 from . import fwrap_metadata
 
 
-# ---------------------------------------------------------------------------
-# Round-trip helpers (old-format, stored on the main animation action)
-# ---------------------------------------------------------------------------
 
 def store_motion_point_stringlists_on_action(
     action: bpy.types.Action,
@@ -54,3 +51,4 @@ def store_motion_point_stringlists_on_action(
     if mtp_parent_list is not None:
         fwrap_metadata.store_foxdata_stringlist_on_action(action, fwrap_metadata.PROP_MTP_PARENT_LIST, mtp_parent_list)
         Debug.log(f"  Stored {fwrap_metadata.PROP_MTP_PARENT_LIST}: {len(mtp_parent_list)} entries")
+

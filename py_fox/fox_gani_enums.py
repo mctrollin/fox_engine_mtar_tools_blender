@@ -20,6 +20,8 @@ class SegmentType(IntEnum):
     QUAT_DIFF = 5
     VECTOR_DIFF = 6
 
+_DIFF_SEGMENT_TYPES = frozenset({SegmentType.QUAT_DIFF, SegmentType.VECTOR_DIFF})
+
 
 class TrackUnitFlags(IntEnum):
     """Track unit flags from anim_common.bt TRACK_UNIT_FLAGS enum.
@@ -87,12 +89,10 @@ class TrackUnitFlags(IntEnum):
         return flags
 
 
-class MotionGraphFootFitFlags(IntEnum):  
+class MotionGraphFootFitFlags(IntEnum):
     """Flags for the MotionGraphFootFitInfo cache entry in the 'ag' EvpData category.
 
     Source: anim_common.bt FOOT_FIT_INFO_FLAGS enum.
     """
     IS_LOOP    = 0x1  # Animation loops
     START_LEFT = 0x2  # Left foot arrives first (MTEV_AG_SYNC_L event has the lowest start frame)
-
-

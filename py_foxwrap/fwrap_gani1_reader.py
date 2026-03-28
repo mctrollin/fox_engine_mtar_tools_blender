@@ -18,9 +18,9 @@ from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox.fox_foxdata_types import FoxDataHeader, FoxDataNode, FoxDataParamType
 from ..py_fox.fox_gani_types import TrackMiniHeader, EvpHeader, Gani2TrackData
 
-from .fwrap_misc_types import Tracks, TrackUnitWrapper
-from .fwrap_misc_import_types import GaniImportData, ShaderTrackWrapper
-from . import fwrap_misc, fwrap_gani_helpers
+from .fwrap_track_types import Tracks, TrackUnitWrapper
+from .fwrap_misc_import_types import GaniImportData, Gani1ShaderTrackWrapper
+from . import fwrap_track
 
 
 class GaniReader:
@@ -161,7 +161,7 @@ class GaniReader:
                         if mtp_params:
                             node_params["MOTION/MTP"] = mtp_params
                 elif child_hash == gani_const.FOXDATA_HASH_EVP:
-                    events = fwrap_gani_helpers.read_evp_header(file_data, child_node.payload_abs_offset(child_pos), endian)
+                    events = EvpHeader.try_read_at(file_data=file_data, offset=child_node.payload_abs_offset(child_pos), endian=endian)
                     # Store EVP node parameters
                     if child_node.parameters_offset != 0:
                         evp_params = self._read_node_parameters(file_data, child_pos, child_node.parameters_offset, endian)
@@ -203,8 +203,8 @@ class GaniReader:
                 child_pos += child_node.next_node_offset
         
         # --- Convert UNIT tracks to TrackUnitWrapper list ---
-        bone_tracks = fwrap_gani_helpers.finalize_bone_tracks(
-            fwrap_misc.build_gani_tracks_from_tracks(unit_tracks),
+        bone_tracks = fwrap_track.finalize_bone_tracks(
+            unit_tracks.as_wrapper(),
             skeleton_list=skeleton_list,
             label=f"Read gani @ (0x{gani_start:X})"
         )
@@ -217,7 +217,7 @@ class GaniReader:
             # Always use decimal hash strings for motion point track names (no prefix, no unhashing).
             # This ensures FCurve bone paths match the decimal hash bone names in the motion points armature.
             # SKL_LIST/MTP_LIST name overrides are intentionally skipped here.
-            mtp_tracks = fwrap_gani_helpers.finalize_motion_point_tracks(fwrap_misc.build_gani_tracks_from_tracks(mtp_raw_tracks))
+            mtp_tracks = fwrap_track.finalize_tracks(mtp_raw_tracks.as_wrapper())
             motion_point_layout = mtp_raw_tracks
             motion_point_track_header = mtp_raw_tracks.header
         
@@ -423,7 +423,7 @@ class GaniReader:
         
         return results
     
-    def _read_shader_tracks(self, br: BinaryIO, file_data: bytes, shader_node: FoxDataNode, shader_node_pos: int, endian: str = '<') -> Tuple[List[ShaderTrackWrapper], Dict[str, List[Tuple[int, Union[float, str, int]]]]]:
+    def _read_shader_tracks(self, br: BinaryIO, file_data: bytes, shader_node: FoxDataNode, shader_node_pos: int, endian: str = '<') -> Tuple[List[Gani1ShaderTrackWrapper], Dict[str, List[Tuple[int, Union[float, str, int]]]]]:
         """Read SHADER node children and their animation data.
         
         The SHADER node is a container with no payload; its children are individual
@@ -481,7 +481,7 @@ class GaniReader:
                     # TODO(shader-export): Store property name mapping for future export path
                     Debug.log(f"  Shader property: {property_name} - {len(payload_tracks.track_units)} track unit(s)")
                     
-                    shader_track = ShaderTrackWrapper(
+                    shader_track = Gani1ShaderTrackWrapper(
                         property_name=property_name,
                         tracks=payload_tracks,
                     )

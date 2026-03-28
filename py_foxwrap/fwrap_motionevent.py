@@ -15,7 +15,7 @@ from ..py_utilities import util_hashing, util_hashing_cityhash, util_parsing
 
 from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox.fox_gani_types import EvpHeader, EvpData, EventUnitInfo, TimeSection
-from ..py_fox.fox_misc_types import StrCode32
+from ..py_fox.fox_hash_types import StrCode32
 
 from .fwrap_metadata import make_event_property_key, iter_event_properties
 

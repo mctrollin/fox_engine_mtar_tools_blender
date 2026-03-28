@@ -37,10 +37,10 @@ from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox.fox_mtar_types import MtarTableList2
 
-from ..py_foxwrap.fwrap_misc_import_types import ShaderTrackWrapper
-from ..py_foxwrap.fwrap_misc_types import TrackUnitWrapper
+from ..py_foxwrap.fwrap_misc_import_types import Gani1ShaderTrackWrapper
+from ..py_foxwrap.fwrap_track_types import TrackUnitWrapper
 from ..py_foxwrap.fwrap_metadata_types import TrackMetaData
-from ..py_foxwrap import fwrap_gani_helpers, fwrap_misc, fwrap_metadata
+from ..py_foxwrap import fwrap_metadata, fwrap_track
 
 # TODO: Tools shoud not import other tools
 from .tools_gani_track_importer import import_gani_track
@@ -81,7 +81,7 @@ def _store_shader_property_header_on_action(
 
 
 def _convert_shader_track_to_unit_wrappers(
-    shader_track: ShaderTrackWrapper,
+    shader_track: Gani1ShaderTrackWrapper,
 ) -> Tuple[List[TrackUnitWrapper], str]:
     """Convert a ShaderTrackWrapper to a list of unit TrackUnitWrapper objects.
 
@@ -100,11 +100,11 @@ def _convert_shader_track_to_unit_wrappers(
     # Convert to gani tracks using decimal hashes for unit names (no unhashing —
     # the unit hashes are not in the rig/gani dictionaries and decimal preserves
     # the original StrCode32 value needed for export round-trip).
-    gani_tracks: List[TrackUnitWrapper] = fwrap_gani_helpers.apply_track_naming(
-        fwrap_misc.build_gani_tracks_from_tracks(shader_track.tracks),
+    gani_tracks: List[TrackUnitWrapper] = fwrap_track.apply_track_naming(
+        shader_track.tracks.as_wrapper(),
         use_decimal_only=True,
     )
-    fwrap_gani_helpers.apply_segment_suffixes(gani_tracks)
+    fwrap_track.apply_segment_suffixes_to_tracks(gani_tracks)
 
     # Prefix every track/segment name with the property name so bones are
     # globally unique within the armature.
@@ -132,7 +132,7 @@ def _convert_shader_track_to_unit_wrappers(
 def create_shader_animation_actions(
     context: bpy.types.Context,
     mtar_file_name: str,
-    all_shader_gani_tracks: List[List[ShaderTrackWrapper]],
+    all_shader_gani_tracks: List[List[Gani1ShaderTrackWrapper]],
     all_file_headers: List[MtarTableList2],
     path_to_indices: Dict[int, Tuple[int, int]],
     use_verbose_naming: bool,
@@ -271,7 +271,7 @@ def create_shader_animation_actions(
 def create_and_setup_shader_nodes_armature(
     context: bpy.types.Context,
     mtar_file_name: str,
-    all_shader_gani_tracks: List[List[ShaderTrackWrapper]],
+    all_shader_gani_tracks: List[List[Gani1ShaderTrackWrapper]],
     shader_actions: List[Optional[bpy.types.Action]],
     all_file_headers: List[MtarTableList2],
     path_to_indices: Dict[int, Tuple[int, int]],
@@ -303,17 +303,17 @@ def create_and_setup_shader_nodes_armature(
     """
     # Collect all unique property names and their unit bone names across all GANIs.
     # property_name → Set[unit_bone_name]
-    all_properties: Dict[str, set] = {}
+    all_shader_properties: Dict[str, set] = {}
     for shader_tracks in all_shader_gani_tracks:
         for shader_track in shader_tracks:
-            prop = shader_track.property_name
-            if prop not in all_properties:
-                all_properties[prop] = set()
+            prop_name = shader_track.property_name
+            if prop_name not in all_shader_properties:
+                all_shader_properties[prop_name] = set()
             unit_wrappers, _ = _convert_shader_track_to_unit_wrappers(shader_track)
             for unit_wrapper in unit_wrappers:
-                all_properties[prop].add(unit_wrapper.name)
+                all_shader_properties[prop_name].add(unit_wrapper.name)
 
-    if not all_properties:
+    if not all_shader_properties:
         return None
 
     Debug.log("\nCreating shader nodes armature...")
@@ -322,7 +322,7 @@ def create_and_setup_shader_nodes_armature(
     # Build ordered BoneSpec list: property parent bones first, then unit children.
     bone_specs: List[BoneSpec] = []
     seen: set = set()
-    for prop_name, unit_names in all_properties.items():
+    for prop_name, unit_names in all_shader_properties.items():
         if prop_name not in seen:
             bone_specs.append(BoneSpec(name=prop_name, parent_name=None))
             seen.add(prop_name)

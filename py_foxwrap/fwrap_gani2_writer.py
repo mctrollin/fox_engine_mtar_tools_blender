@@ -16,7 +16,7 @@ from ..py_fox.fox_gani_types import (
     AnimKeyframe
 )
 
-from .fwrap_misc_types import TrackUnitWrapper, Tracks, TrackDataBlobWrapper
+from .fwrap_track_types import TrackUnitWrapper, Tracks, TrackDataBlobWrapper
 
 
 class Gani2Writer:

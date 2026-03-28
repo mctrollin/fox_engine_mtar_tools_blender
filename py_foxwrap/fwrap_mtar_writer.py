@@ -19,10 +19,10 @@ from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_fox.fox_mtar_types import MtarHeader, MtarTableList2, MtarTableList, MtarFlags, MtarMiniDataNode, MotionPointList2
 from ..py_fox.fox_gani_enums import CommonInfoNodeType, TrackUnitFlags
 from ..py_fox.fox_gani_types import TrackHeader, TrackUnit, TrackData
-from ..py_fox.fox_misc_types import StrCode32
+from ..py_fox.fox_hash_types import StrCode32
 
 from .fwrap_misc_export_types import GaniExportData
-from .fwrap_misc_types import Tracks, TrackUnitWrapper
+from .fwrap_track_types import Tracks, TrackUnitWrapper
 from .fwrap_gani2_writer import Gani2Writer
 from .fwrap_gani1_writer import GaniWriter
 from . import fwrap_metadata
@@ -590,8 +590,6 @@ class MtarWriter:
         if self.is_new_format:
             Debug.log("  Phase 2: Writing Motion Events GANIs...")
             for file_idx, gani_data in enumerate(self.gani_data_list):
-                if gani_data.gani_path_hash == 18181976344874083521:
-                    Debug.log("bla")
                 if gani_data.gani_motion_events_data:
                     gani_name = gani_data.gani_name
                     Debug.log(f"    Writing Motion Events GANI #{file_idx}: {gani_name}")
@@ -602,10 +600,7 @@ class MtarWriter:
                     
                     # Write motion events as EvpHeader
                     evp_header = gani_data.gani_motion_events_data.motion_events
-                    loop_flag = any(
-                        TrackUnitFlags.LOOP in track.unit_flags
-                        for track in gani_data.gani_tracks_data.gani_tracks
-                    )
+                    loop_flag = gani_data.gani_tracks_data.gani_tracks.is_looped()
                     evp_header.write(buffer, loop_flag, gani_data.gani_frame_count)
 
                     # Align to 16-byte boundary after motion events
@@ -648,7 +643,7 @@ class MtarWriter:
         # If the original GANI had no SKL_LIST node, PROP_NO_SKL_LIST=1 is stored on the
         # action during import; passing skeleton_list=[] tells the writer to suppress it.
         # MTP_LIST and MTP_PARENT_LIST are still stored as action properties.
-        action = gani_data.tracks_data.action if gani_data.tracks_data else None
+        action = gani_data.gani_tracks_data.action if gani_data.gani_tracks_data else None
         if action is None:
             Debug.log_warning(
                 f"Old-format GANI '{gani_data.name}' has no Blender action (reference mode): "

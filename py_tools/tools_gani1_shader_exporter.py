@@ -30,10 +30,10 @@ import bpy
 from ..py_core.core_logging import Debug
 
 from ..py_fox import fox_gani_constants as gani_const
-from ..py_fox.fox_misc_types import StrCode32
+from ..py_fox.fox_hash_types import StrCode32
 
 from ..py_foxwrap.fwrap_metadata_types import TrackMetaData
-from ..py_foxwrap.fwrap_misc_types import TrackUnitWrapper, TrackDataBlobWrapper
+from ..py_foxwrap.fwrap_track_types import TrackUnitWrapper, TrackDataBlobWrapper
 from ..py_foxwrap.fwrap_misc_export_types import ExportActionData
 from ..py_foxwrap import fwrap_misc_export
 
@@ -60,7 +60,6 @@ def collect_shader_nodes_actions(
     """
     return fwrap_misc_export.collect_armature_actions(
         shader_nodes_armature, use_nla,
-        track_type_label="shader nodes",
         export_clean_threshold=export_clean_threshold,
     )
 

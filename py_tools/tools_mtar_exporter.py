@@ -21,22 +21,24 @@ from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_fox.fox_gani_types import AnimKeyframe, SegmentType, TrackUnitFlags, TrackHeader, TrackUnit, TrackData, TrackDataBlob
 from ..py_fox.fox_frig_types import RigUnitType
-from ..py_fox.fox_misc_types import StrCode32
+from ..py_fox.fox_hash_types import StrCode32
 from ..py_fox.fox_mtar_types import is_new_mtar_format
 
+from ..py_foxwrap_utilities import futil_filtering, futil_rest_pose_correction
+
 from ..py_foxwrap.fwrap_misc_import_types import GaniImportData
-from ..py_foxwrap.fwrap_misc_types import TrackUnitWrapper, Tracks, TrackDataBlobWrapper
+from ..py_foxwrap.fwrap_track_types import TrackUnitWrapper, Tracks, TrackDataBlobWrapper
 from ..py_foxwrap.fwrap_misc_export_types import (
     GaniExportData, 
     GaniExportTracksData, 
     GaniExportMotionPointsData, 
     GaniMotionEventsData,
-    GaniExportShaderData,
-    TrackSegmentBoneMapping, 
+    Gani1ExportShaderData,
     ExportActionData, 
 )
+from ..py_foxwrap.fwrap_mapping_export_types import TrackSegmentBoneMapping
 from ..py_foxwrap.fwrap_mapping_types import BoneParameters
-from ..py_foxwrap import fwrap_misc, fwrap_motionevent, fwrap_metadata, fwrap_misc_export, fwrap_mapping, fwrap_filtering
+from ..py_foxwrap import fwrap_motionevent, fwrap_metadata, fwrap_misc_export, fwrap_mapping
 from ..py_foxwrap.fwrap_mtar_writer import MtarWriter
 from ..py_foxwrap.fwrap_mtar_reader import MtarReader
 
@@ -121,7 +123,7 @@ def _convert_import_gani_to_export_gani(
 
     shader_nodes_data = None
     if import_data.gani1_shader_tracks:
-        shader_nodes_data = GaniExportShaderData(
+        shader_nodes_data = Gani1ExportShaderData(
             property_tracks=[s.tracks for s in import_data.gani1_shader_tracks],
             property_names=[s.property_name for s in import_data.gani1_shader_tracks],
             property_headers=[None] * len(import_data.gani1_shader_tracks)
@@ -381,7 +383,7 @@ def build_layout_track_from_metadata(track_segment_bone_mapping: TrackSegmentBon
 
 # Mapping #############################################################
 
-def extract_rest_pose_correction_mapping_from_armature(track_segment_bone_mapping: 'TrackSegmentBoneMapping', armature: bpy.types.Object) -> None:
+def extract_rest_pose_correction_mapping_from_armature(track_segment_bone_mapping: TrackSegmentBoneMapping, armature: bpy.types.Object) -> None:
     """Extract rest pose rotations from armature and merge with existing transformations.
     
     For each bone in the mapping, extracts its rest pose from the armature and:
@@ -414,13 +416,13 @@ def extract_rest_pose_correction_mapping_from_armature(track_segment_bone_mappin
             
             # Extract rest pose rotation from armature
             bone = armature.data.bones[blender_bone_name]
-            rest_pose_dict = fwrap_misc.get_rest_pose_dict_from_bone(bone)
+            rest_pose_dict = util_blender_armature.get_rest_pose_dict_from_bone(bone)
 
             had_map_r = bone_params.map_r is not None
             existing_euler = bone_params.map_r['euler'] if had_map_r else None
 
             # Apply helper updates for both import/export semantics
-            euler_deg = fwrap_misc.apply_rest_pose_correction_to_target(bone_params, rest_pose_dict)
+            euler_deg = futil_rest_pose_correction.apply_rest_pose_correction_to_target(bone_params, rest_pose_dict)
 
             if bone_params.space_r:
                 Debug.log(f"  {blender_bone_name} [WORLD]: Added rest pose to offset_r: ({euler_deg[0]:.1f}, {euler_deg[1]:.1f}, {euler_deg[2]:.1f})")
@@ -1810,7 +1812,7 @@ def export_mtar(context: bpy.types.Context,
     else:
         Debug.log("GANI filter file mode enabled; ignoring index string selection")
 
-    actions_to_export = fwrap_filtering.filter_gani_export_actions(
+    actions_to_export = futil_filtering.filter_gani_export_actions(
         actions_to_export,
         bpy.path.abspath(props.gani_filter_txt_filepath) if props.use_gani_filter_file else None,
     )
@@ -1915,7 +1917,7 @@ def export_mtar(context: bpy.types.Context,
     if motion_points_armature:
         # Detach the auxiliary motion points armature so its export is not influenced
         # by any parenting/transform offsets from the main armature.
-        parent = util_blender_armature.detach_armature_for_export(motion_points_armature)
+        parent = util_blender_armature.prepare_aux_armature_for_export(motion_points_armature)
         try:
             # Build MotionPointsList from armature bones (but do not write header count yet - it is computed at write time)
             motion_points_wrapper = tools_motion_points_exporter.build_motion_points_list_from_armature(motion_points_armature)
@@ -1933,7 +1935,7 @@ def export_mtar(context: bpy.types.Context,
             else:
                 Debug.log("No motion point actions found (motion points list will be exported without animations)")
         finally:
-            util_blender_armature.restore_armature_after_export(motion_points_armature, parent)
+            util_blender_armature.restore_aux_armature_after_export(motion_points_armature, parent)
     else:
         Debug.log("Motion points will not be exported")
     
@@ -2120,7 +2122,7 @@ def export_mtar(context: bpy.types.Context,
         if shader_nodes_actions_data:
             # Detach the auxiliary shader nodes armature so its export is not influenced
             # by any parenting/transform offsets from the main armature.
-            shader_node_parent = util_blender_armature.detach_armature_for_export(shader_nodes_armature)
+            shader_node_parent = util_blender_armature.prepare_aux_armature_for_export(shader_nodes_armature)
             try:
                 shader_node_action_data: Optional[ExportActionData] = fwrap_misc_export.find_shader_action_for_gani(
                     gani_name, shader_nodes_actions_by_gani_index
@@ -2160,7 +2162,7 @@ def export_mtar(context: bpy.types.Context,
                             property_headers = tools_gani1_shader_exporter.collect_shader_property_headers(
                                 shader_node_action_data.action, property_names
                             )
-                            shader_nodes_data = GaniExportShaderData(
+                            shader_nodes_data = Gani1ExportShaderData(
                                 property_tracks=property_tracks,
                                 property_names=property_names,
                                 property_headers=property_headers,
@@ -2181,7 +2183,7 @@ def export_mtar(context: bpy.types.Context,
                         f"- shader nodes will be skipped for this GANI"
                     )
             finally:
-                util_blender_armature.restore_armature_after_export(shader_nodes_armature, shader_node_parent)
+                util_blender_armature.restore_aux_armature_after_export(shader_nodes_armature, shader_node_parent)
         else:
             Debug.log(f"    No shader node action for GANI '{gani_name}'")
 

@@ -1,15 +1,27 @@
-﻿from dataclasses import dataclass
+﻿
+from dataclasses import dataclass
 from typing import BinaryIO, List, Optional
+
+from ..py_core.core_logging import Debug
 
 from ..py_utilities import util_binary_write
 
+from ..py_fox.fox_gani_enums import _DIFF_SEGMENT_TYPES
 from ..py_fox.fox_gani_types import TrackHeader, TrackUnit, TrackUnitFlags, TrackData, TrackDataBlob, AnimKeyframe
 from ..py_fox.fox_frig_types import RigUnitType
 
 
 @dataclass
 class Tracks:
-    """Track layout structure containing header and track units."""
+    """Fox track layout object used for both import and export.
+
+    Represents the structural layout information for a GANI track list:
+    - header: TrackHeader from the FOX binary
+    - track_units: ordered list of TrackUnit instances, each with segment metadata
+
+    Can be read from binary via `Tracks.read()` and written via `Tracks.write()`.
+    `as_wrapper()` converts it to a list of `TrackUnitWrapper` for higher-level operations.
+    """
     header : TrackHeader
     track_units : list[TrackUnit]
 
@@ -209,9 +221,65 @@ class Tracks:
                 if blob_bytes:
                     bw.write(blob_bytes)
 
+    def as_wrapper(self) -> List['TrackUnitWrapper']:
+        """Convert a Tracks object to a list of TrackUnitWrapper instances."""
+       
+        wrappers: List[TrackUnitWrapper] = []
+        for track_unit in self.track_units:
+            segments = []
+            for segment_index, track_data in enumerate(track_unit.segments_data):
+                data_blob = getattr(track_data, 'data_blob', None)
+                if data_blob is None:
+                    Debug.log_warning(f"build_gani_tracks_from_tracks: Track '{track_unit.name}' segment {segment_index} has data_blob=None")
+                segments.append(TrackDataBlobWrapper(
+                    name=track_unit.name,
+                    segment_index=segment_index,
+                    data_blob=data_blob,
+                ))
+
+            # Convert integer unit_flags to list of TrackUnitFlags if possible.
+            flags = []
+            if isinstance(track_unit.unit_flags, int):
+                flags = TrackUnitFlags.int_to_track_unit_flags(track_unit.unit_flags)
+            else:
+                flags = track_unit.unit_flags
+
+            rig_unit_type_val = getattr(track_unit, 'rig_unit_type', None)
+            if rig_unit_type_val is not None:
+                Debug.log_warning(f"build_gani_tracks_from_tracks: Track '{track_unit.name}' has unexpected rig_unit_type={rig_unit_type_val}")
+                # NOTE: TrackUnit does not officialy define rig_unit_type; this should be investigated further.
+
+            wrappers.append(TrackUnitWrapper(
+                name=track_unit.name,
+                segments_track_data=segments,
+                unit_flags=flags,
+                rig_unit_type=rig_unit_type_val,
+            ))
+
+        return wrappers
+
+    def is_looped(self) -> bool:
+        """Return True if any TrackUnit in this Tracks object has the LOOP flag set."""
+        for track_unit in self.track_units:
+            flags: int = track_unit.unit_flags
+            if flags & TrackUnitFlags.LOOP:
+                return True
+        return False
+
 
 @dataclass
 class TrackDataBlobWrapper:
+    """In-memory track segment wrapper for import/export manipulation.
+
+    Used to represent a single
+    segment (or sub-track) with transformation overrides.
+
+    Attributes:
+    - data_blob: the low-level TrackDataBlob with keyframes
+    - name: current track/bone name (can be remapped by mapping logic)
+    - segment_index: segment index in the parent track (0-based)
+    - rotation_offset/map_r/rest/space_r/as_ik_up: mapping transformation data
+    """
     data_blob: TrackDataBlob
     name: str
     segment_index: int
@@ -222,10 +290,34 @@ class TrackDataBlobWrapper:
     as_ik_up: Optional[dict] = None
 
 
+
 @dataclass
 class TrackUnitWrapper:
+    """Wrapper for TrackUnit with segment wrappers for mapping and output.
+
+    Provides a more convenient API for work outside the binary TrackUnit format:
+    - name: final resolved track/bone name
+    - segments_track_data: list of TrackDataBlobWrapper for each segment
+    - unit_flags: list of TrackUnitFlags for this track
+    - rig_unit_type: optional rig unit metadata to preserve rig semantics
+
+    Includes helper `is_root_motion_track` for diff-segment root motion detection.
+    """
     name: str
     segments_track_data: List[TrackDataBlobWrapper]
     unit_flags: List[TrackUnitFlags]
     rig_unit_type: Optional[RigUnitType] = None
 
+    def is_root_motion_track(self) -> bool:
+        """Checks if this track uses diff location and rotation segments.
+        Currently this is our own assumption that this equals a root motion track.
+        Based on empirical data.
+        """
+        if not self.segments_track_data:
+            return True
+        return all(seg.data_blob.type in _DIFF_SEGMENT_TYPES for seg in self.segments_track_data)
+
+    # @staticmethod
+    # def is_looped_track_list(track_units: List['TrackUnitWrapper']) -> bool:
+    #     """Return True if any track in *track_units* has the LOOP flag set."""
+    #     return any(TrackUnitFlags.LOOP in track.unit_flags for track in track_units)

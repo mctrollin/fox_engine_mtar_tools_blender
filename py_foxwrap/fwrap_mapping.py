@@ -23,7 +23,7 @@ ARMATURE_TARGET_NAME: str = "[armature]"
 CONSTRAINT_TRANSFORM_SOURCE: str = "[constraint_transform]"
 
 
-def parse_mapping_line(line: str, line_num: int) -> Optional[Tuple[str, dict]]:
+def _parse_mapping_line(line: str, line_num: int) -> Optional[Tuple[str, dict]]:
     """Parse a single line from the mapping file.
     
     Args:
@@ -143,7 +143,7 @@ def parse_mapping_line(line: str, line_num: int) -> Optional[Tuple[str, dict]]:
     
     return (from_name, mapping_data)
 
-def validate_track_mappings(track_mapping: Dict[str, BoneParameters]) -> None:
+def _validate_track_mappings(track_mapping: Dict[str, BoneParameters]) -> None:
     """Validate that only one rotation track and one location track map to each target bone.
     
     Also validates that space_ik is only used with as_ik_up.
@@ -242,7 +242,7 @@ def parse_track_mapping_file(filepath: str) -> TrackMappingData:
                     continue
 
                 # parse each line as a bone mapping entry
-                result = parse_mapping_line(line, line_num)
+                result = _parse_mapping_line(line, line_num)
                 if result:
                     source_name, bone_mapping_dict = result  # source_name is the Fox bone name
                     blender_bone_name = bone_mapping_dict['name']
@@ -269,7 +269,7 @@ def parse_track_mapping_file(filepath: str) -> TrackMappingData:
         Debug.log(f"Loaded {len(mapping_data)} bone mapping(s) from {filepath}")
 
         # Validate track mappings
-        validate_track_mappings(mapping_data.fox_to_blender)
+        _validate_track_mappings(mapping_data.fox_to_blender)
 
         return mapping_data
 

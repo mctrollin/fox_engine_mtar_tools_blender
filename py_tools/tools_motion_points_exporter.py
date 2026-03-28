@@ -21,7 +21,7 @@ from ..py_core.core_logging import Debug
 
 from ..py_utilities import util_blender_animation
 
-from ..py_fox.fox_misc_types import StrCode32
+from ..py_fox.fox_hash_types import StrCode32
 
 from ..py_foxwrap.fwrap_metadata_types import TrackMetaData
 from ..py_foxwrap.fwrap_misc_export_types import ExportActionData
@@ -187,6 +187,5 @@ def collect_motion_point_actions(
     """
     return fwrap_misc_export.collect_armature_actions(
         motion_points_armature, use_nla,
-        track_type_label="motion points",
         export_clean_threshold=export_clean_threshold,
     )

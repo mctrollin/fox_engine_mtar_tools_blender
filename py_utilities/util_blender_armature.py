@@ -1,6 +1,7 @@
 """Blender armature utility functions."""
 
-from typing import List, Tuple, Optional, Dict
+import math
+from typing import List, Tuple, Optional, Dict, Set
 
 import bpy
 from mathutils import Euler, Matrix
@@ -66,57 +67,10 @@ def create_track_armature(
 
 # Rest Pose Utilities #############################################################
 
-# TODO check if we don't need this function anymore or why it was not used
-# def gather_known_bone_names_from_tracks(all_gani_tracks: List[List] | List[GaniImportData]) -> set:
-#     """Gather all bone names that exist in track data.
-    
-#     The input may be either the legacy ``List[List[TrackUnitWrapper]]`` or a
-#     list of :class:`GaniImportData` objects.  If ``GaniImportData`` objects are
-#     provided, their ``bone_tracks`` lists are used internally.
-    
-#     Args:
-#         all_gani_tracks: Either raw track lists or a list of GaniImportData objects.
-        
-#     Returns:
-#         Set of bone names found in the track data
-#     """
-#     # normalize to list-of-lists
-#     if all_gani_tracks and isinstance(all_gani_tracks[0], GaniImportData):
-#         track_lists = [d.gani_bone_tracks for d in all_gani_tracks]
-#     else:
-#         track_lists = all_gani_tracks  # type: ignore
-
-#     known_bone_names = set()
-#     for gani_tracks in track_lists:
-#         for track_unit in gani_tracks:
-#             for track_blob in track_unit.segments_track_data:
-#                 if track_blob.name:
-#                     known_bone_names.add(track_blob.name)
-#     return known_bone_names
 
 
-def gather_known_bone_names_from_mapping(track_segment_bone_mapping) -> set:
-    """Gather all bone names that exist in track segment bone mapping.
-    
-    This builds a set of bone names from the export mapping, used to identify which
-    bones are part of the actual animation data (vs Blender utility bones).
-    
-    Args:
-        track_segment_bone_mapping: TrackSegmentBoneMapping object containing bone mappings
-        
-    Returns:
-        Set of bone names found in the mapping
-    """
-    known_bone_names = set()
-    for track_idx in track_segment_bone_mapping.get_track_indices():
-        for segment_idx in track_segment_bone_mapping.get_segment_indices(track_idx):
-            blender_bone_name, _ = track_segment_bone_mapping.get_segment_mapping(track_idx, segment_idx)
-            if blender_bone_name:
-                known_bone_names.add(blender_bone_name)
-    return known_bone_names
 
-
-def find_known_parent_bone(bone: bpy.types.Bone, known_bone_names: set) -> Tuple[Optional[bpy.types.Bone], List[str]]:
+def find_known_parent_bone(bone: bpy.types.Bone, known_bone_names: Set[str]) -> Tuple[Optional[bpy.types.Bone], List[str]]:
     """Walk up parent chain to find the nearest parent bone that exists in the known bone set.
     
     This is used to skip Blender utility/helper bones (like Rigify control bones) when
@@ -189,6 +143,17 @@ def extract_rest_pose_rotation(bone: bpy.types.Bone, is_world_space: bool, known
     return euler, space_label
 
 
+def get_rest_pose_dict_from_bone(bone: bpy.types.Bone) -> dict:
+    """Convert a bone's local rest rotation into Fox mapping rest-pose structure."""
+    euler = bone.matrix_local.to_euler('XYZ')
+    euler_deg = [
+        math.degrees(euler.x),
+        math.degrees(euler.y),
+        math.degrees(euler.z),
+    ]
+    return {'euler': euler_deg, 'order': 'XYZ'}
+
+
 # Auxiliary Armature Detection Helpers #############################################################
 
 def auto_detect_motion_points_armature(main_armature: bpy.types.Object) -> Optional[bpy.types.Object]:
@@ -245,7 +210,7 @@ def auto_detect_shader_nodes_armature(main_armature: bpy.types.Object) -> Option
     return None
 
 
-def auto_detect_aux_armatures(main_armature: bpy.types.Object) -> tuple[Optional[bpy.types.Object], Optional[bpy.types.Object]]:
+def auto_detect_aux_armatures(main_armature: bpy.types.Object) -> Tuple[Optional[bpy.types.Object], Optional[bpy.types.Object]]:
     """Shortcut that returns ``(motion_points, shader_nodes)`` armatures.
 
     This is mostly for callers that need to look up both objects at once.
@@ -264,7 +229,7 @@ def auto_detect_aux_armatures(main_armature: bpy.types.Object) -> tuple[Optional
 # They are attached for auto-detection purposes only.
 # The main export armature is never detached and should not be attached to anything.
 
-def detach_armature_for_export(armature: bpy.types.Object) -> Optional[bpy.types.Object]:
+def prepare_aux_armature_for_export(armature: bpy.types.Object) -> Optional[bpy.types.Object]:
     """Detach an armature from its parent and clear its transforms.
 
     This ensures auxiliary armatures export with an identity world transform regardless
@@ -284,7 +249,7 @@ def detach_armature_for_export(armature: bpy.types.Object) -> Optional[bpy.types
     return parent
 
 
-def restore_armature_after_export(armature: bpy.types.Object, parent: Optional[bpy.types.Object]) -> None:
+def restore_aux_armature_after_export(armature: bpy.types.Object, parent: Optional[bpy.types.Object]) -> None:
     """Restore an armature's parent and clear transforms.
 
     The armature will remain at identity transform after restore (as intended for

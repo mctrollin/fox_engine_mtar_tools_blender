@@ -13,11 +13,13 @@ from ..py_fox.fox_mtar_types import MtarTableList, MtarTableList2, MtarHeader, i
 from ..py_fox.fox_gani_types import SegmentType, TrackUnitFlags
 from ..py_fox.fox_frig_types import FrigFile
 
-from ..py_foxwrap.fwrap_misc_types import TrackDataBlobWrapper, Tracks
+from ..py_foxwrap_utilities import futil_filtering, futil_rest_pose_correction
+
+from ..py_foxwrap.fwrap_track_types import Tracks
 from ..py_foxwrap.fwrap_misc_import_types import GaniImportData
 from ..py_foxwrap.fwrap_mapping_types import BoneParameters, TransformConstraintEntry
 from ..py_foxwrap.fwrap_motionpoint_types import MotionPointWrapper
-from ..py_foxwrap import fwrap_metadata, fwrap_misc, fwrap_misc_import, fwrap_motionevent, fwrap_motionpoint, fwrap_mapping, fwrap_filtering
+from ..py_foxwrap import fwrap_metadata, fwrap_motionevent, fwrap_motionpoint, fwrap_mapping, fwrap_mapping_import
 from ..py_foxwrap.fwrap_mtar_reader import MtarReader
 
 # TODO: tools should not import other tools
@@ -38,116 +40,7 @@ FPS_59_94: float = 59.94
 
 # Layout and MetaData #############################################################
 
-# Mapping #############################################################
-
-def apply_track_mapping_transformation(track_blob: TrackDataBlobWrapper, mapping_data: BoneParameters, old_name: str) -> None:
-    """Apply transformation parameters from track mapping to a TrackDataBlobWrapper.
-    
-    This helper function extracts and applies all transformation parameters
-    (name change, rotation offset, axis mapping, rotation addition) to a track.
-    
-    Args:
-        track_blob: The TrackDataBlobWrapper to transform
-        mapping_data: BoneParameters containing transformation parameters
-        old_name: Original track name (for logging)
-    """
-    # Use track_name from BoneParameters (defaults to fox_name if not set)
-    new_name: str = mapping_data.track_name if mapping_data.track_name else mapping_data.fox_name
-    
-    track_blob.name = new_name
-    Debug.log(f"  '{old_name}' -> '{new_name}'")
-    
-    # Store rotation offset transformation if present (will be applied during import)
-    if mapping_data.rotation_offset:
-        track_blob.rotation_offset = mapping_data.rotation_offset
-        # rotation_offset is now a list of offsets
-        offset_list = mapping_data.rotation_offset
-        for i, offset in enumerate(offset_list, 1):
-            Debug.log(f"    Rotation offset #{i}: ({offset['euler'][0]}, {offset['euler'][1]}, {offset['euler'][2]}) {offset['order']}")
-    
-    # Store rotation axis mapping transformation if present (will be applied during import)
-    if mapping_data.rotation_axis_map:
-        track_blob.rotation_axis_map = mapping_data.rotation_axis_map
-        axis_str = ','.join([('-' if m['negate'] else '') + m['axis'] for m in mapping_data.rotation_axis_map])
-        Debug.log(f"    Rotation axis mapping: {axis_str}")
-    
-    # Store directional vector IK transformation if present (will be applied during import)
-    if mapping_data.as_ik_up:
-        track_blob.as_ik_up = mapping_data.as_ik_up
-        ik_data = mapping_data.as_ik_up
-        Debug.log(f"    Directional vector IK: base='{ik_data.bone_base}', axis={ik_data.axis}")
-    
-    # Store map_r rest pose transformation if present (for LOCAL space tracks - similarity transformation)
-    if mapping_data.map_r:
-        track_blob.map_r_rest_pose = mapping_data.map_r
-        euler = mapping_data.map_r['euler']
-        Debug.log(f"    Rest pose (map_r): ({euler[0]}, {euler[1]}, {euler[2]}) {mapping_data.map_r['order']}")
-    
-    # Store space_r indicator if present (for WORLD space tracks - simple multiplication)
-    if mapping_data.space_r:
-        track_blob.space_r = mapping_data.space_r
-        Debug.log(f"    Track space: {mapping_data.space_r['space']}")
-
-
-def validate_track_mapping_collisions(
-    all_gani_data: List[GaniImportData],
-    track_mapping: Dict[str, BoneParameters],
-) -> None:
-    """Warn if the mapping would assign multiple segments of the same type to one bone.
-
-    The previous implementation used raw track lists and could report collisions
-    across multiple GANIs.  We now accept `GaniImportData` objects and perform
-    the check separately for each animation file, avoiding false positives.
-
-    Args:
-        all_gani_data: List of GaniImportData objects, one per GANI file.
-        track_mapping: Mapping dictionary keyed by source track name.
-    """
-    if not track_mapping:
-        return
-
-    Debug.log("Validating track mapping collisions...")
-    # iterate each GANI independently to avoid cross-file warnings
-    for index, data in enumerate(all_gani_data):
-        collision_map: Dict[Tuple[str, SegmentType], List[str]] = {}
-        for gani_track in fwrap_misc_import.iter_gani_bone_tracks([data]):
-            for track_blob in gani_track.segments_track_data:
-                name = track_blob.name
-                if name not in track_mapping:
-                    continue
-                mapping_data: BoneParameters = track_mapping[name]
-                target_name: str = (
-                    mapping_data.track_name if mapping_data.track_name else mapping_data.fox_name
-                )
-                key = (target_name, track_blob.data_blob.type)
-                collision_map.setdefault(key, []).append(name)
-
-        for (target_name, seg_type), sources in collision_map.items():
-            if len(sources) > 1:
-                Debug.log_warning(
-                    f"GANI#{index}: mapping would apply multiple {seg_type.name} segments {sources} to bone '{target_name}'"
-                )
-
-def apply_track_transformations(all_gani_data: List[GaniImportData], track_mapping: Optional[Dict[str, BoneParameters]] = None) -> None:
-    """Apply track mapping transformations to all tracks.
-    
-    Applies user-defined track mapping transformations if provided.
-    
-    Args:
-        all_gani_data: List of GaniImportData objects (one per file).
-        track_mapping: Optional dictionary mapping source track name to BoneParameters
-    """
-    # Apply track mapping transformations if provided
-    if track_mapping:
-        Debug.log("Applying track mapping transformations...")
-        validate_track_mapping_collisions(all_gani_data, track_mapping)
-
-        for gani_track in fwrap_misc_import.iter_gani_tracks(all_gani_data, include_mtp=True):
-            for track_blob in gani_track.segments_track_data:
-                if track_blob.name in track_mapping:
-                    old_name: str = track_blob.name
-                    mapping_data: BoneParameters = track_mapping[old_name]
-                    apply_track_mapping_transformation(track_blob, mapping_data, old_name)
+# ... #############################################################
 
 def extract_rest_pose_from_custom_rig(all_gani_data: List[GaniImportData], custom_rig: Optional[bpy.types.Object]) -> None:
     """Extract rest pose rotations from custom rig and merge with existing transformations.
@@ -168,7 +61,7 @@ def extract_rest_pose_from_custom_rig(all_gani_data: List[GaniImportData], custo
     Debug.log("\n=== Extracting Rest Pose from custom rig ===")
     rest_pose_count = 0
     
-    for gani_track in fwrap_misc_import.iter_gani_bone_tracks(all_gani_data):
+    for gani_track in GaniImportData.iter_bone_tracks(all_gani_data):
         for track_blob in gani_track.segments_track_data:
             # Only apply to rotation segments
             if track_blob.data_blob.type not in [SegmentType.QUAT, SegmentType.QUAT_DIFF]:
@@ -184,13 +77,13 @@ def extract_rest_pose_from_custom_rig(all_gani_data: List[GaniImportData], custo
 
             # Extract rest pose rotation from custom rig
             bone = custom_rig.data.bones[track_blob.name]
-            rest_pose_dict = fwrap_misc.get_rest_pose_dict_from_bone(bone)
+            rest_pose_dict = util_blender_armature.get_rest_pose_dict_from_bone(bone)
 
             had_map_r_rest_pose = track_blob.map_r_rest_pose is not None
             existing_euler = track_blob.map_r_rest_pose['euler'] if had_map_r_rest_pose else None
 
             # Apply helper updates for both import/export semantics
-            euler_deg = fwrap_misc.apply_rest_pose_correction_to_target(track_blob, rest_pose_dict)
+            euler_deg = futil_rest_pose_correction.apply_rest_pose_correction_to_target(track_blob, rest_pose_dict)
 
             if track_blob.space_r:
                 Debug.log(f"  {track_blob.name} [WORLD]: Added rest pose to offset_r: ({euler_deg[0]:.1f}, {euler_deg[1]:.1f}, {euler_deg[2]:.1f})")
@@ -781,7 +674,7 @@ def create_and_setup_armature(
 
     # Collect all unique bone names from all GANI files
     all_bone_names = []
-    for gani_track in fwrap_misc_import.iter_gani_bone_tracks(all_gani_data):
+    for gani_track in GaniImportData.iter_bone_tracks(all_gani_data):
         for keyframes_track in gani_track.segments_track_data:
             bone_name_str = str(keyframes_track.name)
             # Skip the special armature-object target — it is not a real bone.
@@ -1017,7 +910,7 @@ def import_mtar_data(
         Debug.log(f"Found {len(all_gani_data)} GANI file(s)")
 
     # File based filter
-    all_gani_data = fwrap_filtering.filter_gani_import_data(
+    all_gani_data = futil_filtering.filter_gani_import_data(
         all_gani_data,
         bpy.path.abspath(context.scene.mtar_properties.gani_filter_txt_filepath) if context.scene.mtar_properties.use_gani_filter_file else None,
         gani_hash_dict=gani_hash_dict,
@@ -1089,7 +982,7 @@ def import_mtar_data(
     # Modify keyframes track names based on rig unit type and apply track mapping transformations
     Debug.update_progress(20, "Applying Mapping...")
     # apply mapping to all tracks (bone + motion points) stored in the data objects
-    apply_track_transformations(all_gani_data, track_mapping)
+    fwrap_mapping_import.apply_track_transformations(all_gani_data, track_mapping)
     
     # Extract rest pose from custom rig if provided (merges with mapping file transformations)
     # Check settings to see if rest pose correction is enabled

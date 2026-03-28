@@ -5,7 +5,7 @@ import struct
 
 from ..py_core.core_logging import Debug
 
-from .fox_misc_types import PathCode64, StrCode32
+from .fox_hash_types import PathCode64, StrCode32
 
 
 class MtarFlags(IntEnum):

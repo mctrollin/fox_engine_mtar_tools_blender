@@ -9,10 +9,9 @@ from ..py_core.core_logging import Debug
 from ..py_utilities import util_hashing
 from ..py_utilities import util_hashing_cityhash
 
-from ..py_fox.fox_misc_types import StrCode32
-from ..py_fox.fox_gani_types import EvpHeader
+from ..py_fox.fox_hash_types import StrCode32
 
-from .fwrap_misc import TrackUnitWrapper, TrackDataBlobWrapper
+from .fwrap_track_types import TrackUnitWrapper, TrackDataBlobWrapper
 
 
 def resolve_track_name(rig_hash: StrCode32, prefix: Optional[str] = None) -> str:
@@ -91,7 +90,7 @@ def _apply_stringlist_names(
             )
 
 
-def apply_segment_suffixes(gani_tracks: List[TrackUnitWrapper]) -> List[TrackUnitWrapper]:
+def apply_segment_suffixes_to_tracks(gani_tracks: List[TrackUnitWrapper]) -> List[TrackUnitWrapper]:
     """Apply _N suffix to TrackDataBlobWrapper names for multi-segment tracks."""
     for gani_track in gani_tracks:
         if len(gani_track.segments_track_data) <= 1:
@@ -108,25 +107,15 @@ def finalize_bone_tracks(
     label: str = "GANI",
 ) -> List[TrackUnitWrapper]:
     """Apply track naming (unhashing) and segment suffixes to bone tracks."""
-    named = apply_track_naming(tracks, prefix=None)
+    named: List[TrackUnitWrapper] = apply_track_naming(tracks, prefix=None)
     if skeleton_list is not None:
         _apply_stringlist_names(named, skeleton_list, label=f"Read {label} SKL_LIST")
-    apply_segment_suffixes(named)
+    apply_segment_suffixes_to_tracks(named)
     return named
 
 
-def finalize_motion_point_tracks(tracks: List[TrackUnitWrapper]) -> List[TrackUnitWrapper]:
-    """Apply track naming and segment suffixes to motion point tracks."""
-    named = apply_track_naming(tracks, use_decimal_only=True)
-    apply_segment_suffixes(named)
+def finalize_tracks(tracks: List[TrackUnitWrapper]) -> List[TrackUnitWrapper]:
+    """Apply track naming and segment suffixes to general tracks (e.g. motion point tracks)."""
+    named: List[TrackUnitWrapper] = apply_track_naming(tracks, use_decimal_only=True)
+    apply_segment_suffixes_to_tracks(named)
     return named
-
-
-def read_evp_header(file_data: bytes, offset: int, endian: str = '<') -> Optional[EvpHeader]:
-    """Read optional EVP data if an offset is present."""
-    if not offset:
-        return None
-
-    br = io.BytesIO(file_data)
-    br.seek(offset)
-    return EvpHeader.read(br, endian)

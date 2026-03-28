@@ -26,7 +26,7 @@ from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_fox.fox_gani_types import TrackHeader
 from ..py_fox.fox_mtar_types import MtarTableList2
 
-from ..py_foxwrap.fwrap_misc import TrackUnitWrapper, Tracks
+from ..py_foxwrap.fwrap_track_types import TrackUnitWrapper, Tracks
 from ..py_foxwrap.fwrap_motionpoint_types import MotionPointWrapper
 from ..py_foxwrap import fwrap_metadata
 

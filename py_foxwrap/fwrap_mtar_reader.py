@@ -12,7 +12,7 @@ from ..py_fox.fox_foxdata_types import FoxDataHeader
 
 from .fwrap_gani2_reader import Gani2Reader
 from .fwrap_gani1_reader import GaniReader
-from .fwrap_misc_types import Tracks
+from .fwrap_track_types import Tracks
 from .fwrap_misc_import_types import CommonInfo, GaniImportData
 
 

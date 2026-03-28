@@ -11,32 +11,29 @@ from ..py_utilities import util_blender_animation
 from ..py_utilities import util_parsing
 
 from ..py_fox.fox_gani_types import TrackUnitFlags, SegmentType
-from ..py_fox.fox_misc_types import StrCode32
+from ..py_fox.fox_hash_types import StrCode32
 
-from .fwrap_misc_export_types import ExportActionData, TrackSegmentBoneMapping
+from .fwrap_misc_export_types import ExportActionData
+from .fwrap_mapping_export_types import TrackSegmentBoneMapping
 from .fwrap_mapping_types import BoneParameters
+from .fwrap_metadata_types import TrackMetaData
 from . import fwrap_metadata
 
 
 def collect_armature_actions(
     armature: bpy.types.Object,
     use_nla: bool,
-    track_type_label: str,
     export_clean_threshold: float = 0.0,
 ) -> List['ExportActionData']:
     """Collect animation actions from *armature* for export.
 
     This is the shared implementation used by all three track types (motion
     points, shader nodes, and — via wrappers — the main animation tracks).
-    The only difference between the three callers is the human-readable
-    *track_type_label* used in log messages.
 
     Args:
         armature:               Armature object to collect actions from.
         use_nla:                If ``True``, collect from unmuted NLA strips;
                                 if ``False``, use the active action.
-        track_type_label:       Human-readable label for log messages
-                                (e.g. ``"motion points"``, ``"shader nodes"``).
         export_clean_threshold: FCurve cleaning threshold (0 = disabled).
 
     Returns:
@@ -45,7 +42,7 @@ def collect_armature_actions(
     if not armature:
         return []
 
-    Debug.log(f"\nCollecting {track_type_label} actions from '{armature.name}'...")
+    Debug.log(f"\nCollecting actions from '{armature.name}'...")
 
     actions: List[ExportActionData] = []
 
@@ -54,7 +51,7 @@ def collect_armature_actions(
         and armature.animation_data
         and armature.animation_data.nla_tracks
     ):
-        Debug.log(f"  Using NLA strips for {track_type_label}")
+        Debug.log(f"  Using NLA strips for {armature.name}")
         for track in armature.animation_data.nla_tracks:
             if track.mute:
                 continue
@@ -62,7 +59,7 @@ def collect_armature_actions(
                 if not util_blender_animation.is_relevant_strip(strip):
                     if strip.action:
                         Debug.log(
-                            f"    Skipping {track_type_label} strip "
+                            f"    Skipping {armature.name} strip "
                             f"'{getattr(strip, 'name', '<unknown>')}' "
                             f"(not a GANI strip)"
                         )
@@ -79,7 +76,7 @@ def collect_armature_actions(
                 Debug.log(f"    {action_data.to_string()}")
 
     elif armature.animation_data and armature.animation_data.action:
-        Debug.log(f"  Using active action for {track_type_label}")
+        Debug.log(f"  Using active action for {armature.name}")
         action = armature.animation_data.action
 
         if util_blender_animation.action_has_fcurves(action):
@@ -104,7 +101,7 @@ def collect_armature_actions(
         Debug.log(f"    {action_data.to_string()}")
 
     else:
-        Debug.log(f"  No {track_type_label} actions found")
+        Debug.log(f"  No actions found on {armature.name}")
 
     return actions
 
@@ -116,7 +113,7 @@ def build_track_metadata_dict_from_fcurves(
     bone_skip_predicate: Optional[Callable[[bpy.types.Bone], bool]] = None,
     name_hash_extractor_fn: Optional[Callable[[str, bpy.types.Bone], Optional[int]]] = None,
     warn_on_missing_metadata: bool = True,
-) -> Dict[str, fwrap_metadata.TrackMetaData]:
+) -> Dict[str, TrackMetaData]:
     """Build a per-bone metadata dictionary by inspecting FCurves and stored properties.
 
     This is the shared implementation used by motion-point and shader-node export.
@@ -140,7 +137,7 @@ def build_track_metadata_dict_from_fcurves(
                                with no parent of their own).
         name_hash_extractor_fn: Optional callable ``(bone_name, bone) -> int|None``;
                                returns the StrCode32 hash to store in
-                               :attr:`fwrap_metadata.TrackMetaData.name_hash`.  When ``None``,
+                               :attr:`TrackMetaData.name_hash`.  When ``None``,
                                the hash is computed via
                                ``StrCode32.from_string(bone_name).to_int()``.
                                The shader caller passes a function that parses the
@@ -151,9 +148,9 @@ def build_track_metadata_dict_from_fcurves(
                                a normal debug log.
 
     Returns:
-        ``{bone_name: fwrap_metadata.TrackMetaData}`` for every bone present in *action*.
+        ``{bone_name: TrackMetaData}`` for every bone present in *action*.
     """
-    metadata_dict: Dict[str, fwrap_metadata.TrackMetaData] = {}
+    metadata_dict: Dict[str, TrackMetaData] = {}
 
     if not armature or armature.type != 'ARMATURE':
         return metadata_dict
@@ -234,7 +231,7 @@ def build_track_metadata_dict_from_fcurves(
         else:
             name_hash_int = StrCode32.from_string(bone_name).to_int()
 
-        metadata_dict[bone_name] = fwrap_metadata.TrackMetaData(
+        metadata_dict[bone_name] = TrackMetaData(
             track_name=bone_name,
             segment_types=segment_types,
             unit_flags=unit_flags,
@@ -258,10 +255,13 @@ def build_track_metadata_dict_from_fcurves(
 
 
 
-# Helper utilities for motion-point action matching ################################
 
-def extract_gani_metadata(name: str) -> Optional[Tuple[int, str]]:
-    """Extract (index, type) from action/strip name using new schema.
+
+
+# > metadata or parsing
+
+def extract_track_infos_from_action_label(name: str) -> Optional[Tuple[int, str]]:
+    """Extract (index, type) from action/strip name.
     
     Schema: <mtar-name>.<animation-parts>.<index>.<type>.(gani|strip)
     Handles both new and old formats with backward compatibility.
@@ -309,6 +309,9 @@ def extract_gani_metadata(name: str) -> Optional[Tuple[int, str]]:
     return None
 
 
+
+# > blender action utilities
+
 def build_action_maps_by_tag(
     actions: List[ExportActionData],
     expected_type_tag: str,
@@ -330,15 +333,15 @@ def build_action_maps_by_tag(
     by_gani_index: Dict[int, ExportActionData] = {}
 
     for a in actions:
-        result = extract_gani_metadata(a.action.name)
+        result = extract_track_infos_from_action_label(a.action.name)
         if result:
-            idx, gani_type = result
-            if gani_type == expected_type_tag:
+            idx, type_tag = result
+            if type_tag == expected_type_tag:
                 if idx not in by_gani_index:
                     by_gani_index[idx] = a
             else:
                 Debug.log_warning(
-                    f"Warning: Action '{a.action.name}' has type '{gani_type}', "
+                    f"Warning: Action '{a.action.name}' has type '{type_tag}', "
                     f"expected '{expected_type_tag}' - this action will be skipped"
                 )
         else:
@@ -348,6 +351,19 @@ def build_action_maps_by_tag(
             )
 
     return by_gani_index
+
+def build_motion_point_action_maps(motion_point_actions: List[ExportActionData]) -> Dict[int, ExportActionData]:
+    """Build lookup map for motion point actions indexed by extracted GANI index."""
+    return build_action_maps_by_tag(motion_point_actions, expected_type_tag='motionpoints')
+
+def build_shader_action_maps(shader_actions: List[ExportActionData]) -> Dict[int, ExportActionData]:
+    """Build lookup map for shader node actions indexed by extracted GANI index."""
+    return build_action_maps_by_tag(shader_actions, expected_type_tag='shadernodes')
+
+
+
+
+
 
 
 def find_action_for_gani(
@@ -366,14 +382,14 @@ def find_action_for_gani(
     Returns:
         :class:`ExportActionData` if found, else ``None``.
     """
-    result = extract_gani_metadata(gani_name)
+    result = extract_track_infos_from_action_label(gani_name)
     if result:
-        idx, gani_type = result
-        if gani_type == 'track':
+        idx, type_tag = result
+        if type_tag == 'track':
             return by_gani_index.get(idx)
         else:
             Debug.log_warning(
-                f"Warning: GANI '{gani_name}' has type '{gani_type}', expected 'track' - "
+                f"Warning: GANI '{gani_name}' has type '{type_tag}', expected 'track' - "
                 f"{track_label} will be skipped for this GANI"
             )
     else:
@@ -383,31 +399,23 @@ def find_action_for_gani(
         )
     return None
 
-
-def build_motion_point_action_maps(motion_point_actions: List[ExportActionData]) -> Dict[int, ExportActionData]:
-    """Build lookup map for motion point actions indexed by extracted GANI index."""
-    return build_action_maps_by_tag(motion_point_actions, expected_type_tag='motionpoints')
-
-
 def find_motion_point_action_for_gani(gani_name: str, by_gani_index: Dict[int, ExportActionData]) -> Optional[ExportActionData]:
     """Find the motion point action matching a GANI using only extracted running index."""
     return find_action_for_gani(gani_name, by_gani_index, track_label="motion points")
-
-
-def build_shader_action_maps(shader_actions: List[ExportActionData]) -> Dict[int, ExportActionData]:
-    """Build lookup map for shader node actions indexed by extracted GANI index."""
-    return build_action_maps_by_tag(shader_actions, expected_type_tag='shadernodes')
-
 
 def find_shader_action_for_gani(gani_name: str, by_gani_index: Dict[int, ExportActionData]) -> Optional[ExportActionData]:
     """Find the shader nodes action matching a main GANI action name."""
     return find_action_for_gani(gani_name, by_gani_index, track_label="shader nodes")
 
 
-def group_bones_by_segment(bone_names: List[str]) -> List[Tuple[str, List[Tuple[int, str]]]]:
-    """Group bone names by their base track, detecting Option D segment convention.
 
-    Segment convention (Option D):
+
+# > bone or track utilities
+
+def group_bones_by_segment(bone_names: List[str]) -> List[Tuple[str, List[Tuple[int, str]]]]:
+    """Group bone names by their base track, detecting segment convention.
+
+    Segment convention:
     - Segment 0 = base bone name, no suffix  (e.g. "bone_XYZ")
     - Segment N = base bone + "_N" for N >= 1 (e.g. "bone_XYZ_1", "bone_XYZ_2")
     A suffixed bone is only treated as a segment of its base when the unsuffixed
@@ -454,9 +462,14 @@ def group_bones_by_segment(bone_names: List[str]) -> List[Tuple[str, List[Tuple[
     return groups
 
 
-def create_synthetic_mapping(armature: bpy.types.Object, 
+
+
+# mapping utilities
+
+def create_synthetic_mapping(armature: bpy.types.Object,
                             action: bpy.types.Action,
-                            layout_metadata_dict: Optional[Dict[str, fwrap_metadata.TrackMetaData]]) -> Tuple[TrackSegmentBoneMapping, Dict[str, fwrap_metadata.TrackMetaData]]:
+                            layout_metadata_dict: Optional[Dict[str, TrackMetaData]]
+                            ) -> Tuple[TrackSegmentBoneMapping, Dict[str, TrackMetaData]]:
     """Create synthetic track mapping from armature bones when no mapping is provided.
     
     This is used for motion points export or when exporting without a mapping file.
@@ -478,12 +491,13 @@ def create_synthetic_mapping(armature: bpy.types.Object,
     
     bones_iterable = armature.pose.bones if armature.pose else armature.data.bones
     bone_names = [bone.name for bone in bones_iterable]
-    
+
     temp_mapping = TrackSegmentBoneMapping()
     metadata_dict = {}
-    
     track_idx = 0
+
     for base_name, segments in group_bones_by_segment(bone_names):
+
         # Collect metadata from the base bone; create default if none found.
         bone_metadata = None
         if layout_metadata_dict and base_name in layout_metadata_dict:
@@ -499,10 +513,7 @@ def create_synthetic_mapping(armature: bpy.types.Object,
 
         # Register every segment detected by group_bones_by_segment.
         for seg_idx, seg_bone_name in segments:
-            temp_mapping.set_segment_mapping(
-                track_idx, seg_idx, seg_bone_name,
-                BoneParameters(fox_name=seg_bone_name)
-            )
+            temp_mapping.set_segment_mapping(track_idx, seg_idx, seg_bone_name, BoneParameters(fox_name=seg_bone_name))
 
         if bone_metadata:
             metadata_dict[base_name] = bone_metadata

@@ -45,10 +45,9 @@ from ..py_utilities import util_binary_write, util_hashing, util_hashing_cityhas
 from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox.fox_foxdata_types import FoxDataHeader, FoxDataNode, FoxDataNodeType, FoxDataParamType
 from ..py_fox.fox_gani_types import TrackHeader, TrackUnit, EvpHeader, TrackData, TrackUnitFlags
-from ..py_fox.fox_misc_types import StrCode32
+from ..py_fox.fox_hash_types import StrCode32
 
-from .fwrap_misc_types import TrackUnitWrapper, Tracks
-from . import fwrap_misc
+from .fwrap_track_types import TrackUnitWrapper, Tracks
 
 
 # FoxDataHeader.flags bit 0: set when no SKL_LIST node is written
@@ -156,9 +155,7 @@ class GaniWriter:
         # Secondary guard: if the first track in the original list has at least
         # one segment and all segments are DIFF types, treat it as a root motion
         # track regardless of its name (handles renamed / unhashed root tracks).
-        if (gani_tracks
-                and gani_tracks[0].segments_track_data
-                and fwrap_misc.is_root_motion_track(gani_tracks[0])):
+        if (gani_tracks and gani_tracks[0].segments_track_data and gani_tracks[0].is_root_motion_track()):
             first = gani_tracks[0]
             if first not in non_skl_tracks:
                 try:
@@ -173,7 +170,7 @@ class GaniWriter:
 
         # Validate: every non-SKL track placed first should be a root motion track.
         for track in non_skl_tracks:
-            if not (track.segments_track_data and fwrap_misc.is_root_motion_track(track)):
+            if not (track.segments_track_data and track.is_root_motion_track()):
                 Debug.log_warning(
                     f"write_gani_to_buffer: Non-SKL track '{track.name}' is placed "
                     f"before SKL tracks but does not appear to be a root motion track "
@@ -245,6 +242,7 @@ class GaniWriter:
             mtp_tracks,
             motion_events,
             foxdata_version,
+            frame_count,
             skeleton_list=effective_skl_list,
             motion_point_list=effective_mtp_list,
             motion_point_parent_list=effective_mtp_parent_list,
@@ -270,6 +268,7 @@ class GaniWriter:
         mtp_tracks: Optional[Tracks],
         motion_events: Optional[EvpHeader],
         foxdata_version: int,
+        frame_count: int,
         skeleton_list: Optional[List] = None,
         motion_point_list: Optional[List] = None,
         motion_point_parent_list: Optional[List] = None,
@@ -358,7 +357,7 @@ class GaniWriter:
 
         # 6. EVP (optional, always last)
         if motion_events is not None:
-            pos, _, payload_end = self._write_evp_node(buffer, motion_events)
+            pos, _, payload_end = self._write_evp_node(buffer, motion_events, unit_tracks.is_looped(), frame_count)
             children.append(("EVP", pos, payload_end))
 
         # ── ROOT-level children: MOTION + optional SHADER sibling ───────────
@@ -846,6 +845,8 @@ class GaniWriter:
         self,
         buffer: io.BytesIO,
         motion_events: EvpHeader,
+        is_loop: bool,
+        total_frame_count: int,
     ) -> tuple:
         """Write a FoxDataNode with an EvpHeader payload (EVP).
 
@@ -868,7 +869,7 @@ class GaniWriter:
             parameters_offset=0,
         ).write(buffer)
 
-        motion_events.write(buffer)
+        motion_events.write(buffer, is_loop, total_frame_count)
         payload_end = buffer.tell()
 
         return (node_pos, payload_start, payload_end)

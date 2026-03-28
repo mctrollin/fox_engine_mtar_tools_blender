@@ -12,7 +12,7 @@ from ..py_utilities import util_binary_write
 from ..py_utilities import util_binary_read
 from ..py_utilities import util_transforms
 
-from .fox_misc_types import StrCode32
+from .fox_hash_types import StrCode32
 from .fox_gani_enums import SegmentType, TrackUnitFlags, MotionGraphFootFitFlags
 from . import fox_gani_constants as gani_const
 
@@ -220,7 +220,7 @@ class AnimKeyframe:
             # Write quaternion keyframes
             buffer = bytearray()
             bit_pos = 0
-            
+
             # Write initial quaternion (bit-packed)
             initial_quat = keyframes[0].data.value
             bit_pos, prev_axis = util_binary_write.write_unaligned_quaternion(buffer, bit_pos, initial_quat, component_bit_size)
@@ -1299,7 +1299,17 @@ class EvpHeader:
             entry_offsets=entry_offsets,
             data=evp_data_list
         )
-    
+
+    @classmethod
+    def try_read_at(cls, file_data: bytes, offset: int, endian: str = '<') -> Optional['EvpHeader']:
+        """Read optional EVP data if an offset is present."""
+        if not offset:
+            return None
+
+        br = io.BytesIO(file_data)
+        br.seek(offset)
+        return EvpHeader.read(br, endian)
+
     def write(self, bw: BinaryIO, is_loop: bool, total_frame_count: int) -> None:
         """Write EvpHeader to binary stream.
         
@@ -1317,7 +1327,7 @@ class EvpHeader:
         # Write EvpData entries
         for evp_data in self.data:
             evp_data.write(bw, is_loop, total_frame_count)
-    
+
     def _calculate_offsets(self, is_loop: bool, total_frame_count: int) -> None:
         """Calculate all offsets for EvpHeader and nested EvpData entries.
         
@@ -1350,3 +1360,5 @@ class EvpHeader:
             
             # Advance offset for next entry
             current_offset += evp_data_size
+
+
