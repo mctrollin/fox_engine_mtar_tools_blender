@@ -32,15 +32,13 @@ from ..py_core.core_logging import Debug
 from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox.fox_hash_types import StrCode32
 
-from ..py_foxwrap.fwrap_metadata_types import TrackMetaData
-from ..py_foxwrap.fwrap_track_types import TrackUnitWrapper, TrackDataBlobWrapper
-from ..py_foxwrap import fwrap_metadata
+from .fwrap_metadata_types import TrackMetaData
+from .fwrap_track_types import TrackUnitWrapper, TrackDataBlobWrapper
+from . import fwrap_metadata
 
 
 
-# ---------------------------------------------------------------------------
-# Metadata
-# ---------------------------------------------------------------------------
+# Metadata #############################################################
 
 def build_shader_nodes_metadata_dict(
     shader_nodes_armature: bpy.types.Object,
@@ -81,9 +79,7 @@ def build_shader_nodes_metadata_dict(
     )
 
 
-# ---------------------------------------------------------------------------
-# Post-export grouping
-# ---------------------------------------------------------------------------
+# Post-export grouping #############################################################
 
 def group_shader_tracks_by_property(
     shader_tracks: List[TrackUnitWrapper],
@@ -186,9 +182,7 @@ def group_shader_tracks_by_property(
     return property_names, property_tracks
 
 
-# ---------------------------------------------------------------------------
-# Per-property TrackHeader reading
-# ---------------------------------------------------------------------------
+# Per-property TrackHeader reading #############################################################
 
 def collect_shader_property_headers(
     action: bpy.types.Action,

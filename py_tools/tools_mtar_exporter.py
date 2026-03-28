@@ -44,7 +44,7 @@ from ..py_foxwrap import fwrap_motionpoint_export, fwrap_mapping_export, fwrap_t
 
 # TODO: don't import tools into other tools
 from . import tools_mtar_importer
-from . import tools_gani1_shader_exporter
+from ..py_foxwrap import fwrap_gani1_shader_export
 
 
 # Conversion helper ###############################################################
@@ -1261,7 +1261,7 @@ def export_mtar(context: bpy.types.Context,
                         f"{shader_node_action_data.action.name}"
                     )
 
-                    shader_metadata_dict = tools_gani1_shader_exporter.build_shader_nodes_metadata_dict(
+                    shader_metadata_dict = fwrap_gani1_shader_export.build_shader_nodes_metadata_dict(
                         shader_nodes_armature, shader_node_action_data.action
                     )
                     Debug.log(
@@ -1282,11 +1282,11 @@ def export_mtar(context: bpy.types.Context,
                         Debug.log(
                             f"    Exported {len(flat_shader_tracks)} shader unit track(s)"
                         )
-                        property_names, property_tracks = tools_gani1_shader_exporter.group_shader_tracks_by_property(
+                        property_names, property_tracks = fwrap_gani1_shader_export.group_shader_tracks_by_property(
                             flat_shader_tracks, shader_nodes_armature
                         )
                         if property_names:
-                            property_headers = tools_gani1_shader_exporter.collect_shader_property_headers(
+                            property_headers = fwrap_gani1_shader_export.collect_shader_property_headers(
                                 shader_node_action_data.action, property_names
                             )
                             shader_nodes_data = Gani1ExportShaderData(

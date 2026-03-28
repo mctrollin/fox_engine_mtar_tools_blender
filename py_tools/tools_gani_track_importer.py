@@ -21,7 +21,7 @@ from ..py_foxwrap.fwrap_track_types import TrackUnitWrapper, TrackDataBlobWrappe
 from ..py_foxwrap.fwrap_mapping import ARMATURE_TARGET_NAME
 
 
-def import_keyframes_track(
+def _import_keyframes_track_into_action(
     context: bpy.types.Context,
     action: bpy.types.Action,
     keyframes_track: TrackDataBlobWrapper,
@@ -371,7 +371,7 @@ def import_gani_track(
     )
 
     for keyframes_track in gani_track.segments_track_data:
-        track_max_frame: int = import_keyframes_track(
+        track_max_frame: int = _import_keyframes_track_into_action(
             context, action, keyframes_track,
             slot_name=slot_name,
             apply_transforms=apply_transforms,

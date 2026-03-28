@@ -402,7 +402,6 @@ class AnimKeyframe:
             raise ValueError(f"Unsupported track type: {track_type}")
 
 
-
 @dataclass
 class TrackHeader:
     unit_count: int # int
@@ -564,7 +563,6 @@ class TrackData:
             type_and_next,
             self.component_bit_size
         ))
-
 
 
 @dataclass
@@ -735,8 +733,6 @@ class TrackMiniHeader:
         offset = util_binary_write.align_length(offset, 4)
         
         return offset
-    
-
 
 
 @dataclass
@@ -1360,5 +1356,3 @@ class EvpHeader:
             
             # Advance offset for next entry
             current_offset += evp_data_size
-
-

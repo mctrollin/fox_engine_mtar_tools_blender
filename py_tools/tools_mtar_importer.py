@@ -29,7 +29,7 @@ from .tools_motion_points_importer import (
     create_motion_points_animation_actions,
     create_and_setup_motion_points_armature,
 )
-from .tools_gani1_shader_importer import (
+from ..py_foxwrap.fwrap_gani1_shader_import import (
     create_shader_animation_actions,
     create_and_setup_shader_nodes_armature,
 )

@@ -38,14 +38,14 @@ from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox.fox_mtar_types import MtarTableList2
 
-from ..py_foxwrap.fwrap_mtar_import_types import Gani1ShaderTrackWrapper
-from ..py_foxwrap.fwrap_track_types import TrackUnitWrapper
-from ..py_foxwrap.fwrap_metadata_types import TrackMetaData
-from ..py_foxwrap import fwrap_metadata, fwrap_track
+from .fwrap_mtar_import_types import Gani1ShaderTrackWrapper
+from .fwrap_track_types import TrackUnitWrapper
+from .fwrap_metadata_types import TrackMetaData
+from . import fwrap_metadata, fwrap_track
 
 # TODO: Tools shoud not import other tools
-from .tools_gani_track_importer import import_gani_track
-from .tools_motion_points_importer import create_nla_strips_for_actions
+from ..py_tools.tools_gani_track_importer import import_gani_track
+from ..py_tools.tools_motion_points_importer import create_nla_strips_for_actions
 
 
 def _store_shader_property_header_on_action(
@@ -80,6 +80,17 @@ def _store_shader_property_header_on_action(
         description=f"Shader TrackHeader for property '{prop_name}'"
     )
 
+def _finalize_shader_tracks(shader_track: Gani1ShaderTrackWrapper) -> List[TrackUnitWrapper]:
+     # Convert to gani tracks using decimal hashes for unit names (no unhashing —
+    # the unit hashes are not in the rig/gani dictionaries and decimal preserves
+    # the original StrCode32 value needed for export round-trip).
+    gani_tracks: List[TrackUnitWrapper] = fwrap_track.apply_track_naming(
+        shader_track.tracks.as_wrapper(),
+        use_decimal_only=True,
+    )
+    fwrap_track.apply_segment_suffixes_to_tracks(gani_tracks)
+    return gani_tracks
+
 
 def _convert_shader_track_to_unit_wrappers(
     shader_track: Gani1ShaderTrackWrapper,
@@ -98,14 +109,7 @@ def _convert_shader_track_to_unit_wrappers(
     """
     prop_name = shader_track.property_name
 
-    # Convert to gani tracks using decimal hashes for unit names (no unhashing —
-    # the unit hashes are not in the rig/gani dictionaries and decimal preserves
-    # the original StrCode32 value needed for export round-trip).
-    gani_tracks: List[TrackUnitWrapper] = fwrap_track.apply_track_naming(
-        shader_track.tracks.as_wrapper(),
-        use_decimal_only=True,
-    )
-    fwrap_track.apply_segment_suffixes_to_tracks(gani_tracks)
+    gani_tracks = _finalize_shader_tracks(shader_track)
 
     # Prefix every track/segment name with the property name so bones are
     # globally unique within the armature.

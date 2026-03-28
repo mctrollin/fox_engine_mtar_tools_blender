@@ -16,7 +16,223 @@ from ..py_core.core_logging import Debug
 from ..py_utilities import util_hashing_cityhash
 
 
-def resolve_executable_path(exe_path: str) -> Path:
+
+def hash_filename_all_modes(input_string: str, modes: tuple = None) -> Tuple[bool, Dict[str, str], str]:
+    """Hash filename using specified modes with pure Python CityHash.
+    
+    Computes only the requested hash operations without needing external executable:
+    - 'filename': Hash Filename (-d -h <filename>)
+    - 'extension': Hash Extension (-d -he <extension>)
+    - 'with_extension': Hash With Extension (-d -hwe <filename.ext>)
+    - 'legacy': Hash Legacy (-d -hl <filename>)
+    
+    Args:
+        input_string: Input filename (with or without extension)
+        modes: Tuple of mode names to compute (e.g., ('with_extension',) or ('filename', 'extension', 'with_extension', 'legacy')).
+               If None, computes all modes for backward compatibility.
+        
+    Returns:
+        Tuple of (success: bool, results: Dict[str, str], error: str)
+        - success: True (always succeeds with Python implementation)
+        - results: Dictionary with keys for requested modes plus corresponding '_dec' keys with decimal representations
+        - error: Empty string (no errors with Python implementation)
+    """
+    if not input_string:
+        return False, {}, "No input string provided"
+    
+    # Default to all modes for backward compatibility
+    if modes is None:
+        modes = ('filename', 'extension', 'with_extension', 'legacy')
+    
+    # Initialize results with all possible keys
+    results = {
+        'filename': '',
+        'filename_dec': '',
+        'extension': '',
+        'extension_dec': '',
+        'with_extension': '',
+        'with_extension_dec': '',
+        'legacy': '',
+        'legacy_dec': ''
+    }
+    
+    # Parse input to extract filename and extension
+    input_path = Path(input_string)
+    filename_only = input_path.stem if input_path.suffix else input_string
+    extension_only = input_path.suffix.lstrip('.') if input_path.suffix else ''
+    
+    try:
+        # Hash Filename: -d -h <filename>
+        if 'filename' in modes:
+            hash_val = util_hashing_cityhash.hash_file_name(filename_only, remove_extension=False)
+            results['filename'] = f"0x{hash_val:016X}"
+            results['filename_dec'] = str(hash_val)
+            Debug.log(f"  filename (-d -h {filename_only}): 0x{hash_val:016X}")
+        
+        # Hash Extension: -d -he <extension> (only if extension exists and requested)
+        if 'extension' in modes and extension_only:
+            hash_val = util_hashing_cityhash.hash_file_extension(extension_only)
+            results['extension'] = f"0x{hash_val:016X}"
+            results['extension_dec'] = str(hash_val)
+            Debug.log(f"  extension (-d -he {extension_only}): 0x{hash_val:016X}")
+        
+        # Hash With Extension: -d -hwe <filename.ext>
+        if 'with_extension' in modes:
+            hash_val = util_hashing_cityhash.hash_file_name_with_ext(input_string)
+            results['with_extension'] = f"0x{hash_val:016X}"
+            results['with_extension_dec'] = str(hash_val)
+            Debug.log(f"  with_extension (-d -hwe {input_string}): 0x{hash_val:016X}")
+        
+        # Hash Legacy: -d -hl <filename>
+        if 'legacy' in modes:
+            hash_val = util_hashing_cityhash.hash_file_name_legacy(input_string)
+            results['legacy'] = f"0x{hash_val:016X}"
+            results['legacy_dec'] = str(hash_val)
+            Debug.log(f"  legacy (-d -hl {input_string}): 0x{hash_val:016X}")
+        
+        return True, results, ""
+        
+    except Exception as e:
+        error_msg = f"Python hash failed: {str(e)}"
+        Debug.log_error(f"  {error_msg}")
+        return False, results, error_msg
+
+
+def hash_animation_name_from_blender_context(input_string: str) -> Tuple[bool, Dict[str, str], str]:
+    """Hash animation name using pure Python CityHash (no external executable).
+
+    Pure-Python wrapper around hash_filename_all_modes_python(). Optimized for export by only
+    computing the 'with_extension' mode, which is all that export path hashing needs.
+    
+    Args:
+        input_string: Animation name string to hash (e.g., "/Assets/tpp/Walk/walk_001")
+        
+    Returns:
+        Tuple of (success: bool, results: Dict[str, str], error: str)
+        - success: True if hashing succeeded
+        - results: Dictionary with 'with_extension_dec' key containing the hash value
+        - error: Error message if hashing failed
+    """
+    try:
+        # Only compute 'with_extension' mode for export optimization
+        return hash_filename_all_modes(input_string, modes=('with_extension',))
+    except Exception as e:
+        return False, {}, f"Error in Python hash: {str(e)}"
+
+
+def build_gani_hash_dictionary(dictionary_path: str) -> Dict[int, str]:
+    """Build a GANI path hash dictionary from dic/path64/mtar_dictionary.txt using pure Python CityHash.
+
+    Replaces the external executable approach with a pure-Python CityHash v1.0.3
+    implementation, making it dramatically faster and cross-platform.
+
+    For each path in the dictionary file, appends '.gani' and computes the 64-bit hash
+    using hash_file_name_with_ext, then maps hash → path in the result.
+
+    Each phase is wrapped in a timing log so the cost of reading vs. hashing is visible.
+
+    Args:
+        dictionary_path: Path to dic/path64/mtar_dictionary.txt (one plain asset path per line, no hashes)
+
+    Returns:
+        Dict mapping 64-bit hash integer to asset path string (same format as
+        load_gani_hash_dictionary and build_gani_hash_dictionary_from_exe, i.e.
+        {hash_int: "/Assets/..."})
+    """
+    result: Dict[int, str] = {}
+
+    dict_file = Path(dictionary_path)
+    if not dict_file.exists():
+        Debug.log_warning(f"GANI dictionary not found: {dictionary_path}")
+        return result
+
+    # Phase 1: read the plain-path dictionary file
+    Debug.start_timer("Build GANI hash dict: read file")
+    try:
+        paths = [
+            line.strip()
+            for line in dict_file.read_text(encoding='utf-8').splitlines()
+            if line.strip()
+        ]
+    except OSError as e:
+        Debug.log_error(f"Failed to read dictionary file: {e}")
+        Debug.stop_timer("Build GANI hash dict: read file")
+        return result
+    Debug.stop_timer("Build GANI hash dict: read file")
+    Debug.log(f"  Read {len(paths)} paths from '{dictionary_path}'")
+
+    # Phase 2: hash every path with pure-Python CityHash64
+    Debug.start_timer("Build GANI hash dict: hash generation")
+    failed = 0
+    for path in paths:
+        path_with_ext = f"{path}.gani"
+        try:
+            hash_value = util_hashing_cityhash.hash_file_name_with_ext(path_with_ext)
+            result[hash_value] = path
+        except Exception:
+            failed += 1
+    Debug.stop_timer("Build GANI hash dict: hash generation")
+    Debug.log(f"  Built {len(result)} hash entries ({failed} failed) from '{dictionary_path}'")
+    return result
+
+
+def build_event_hash_dictionary(dictionary_path: str) -> Dict[int, str]:
+    """Build an event name hash dictionary from events_dictionary.txt using StrCode32 hashing.
+
+    Reads plain event names from the dictionary file and computes StrCode32 hashes,
+    creating a hash → name lookup table for animation event identification.
+
+    For each event name in the dictionary file, computes its StrCode32 hash and
+    maps hash → name in the result dict. This enables runtime lookup of event names
+    by their binary hash values without maintaining hardcoded enum definitions.
+
+    Args:
+        dictionary_path: Path to events_dictionary.txt (one plain event name per line)
+
+    Returns:
+        Dict mapping StrCode32 hash (32-bit int) to event name string
+        (e.g., {312449893: "FX_CREATE_EFFECT_WITH_SKL", ...})
+    """
+    result: Dict[int, str] = {}
+
+    dict_file = Path(dictionary_path)
+    if not dict_file.exists():
+        Debug.log_warning(f"Event dictionary not found: {dictionary_path}")
+        return result
+
+    # Phase 1: read the plain-text event name dictionary file
+    Debug.start_timer("Build event hash dict: read file")
+    try:
+        event_names = [
+            line.strip()
+            for line in dict_file.read_text(encoding='utf-8').splitlines()
+            if line.strip() and not line.strip().startswith('#')  # skip blank lines and comments
+        ]
+    except Exception as e:
+        Debug.log_warning(f"Failed to read event dictionary: {e}")
+        return result
+    Debug.stop_timer("Build event hash dict: read file")
+    Debug.log(f"  Read {len(event_names)} event names from '{dictionary_path}'")
+
+    # Phase 2: hash every event name with StrCode32
+    Debug.start_timer("Build event hash dict: hash generation")
+    failed = 0
+    for event_name in event_names:
+        try:
+            hash_value = util_hashing_cityhash.strcode32(event_name)
+            result[hash_value] = event_name
+        except Exception:
+            failed += 1
+    Debug.stop_timer("Build event hash dict: hash generation")
+    Debug.log(f"  Built {len(result)} event hash entries ({failed} failed) from '{dictionary_path}'")
+    return result
+
+
+
+# External Hash Generator (only for debug purposes) ####################################################
+
+
+def _resolve_external_generator_executable_path(exe_path: str) -> Path:
     """Resolve executable path handling Blender relative paths and user paths.
 
     This will attempt to use Blender's path resolution (bpy.path.abspath) when
@@ -59,7 +275,7 @@ def validate_executable_path_by_external_generator(hash_generator_exe_path: str)
     if not hash_generator_exe_path:
         return False, "No path specified"
 
-    exe_file = resolve_executable_path(hash_generator_exe_path)
+    exe_file = _resolve_external_generator_executable_path(hash_generator_exe_path)
     Debug.log(f"Validating executable path: {exe_file}")
 
     if not exe_file.exists():
@@ -102,7 +318,7 @@ def hash_filename_all_modes_by_external_generator(hash_generator_exe_path: str,
         return False, {}, "No executable path specified"
 
     # Resolve the executable path (handle Blender relative paths like //path)
-    exe_file = resolve_executable_path(hash_generator_exe_path)
+    exe_file = _resolve_external_generator_executable_path(hash_generator_exe_path)
     Debug.log(f"Resolved executable path: {exe_file}")
 
     if not exe_file.exists():
@@ -226,88 +442,7 @@ def hash_filename_all_modes_by_external_generator(hash_generator_exe_path: str,
             Debug.log_error(f"  {k}: {v}")
         return False, results, combined_error
 
-
-def hash_filename_all_modes(input_string: str, modes: tuple = None) -> Tuple[bool, Dict[str, str], str]:
-    """Hash filename using specified modes with pure Python CityHash.
-    
-    Computes only the requested hash operations without needing external executable:
-    - 'filename': Hash Filename (-d -h <filename>)
-    - 'extension': Hash Extension (-d -he <extension>)
-    - 'with_extension': Hash With Extension (-d -hwe <filename.ext>)
-    - 'legacy': Hash Legacy (-d -hl <filename>)
-    
-    Args:
-        input_string: Input filename (with or without extension)
-        modes: Tuple of mode names to compute (e.g., ('with_extension',) or ('filename', 'extension', 'with_extension', 'legacy')).
-               If None, computes all modes for backward compatibility.
-        
-    Returns:
-        Tuple of (success: bool, results: Dict[str, str], error: str)
-        - success: True (always succeeds with Python implementation)
-        - results: Dictionary with keys for requested modes plus corresponding '_dec' keys with decimal representations
-        - error: Empty string (no errors with Python implementation)
-    """
-    if not input_string:
-        return False, {}, "No input string provided"
-    
-    # Default to all modes for backward compatibility
-    if modes is None:
-        modes = ('filename', 'extension', 'with_extension', 'legacy')
-    
-    # Initialize results with all possible keys
-    results = {
-        'filename': '',
-        'filename_dec': '',
-        'extension': '',
-        'extension_dec': '',
-        'with_extension': '',
-        'with_extension_dec': '',
-        'legacy': '',
-        'legacy_dec': ''
-    }
-    
-    # Parse input to extract filename and extension
-    input_path = Path(input_string)
-    filename_only = input_path.stem if input_path.suffix else input_string
-    extension_only = input_path.suffix.lstrip('.') if input_path.suffix else ''
-    
-    try:
-        # Hash Filename: -d -h <filename>
-        if 'filename' in modes:
-            hash_val = util_hashing_cityhash.hash_file_name(filename_only, remove_extension=False)
-            results['filename'] = f"0x{hash_val:016X}"
-            results['filename_dec'] = str(hash_val)
-            Debug.log(f"  filename (-d -h {filename_only}): 0x{hash_val:016X}")
-        
-        # Hash Extension: -d -he <extension> (only if extension exists and requested)
-        if 'extension' in modes and extension_only:
-            hash_val = util_hashing_cityhash.hash_file_extension(extension_only)
-            results['extension'] = f"0x{hash_val:016X}"
-            results['extension_dec'] = str(hash_val)
-            Debug.log(f"  extension (-d -he {extension_only}): 0x{hash_val:016X}")
-        
-        # Hash With Extension: -d -hwe <filename.ext>
-        if 'with_extension' in modes:
-            hash_val = util_hashing_cityhash.hash_file_name_with_ext(input_string)
-            results['with_extension'] = f"0x{hash_val:016X}"
-            results['with_extension_dec'] = str(hash_val)
-            Debug.log(f"  with_extension (-d -hwe {input_string}): 0x{hash_val:016X}")
-        
-        # Hash Legacy: -d -hl <filename>
-        if 'legacy' in modes:
-            hash_val = util_hashing_cityhash.hash_file_name_legacy(input_string)
-            results['legacy'] = f"0x{hash_val:016X}"
-            results['legacy_dec'] = str(hash_val)
-            Debug.log(f"  legacy (-d -hl {input_string}): 0x{hash_val:016X}")
-        
-        return True, results, ""
-        
-    except Exception as e:
-        error_msg = f"Python hash failed: {str(e)}"
-        Debug.log_error(f"  {error_msg}")
-        return False, results, error_msg
-
-
+# Not used
 def hash_animation_name_from_blender_context_by_external_generator(input_string: str) -> Tuple[bool, Dict[str, str], str]:
     """Hash animation name using the hash generator executable path configured in Blender.
 
@@ -344,29 +479,7 @@ def hash_animation_name_from_blender_context_by_external_generator(input_string:
     except Exception as e:
         return False, {}, f"Error accessing Blender properties: {str(e)}"
 
-
-def hash_animation_name_from_blender_context(input_string: str) -> Tuple[bool, Dict[str, str], str]:
-    """Hash animation name using pure Python CityHash (no external executable).
-
-    Pure-Python wrapper around hash_filename_all_modes_python(). Optimized for export by only
-    computing the 'with_extension' mode, which is all that export path hashing needs.
-    
-    Args:
-        input_string: Animation name string to hash (e.g., "/Assets/tpp/Walk/walk_001")
-        
-    Returns:
-        Tuple of (success: bool, results: Dict[str, str], error: str)
-        - success: True if hashing succeeded
-        - results: Dictionary with 'with_extension_dec' key containing the hash value
-        - error: Error message if hashing failed
-    """
-    try:
-        # Only compute 'with_extension' mode for export optimization
-        return hash_filename_all_modes(input_string, modes=('with_extension',))
-    except Exception as e:
-        return False, {}, f"Error in Python hash: {str(e)}"
-
-
+# Not used.
 def build_gani_hash_dictionary_by_external_generator(dictionary_path: str, hash_generator_exe_path: str) -> Dict[int, str]:
     """Build a GANI path hash dictionary from dic/path64/mtar_dictionary.txt using the hash generator.
 
@@ -391,7 +504,7 @@ def build_gani_hash_dictionary_by_external_generator(dictionary_path: str, hash_
         Debug.log_warning(f"GANI dictionary not found: {dictionary_path}")
         return result
 
-    exe_file = resolve_executable_path(hash_generator_exe_path)
+    exe_file = _resolve_external_generator_executable_path(hash_generator_exe_path)
     if not exe_file.exists():
         Debug.log_error(f"Hash generator not found: {exe_file}")
         return result
@@ -434,112 +547,4 @@ def build_gani_hash_dictionary_by_external_generator(dictionary_path: str, hash_
             failed += 1
     Debug.stop_timer("Build GANI hash dict: hash generation")
     Debug.log(f"  Built {len(result)} hash entries ({failed} failed) from '{dictionary_path}'")
-    return result
-
-
-def build_gani_hash_dictionary(dictionary_path: str) -> Dict[int, str]:
-    """Build a GANI path hash dictionary from dic/path64/mtar_dictionary.txt using pure Python CityHash.
-
-    Replaces the external executable approach with a pure-Python CityHash v1.0.3
-    implementation, making it dramatically faster and cross-platform.
-
-    For each path in the dictionary file, appends '.gani' and computes the 64-bit hash
-    using hash_file_name_with_ext, then maps hash → path in the result.
-
-    Each phase is wrapped in a timing log so the cost of reading vs. hashing is visible.
-
-    Args:
-        dictionary_path: Path to dic/path64/mtar_dictionary.txt (one plain asset path per line, no hashes)
-
-    Returns:
-        Dict mapping 64-bit hash integer to asset path string (same format as
-        load_gani_hash_dictionary and build_gani_hash_dictionary_from_exe, i.e.
-        {hash_int: "/Assets/..."})
-    """
-    result: Dict[int, str] = {}
-
-    dict_file = Path(dictionary_path)
-    if not dict_file.exists():
-        Debug.log_warning(f"GANI dictionary not found: {dictionary_path}")
-        return result
-
-    # Phase 1: read the plain-path dictionary file
-    Debug.start_timer("Build GANI hash dict: read file")
-    try:
-        paths = [
-            line.strip()
-            for line in dict_file.read_text(encoding='utf-8').splitlines()
-            if line.strip()
-        ]
-    except OSError as e:
-        Debug.log_error(f"Failed to read dictionary file: {e}")
-        Debug.stop_timer("Build GANI hash dict: read file")
-        return result
-    Debug.stop_timer("Build GANI hash dict: read file")
-    Debug.log(f"  Read {len(paths)} paths from '{dictionary_path}'")
-
-    # Phase 2: hash every path with pure-Python CityHash64
-    Debug.start_timer("Build GANI hash dict: hash generation")
-    failed = 0
-    for path in paths:
-        path_with_ext = f"{path}.gani"
-        try:
-            hash_value = util_hashing_cityhash.hash_file_name_with_ext(path_with_ext)
-            result[hash_value] = path
-        except Exception:
-            failed += 1
-    Debug.stop_timer("Build GANI hash dict: hash generation")
-    Debug.log(f"  Built {len(result)} hash entries ({failed} failed) from '{dictionary_path}'")
-    return result
-
-
-def build_event_hash_dictionary(dictionary_path: str) -> Dict[int, str]:
-    """Build an event name hash dictionary from events_dictionary.txt using StrCode32 hashing.
-
-    Reads plain event names from the dictionary file and computes StrCode32 hashes,
-    creating a hash → name lookup table for animation event identification.
-
-    For each event name in the dictionary file, computes its StrCode32 hash and
-    maps hash → name in the result dict. This enables runtime lookup of event names
-    by their binary hash values without maintaining hardcoded enum definitions.
-
-    Args:
-        dictionary_path: Path to events_dictionary.txt (one plain event name per line)
-
-    Returns:
-        Dict mapping StrCode32 hash (32-bit int) to event name string
-        (e.g., {312449893: "FX_CREATE_EFFECT_WITH_SKL", ...})
-    """
-    result: Dict[int, str] = {}
-
-    dict_file = Path(dictionary_path)
-    if not dict_file.exists():
-        Debug.log_warning(f"Event dictionary not found: {dictionary_path}")
-        return result
-
-    # Phase 1: read the plain-text event name dictionary file
-    Debug.start_timer("Build event hash dict: read file")
-    try:
-        event_names = [
-            line.strip()
-            for line in dict_file.read_text(encoding='utf-8').splitlines()
-            if line.strip() and not line.strip().startswith('#')  # skip blank lines and comments
-        ]
-    except Exception as e:
-        Debug.log_warning(f"Failed to read event dictionary: {e}")
-        return result
-    Debug.stop_timer("Build event hash dict: read file")
-    Debug.log(f"  Read {len(event_names)} event names from '{dictionary_path}'")
-
-    # Phase 2: hash every event name with StrCode32
-    Debug.start_timer("Build event hash dict: hash generation")
-    failed = 0
-    for event_name in event_names:
-        try:
-            hash_value = util_hashing_cityhash.strcode32(event_name)
-            result[hash_value] = event_name
-        except Exception:
-            failed += 1
-    Debug.stop_timer("Build event hash dict: hash generation")
-    Debug.log(f"  Built {len(result)} event hash entries ({failed} failed) from '{dictionary_path}'")
     return result
