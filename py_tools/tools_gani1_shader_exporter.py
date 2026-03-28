@@ -34,34 +34,8 @@ from ..py_fox.fox_hash_types import StrCode32
 
 from ..py_foxwrap.fwrap_metadata_types import TrackMetaData
 from ..py_foxwrap.fwrap_track_types import TrackUnitWrapper, TrackDataBlobWrapper
-from ..py_foxwrap.fwrap_misc_export_types import ExportActionData
-from ..py_foxwrap import fwrap_misc_export
+from ..py_foxwrap import fwrap_metadata
 
-
-# ---------------------------------------------------------------------------
-# Action collection
-# ---------------------------------------------------------------------------
-
-def collect_shader_nodes_actions(
-    shader_nodes_armature: bpy.types.Object,
-    use_nla: bool,
-    export_clean_threshold: float = 0.0,
-) -> List[ExportActionData]:
-    """Collect shader-node animation actions from *shader_nodes_armature*.
-
-    Args:
-        shader_nodes_armature:  Armature object containing shader-node bones.
-        use_nla:                If ``True``, collect from NLA strips; if
-                                ``False``, use the active action.
-        export_clean_threshold: FCurve cleaning threshold (0 = disabled).
-
-    Returns:
-        List of :class:`ExportActionData` objects (may be empty).
-    """
-    return fwrap_misc_export.collect_armature_actions(
-        shader_nodes_armature, use_nla,
-        export_clean_threshold=export_clean_threshold,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -97,7 +71,7 @@ def build_shader_nodes_metadata_dict(
         except ValueError:
             return StrCode32.from_string(unit_part).to_int()
 
-    return fwrap_misc_export.build_track_metadata_dict_from_fcurves(
+    return fwrap_metadata.build_track_metadata_dict_from_fcurves(
         armature=shader_nodes_armature,
         action=action,
         armature_label="shader nodes",

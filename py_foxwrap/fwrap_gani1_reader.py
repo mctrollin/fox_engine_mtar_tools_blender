@@ -19,7 +19,7 @@ from ..py_fox.fox_foxdata_types import FoxDataHeader, FoxDataNode, FoxDataParamT
 from ..py_fox.fox_gani_types import TrackMiniHeader, EvpHeader, Gani2TrackData
 
 from .fwrap_track_types import Tracks, TrackUnitWrapper
-from .fwrap_misc_import_types import GaniImportData, Gani1ShaderTrackWrapper
+from .fwrap_mtar_import_types import GaniImportData, Gani1ShaderTrackWrapper
 from . import fwrap_track
 
 

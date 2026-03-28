@@ -16,11 +16,12 @@ Dependency chain (no circularity):
 from typing import Optional, List, Dict, Tuple
 
 import bpy
+from ..py_foxwrap_utilities import futil_naming
 
 from ..py_core.core_logging import Debug
 
 from ..py_utilities.util_blender_armature_types import BoneSpec
-from ..py_utilities import util_hashing, util_blender_animation, util_naming, util_blender_armature
+from ..py_utilities import util_hashing, util_blender_animation, util_blender_armature
 
 from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_fox.fox_gani_types import TrackHeader
@@ -128,9 +129,9 @@ def create_nla_strips_for_actions(
             if mtar_const.TABL_PATH in action.keys():
                 gani_path_val = str(action[mtar_const.TABL_PATH])
                 if not util_hashing.is_gani_path_a_hash(gani_path_val):
-                    gani_name_segment = util_naming.extract_gani_name_from_path(gani_path_val)
+                    gani_name_segment = futil_naming.extract_gani_name_from_path(gani_path_val)
 
-            strip.name = util_naming.format_strip_name(
+            strip.name = futil_naming.format_strip_name(
                 mtar_file_name, index, h_idx, d_idx,
                 use_verbose_naming,
                 is_motion_points=is_motion_points,
@@ -228,11 +229,11 @@ def create_motion_points_animation_actions(
                 f"0x{file_header.path:016X}, using h0_d0"
             )
 
-        gani_full_path, gani_name_segment = util_naming.resolve_gani_name_segment(
+        gani_full_path, gani_name_segment = futil_naming.resolve_gani_name_segment(
             file_header, gani_hash_dict
         )
 
-        action_name: str = util_naming.format_action_name(
+        action_name: str = futil_naming.format_action_name(
             mtar_file_name, gani_index, h_idx, d_idx,
             use_verbose_naming,
             is_motion_points=True,

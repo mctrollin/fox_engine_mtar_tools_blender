@@ -25,16 +25,16 @@ from ..py_fox.fox_hash_types import StrCode32
 from ..py_fox.fox_mtar_types import is_new_mtar_format
 
 from ..py_foxwrap_utilities import futil_filtering, futil_rest_pose_correction
+from ..py_foxwrap_utilities.futil_action_types import ExportActionData
 
-from ..py_foxwrap.fwrap_misc_import_types import GaniImportData
+from ..py_foxwrap.fwrap_mtar_import_types import GaniImportData
 from ..py_foxwrap.fwrap_track_types import TrackUnitWrapper, Tracks, TrackDataBlobWrapper
-from ..py_foxwrap.fwrap_misc_export_types import (
+from ..py_foxwrap.fwrap_mtar_export_types import (
     GaniExportData, 
     GaniExportTracksData, 
     GaniExportMotionPointsData, 
     GaniMotionEventsData,
     Gani1ExportShaderData,
-    ExportActionData, 
 )
 from ..py_foxwrap.fwrap_mapping_export_types import TrackSegmentBoneMapping
 from ..py_foxwrap.fwrap_mapping_types import BoneParameters
@@ -44,7 +44,7 @@ from ..py_foxwrap.fwrap_mtar_reader import MtarReader
 
 # TODO: don't import tools into other tools
 from . import tools_mtar_importer
-from . import tools_motion_points_exporter
+from ..py_foxwrap import fwrap_motionpoint_export
 from . import tools_gani1_shader_exporter
 
 
@@ -1920,12 +1920,14 @@ def export_mtar(context: bpy.types.Context,
         parent = util_blender_armature.prepare_aux_armature_for_export(motion_points_armature)
         try:
             # Build MotionPointsList from armature bones (but do not write header count yet - it is computed at write time)
-            motion_points_wrapper = tools_motion_points_exporter.build_motion_points_list_from_armature(motion_points_armature)
+            motion_points_wrapper = fwrap_motionpoint_export.build_motion_points_list_from_armature(motion_points_armature)
             motion_points_list = motion_points_wrapper.to_motion_point_list2()
 
             # Collect motion point actions
-            motion_point_actions_data = tools_motion_points_exporter.collect_motion_point_actions(
-                motion_points_armature, use_nla, export_clean_threshold
+            motion_point_actions_data = ExportActionData.collect_export_action_data_from_armature(
+                armature=motion_points_armature, 
+                use_nla=use_nla, 
+                export_clean_threshold=export_clean_threshold
             )
 
             if motion_point_actions_data:
@@ -1951,8 +1953,10 @@ def export_mtar(context: bpy.types.Context,
 
     if shader_nodes_armature and not writer.is_new_format:
         Debug.log(f"Found shader nodes armature: {shader_nodes_armature.name}")
-        shader_nodes_actions_data = tools_gani1_shader_exporter.collect_shader_nodes_actions(
-            shader_nodes_armature, use_nla, export_clean_threshold
+        shader_nodes_actions_data = ExportActionData.collect_export_action_data_from_armature(
+            armature=shader_nodes_armature, 
+            use_nla=use_nla, 
+            export_clean_threshold=export_clean_threshold
         )
         if shader_nodes_actions_data:
             Debug.log(f"Found {len(shader_nodes_actions_data)} shader node action(s)")
@@ -2043,7 +2047,7 @@ def export_mtar(context: bpy.types.Context,
             Debug.log(f"\n  Exporting motion points for GANI '{gani_name}': {motion_point_action_data.action.name}")
 
             # MetaData: Build metadata dict for motion points by analyzing the action and armature
-            motion_point_metadata_dict: Dict[str, fwrap_metadata.TrackMetaData] = tools_motion_points_exporter.build_motion_point_metadata_dict(motion_points_armature, motion_point_action_data.action)
+            motion_point_metadata_dict: Dict[str, fwrap_metadata.TrackMetaData] = fwrap_motionpoint_export.build_motion_point_metadata_dict(motion_points_armature, motion_point_action_data.action)
             Debug.log(f"    Built metadata from {len(motion_point_metadata_dict)} motion point bone(s)")
 
             # Export motion point tracks

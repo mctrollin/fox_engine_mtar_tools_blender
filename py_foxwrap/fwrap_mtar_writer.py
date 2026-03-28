@@ -21,7 +21,7 @@ from ..py_fox.fox_gani_enums import CommonInfoNodeType, TrackUnitFlags
 from ..py_fox.fox_gani_types import TrackHeader, TrackUnit, TrackData
 from ..py_fox.fox_hash_types import StrCode32
 
-from .fwrap_misc_export_types import GaniExportData
+from .fwrap_mtar_export_types import GaniExportData
 from .fwrap_track_types import Tracks, TrackUnitWrapper
 from .fwrap_gani2_writer import Gani2Writer
 from .fwrap_gani1_writer import GaniWriter

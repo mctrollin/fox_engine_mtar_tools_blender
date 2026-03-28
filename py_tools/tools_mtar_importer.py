@@ -5,7 +5,7 @@ import bpy
 
 from ..py_core.core_logging import Debug
 
-from ..py_utilities import util_blender_animation, util_naming, util_blender_armature
+from ..py_utilities import util_blender_animation, util_blender_armature
 from ..py_utilities.util_blender_armature_types import BoneSpec
 
 from ..py_fox import fox_mtar_constants as mtar_const
@@ -13,13 +13,13 @@ from ..py_fox.fox_mtar_types import MtarTableList, MtarTableList2, MtarHeader, i
 from ..py_fox.fox_gani_types import SegmentType, TrackUnitFlags
 from ..py_fox.fox_frig_types import FrigFile
 
-from ..py_foxwrap_utilities import futil_filtering, futil_rest_pose_correction
+from ..py_foxwrap_utilities import futil_filtering, futil_naming, futil_rest_pose_correction
 
 from ..py_foxwrap.fwrap_track_types import Tracks
-from ..py_foxwrap.fwrap_misc_import_types import GaniImportData
+from ..py_foxwrap.fwrap_mtar_import_types import GaniImportData
 from ..py_foxwrap.fwrap_mapping_types import BoneParameters, TransformConstraintEntry
 from ..py_foxwrap.fwrap_motionpoint_types import MotionPointWrapper
-from ..py_foxwrap import fwrap_metadata, fwrap_motionevent, fwrap_motionpoint, fwrap_mapping, fwrap_mapping_import
+from ..py_foxwrap import fwrap_metadata, fwrap_motionevent, fwrap_mapping, fwrap_mapping_import, fwrap_motionpoint_import
 from ..py_foxwrap.fwrap_mtar_reader import MtarReader
 
 # TODO: tools should not import other tools
@@ -139,7 +139,7 @@ def create_animation_actions(
     if layout_track and layout_track.track_units and not is_old_format:
         # GANI2 / new-format: create layout action (unchanged)
         Debug.log("Creating layout track action for metadata storage (GANI2)...")
-        layout_action_name = util_naming.format_action_name(mtar_file_name, 0, 0, 0, False, is_layout=True)
+        layout_action_name = futil_naming.format_action_name(mtar_file_name, 0, 0, 0, False, is_layout=True)
         layout_action = bpy.data.actions.new(name=layout_action_name)
         layout_action.use_fake_user = True
         
@@ -176,7 +176,7 @@ def create_animation_actions(
 
         # Resolve GANI path hash to readable name if dictionary provided
         file_header = data.file_header
-        gani_full_path, gani_name_segment = util_naming.resolve_gani_name_segment(file_header, gani_hash_dict)
+        gani_full_path, gani_name_segment = futil_naming.resolve_gani_name_segment(file_header, gani_hash_dict)
 
         # -----------------------------------------------------
         # Update UI progress for per-GANI processing (keeps overall 'Creating Actions...' stage)
@@ -203,7 +203,7 @@ def create_animation_actions(
         if file_header.path not in path_to_indices:
             Debug.log_warning(f"Missing path hash mapping for GANI: 0x{file_header.path:016X}, using h0_d0")
         
-        action_name: str = util_naming.format_action_name(mtar_file_name, gani_index, h_idx, d_idx, use_verbose_naming, gani_name=gani_name_segment)
+        action_name: str = futil_naming.format_action_name(mtar_file_name, gani_index, h_idx, d_idx, use_verbose_naming, gani_name=gani_name_segment)
         action: bpy.types.Action = bpy.data.actions.new(name=action_name)
         gani_actions.append(action)
         Debug.log(f"Created action: {action_name}")
@@ -269,7 +269,7 @@ def create_animation_actions(
                 description="Original GANI had no SKL_LIST node — suppress on re-export"
             )
             Debug.log(f"  Stored {fwrap_metadata.PROP_NO_SKL_LIST}: 1 (original had no SKL_LIST)")
-        fwrap_motionpoint.store_motion_point_stringlists_on_action(
+        fwrap_motionpoint_import.store_motion_point_stringlists_on_action(
             action,
             data.gani1_motion_point_list,
             data.gani1_motion_point_parent_list,
@@ -738,7 +738,7 @@ def create_and_setup_armature(
             start=-100,
             action=layout_action
         )
-        layout_strip.name = util_naming.format_strip_name(mtar_file_name, 0, 0, 0, False, is_layout=True)
+        layout_strip.name = futil_naming.format_strip_name(mtar_file_name, 0, 0, 0, False, is_layout=True)
         layout_strip.frame_start = -100
         layout_strip.frame_end = -50
         layout_strip.blend_type = 'REPLACE'
@@ -762,7 +762,7 @@ def create_and_setup_armature(
                 start=-100,
                 action=layout_action
             )
-            layout_strip.name = util_naming.format_strip_name(mtar_file_name, 0, 0, 0, False, is_layout=True)
+            layout_strip.name = futil_naming.format_strip_name(mtar_file_name, 0, 0, 0, False, is_layout=True)
             layout_strip.frame_start = -100
             layout_strip.frame_end = -50
             layout_strip.blend_type = 'REPLACE'

@@ -1,41 +1,17 @@
-import copy
 from dataclasses import dataclass
-from typing import Optional, List, Dict, Set, Tuple, Union
+from typing import Optional, List, Dict, Tuple, Union
 
 import io
 import bpy
 
 from ..py_core.core_logging import Debug
 
-from ..py_utilities import util_parsing
-
 from ..py_fox.fox_gani_types import TrackUnitFlags, EvpHeader, TrackHeader
 
-from .fwrap_mapping_types import BoneParameters
-from .fwrap_metadata_types import TrackMetaData
 from .fwrap_track_types import TrackUnitWrapper, Tracks
 from .fwrap_gani2_writer import Gani2Writer
 
 
-@dataclass
-class ExportActionData:
-    """Info for one Blender action selected for MTAR/GANI export.
-
-    Fields:
-    - action: Blender action object
-    - frame_start/frame_end: export frame range
-    - source: debug string, e.g. "NLA strip '...'"
-    - export_clean_threshold: fcurve cleanup threshold used during animation baking
-    """
-    action: bpy.types.Action
-    frame_start: int
-    frame_end: int
-    source: str
-    export_clean_threshold: float = 0.0
-
-    def to_string(self) -> str:
-        frame_count = self.frame_end - self.frame_start + 1
-        return f"'Action '{self.action.name}' (frames {self.frame_start}-{self.frame_end}, {frame_count} frames) - {self.source}"
 
 
 @dataclass
@@ -177,5 +153,3 @@ class GaniExportData:
         )
 
         return buffer.getvalue()
-
-

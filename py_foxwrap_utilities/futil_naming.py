@@ -7,7 +7,7 @@ from typing import Optional, Dict, Tuple
 
 from ..py_fox.fox_mtar_types import MtarTableList2
 
-from . import util_hashing
+from ..py_utilities import util_hashing
 
 
 def extract_gani_name_from_path(path_str: str) -> str:
@@ -22,7 +22,59 @@ def extract_gani_name_from_path(path_str: str) -> str:
     return path_str.rstrip('/').rsplit('/', 1)[-1]
 
 
-def resolve_gani_name_segment(file_header: MtarTableList2, gani_hash_dict: Optional[Dict[int, str]]) -> Tuple[Optional[str], Optional[str]]:
+def extract_track_infos_from_action_label(name: str) -> Optional[Tuple[int, str]]:
+    """Extract (index, type) from action/strip name.
+    
+    Schema: <mtar-name>.<animation-parts>.<index>.<type>.(gani|strip)
+    Handles both new and old formats with backward compatibility.
+    
+    Args:
+        name: Action or strip name
+        
+    Returns:
+        Tuple of (index, type) where type is 'track' or 'motionpoints'
+        Returns None if name doesn't match expected schema
+    """
+    # Remove file extension
+    if name.endswith('.gani'):
+        name_no_ext = name[:-5]
+    elif name.endswith('.strip'):
+        name_no_ext = name[:-6]
+    else:
+        # Try old format detection: look for .motionpoints suffix
+        if '.motionpoints.' in name:
+            name_no_ext = name.replace('.gani', '').replace('.strip', '')
+        else:
+            return None
+    
+    parts = name_no_ext.split('.')
+    if len(parts) < 4:  # At minimum: mtar, animation, index, type
+        return None
+    
+    try:
+        # Last two components are index and type
+        gani_type = parts[-1]
+        index = int(parts[-2])
+        
+        # Validate type
+        if gani_type not in ('track', 'motionpoints', 'shadernodes'):
+            # Backward compatibility: old format has no explicit type
+            # Try to detect old .motionpoints suffix
+            if '.motionpoints' in name:
+                return (index, 'motionpoints')
+            return None
+        
+        return (index, gani_type)
+    except (ValueError, IndexError):
+        pass
+    
+    return None
+
+
+def resolve_gani_name_segment(
+        file_header: MtarTableList2, 
+        gani_hash_dict: Optional[Dict[int, str]]
+        ) -> Tuple[Optional[str], Optional[str]]:
     """Resolve GANI full path and name segment from hash dictionary if available.
     
     Args:
@@ -41,7 +93,6 @@ def resolve_gani_name_segment(file_header: MtarTableList2, gani_hash_dict: Optio
             gani_name_segment = extract_gani_name_from_path(gani_full_path)
     
     return gani_full_path, gani_name_segment
-
 
 
 def _format_gani_name(

@@ -23,10 +23,9 @@ from ..py_utilities import util_blender_animation
 
 from ..py_fox.fox_hash_types import StrCode32
 
-from ..py_foxwrap.fwrap_metadata_types import TrackMetaData
-from ..py_foxwrap.fwrap_misc_export_types import ExportActionData
-from ..py_foxwrap.fwrap_motionpoint_types import MotionPointWrapper, MotionPointEntryWrapper
-from ..py_foxwrap import fwrap_misc_export
+from .fwrap_metadata_types import TrackMetaData
+from .fwrap_motionpoint_types import MotionPointWrapper, MotionPointEntryWrapper
+from . import fwrap_metadata
 
 
 def build_motion_points_list_from_armature(
@@ -159,33 +158,11 @@ def build_motion_point_metadata_dict(
         except ValueError:
             return StrCode32.from_string(bone_name).to_int()
 
-    return fwrap_misc_export.build_track_metadata_dict_from_fcurves(
+    return fwrap_metadata.build_track_metadata_dict_from_fcurves(
         armature=motion_points_armature,
         action=action,
         armature_label="motion points",
         bone_skip_predicate=None,
         name_hash_extractor_fn=_mtp_hash,
         warn_on_missing_metadata=False,
-    )
-
-
-def collect_motion_point_actions(
-    motion_points_armature: bpy.types.Object,
-    use_nla: bool,
-    export_clean_threshold: float = 0.0,
-) -> List[ExportActionData]:
-    """Collect motion-point animation actions from *motion_points_armature*.
-
-    Args:
-        motion_points_armature: Motion points armature object.
-        use_nla:                 If ``True``, collect from NLA strips; if
-                                 ``False``, use the active action.
-        export_clean_threshold:  FCurve cleaning threshold (0 = disabled).
-
-    Returns:
-        List of :class:`ExportActionData` objects.
-    """
-    return fwrap_misc_export.collect_armature_actions(
-        motion_points_armature, use_nla,
-        export_clean_threshold=export_clean_threshold,
     )

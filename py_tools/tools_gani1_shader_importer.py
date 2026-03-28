@@ -27,17 +27,18 @@ Dependency chain (no circularity):
 from typing import Optional, List, Dict, Tuple
 
 import bpy
+from ..py_foxwrap_utilities import futil_naming
 
 from ..py_core.core_logging import Debug
 
 from ..py_utilities.util_blender_armature_types import BoneSpec
-from ..py_utilities import util_blender_animation, util_naming, util_blender_armature
+from ..py_utilities import util_blender_animation, util_blender_armature
 
 from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox.fox_mtar_types import MtarTableList2
 
-from ..py_foxwrap.fwrap_misc_import_types import Gani1ShaderTrackWrapper
+from ..py_foxwrap.fwrap_mtar_import_types import Gani1ShaderTrackWrapper
 from ..py_foxwrap.fwrap_track_types import TrackUnitWrapper
 from ..py_foxwrap.fwrap_metadata_types import TrackMetaData
 from ..py_foxwrap import fwrap_metadata, fwrap_track
@@ -175,9 +176,9 @@ def create_shader_animation_actions(
         file_header = all_file_headers[gani_index]
         h_idx, d_idx = path_to_indices.get(file_header.path, (0, 0))
 
-        gani_full_path, gani_name_segment = util_naming.resolve_gani_name_segment(file_header, gani_hash_dict)
+        gani_full_path, gani_name_segment = futil_naming.resolve_gani_name_segment(file_header, gani_hash_dict)
 
-        action_name: str = util_naming.format_action_name(
+        action_name: str = futil_naming.format_action_name(
             mtar_file_name, gani_index, h_idx, d_idx,
             use_verbose_naming,
             is_shader_nodes=True,

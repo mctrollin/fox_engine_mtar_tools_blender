@@ -5,7 +5,7 @@ This module contains helper functions used throughout the importer and
 exporter for parsing track metadata strings stored either in mapping files
 or on Blender action properties.
 """
-from typing import List, Optional, Dict, Set, Tuple, Union
+from typing import Callable, List, Optional, Dict, Set, Tuple, Union
 import copy
 
 import bpy
@@ -17,6 +17,7 @@ from ..py_utilities import util_blender_animation, util_hashing, util_parsing
 from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox import fox_mtar_constants as mtar_const
 from ..py_fox.fox_gani_types import Gani2TrackData, SegmentType, TrackHeader, TrackUnit, TrackUnitFlags, TrackMiniHeader
+from ..py_fox.fox_hash_types import StrCode32
 from ..py_fox.fox_frig_types import RigUnitType
 
 from .fwrap_track_types import Tracks, TrackUnitWrapper
@@ -42,9 +43,9 @@ PROP_MTP_PARENT_LIST = "gfox_mtp_parent_list"  # MTP_PARENT_LIST node — motion
 PROP_NO_SKL_LIST     = "gfox_no_skl_list"      # 1 = original GANI had no SKL_LIST node (suppress on re-export)
 
 
-# Custom Property Key Utilities #############################################################
+# Action property key helpers #############################################################
 
-def make_track_property_key(track_idx: int, track_name: str) -> str:
+def _make_track_property_key(track_idx: int, track_name: str) -> str:
     """Create a custom property key for track metadata.
     
     Format: track_<padded_idx>_<track_name>
@@ -60,7 +61,7 @@ def make_track_property_key(track_idx: int, track_name: str) -> str:
     return f"{TRACK_PROP_PREFIX}{track_idx:03d}_{track_name}"
 
 
-def parse_track_property_key(key: str) -> Optional[Tuple[int, str]]:
+def _parse_track_property_key(key: str) -> Optional[Tuple[int, str]]:
     """Parse a track metadata property key.
     
     Format: track_<padded_idx>_<track_name>
@@ -99,7 +100,7 @@ def make_event_property_key(event_idx: int, category_name: str) -> str:
     return f"{EVENT_PROP_PREFIX}{event_idx:03d}_{category_name}"
 
 
-def parse_event_property_key(key: str) -> Optional[Tuple[int, str]]:
+def _parse_event_property_key(key: str) -> Optional[Tuple[int, str]]:
     """Parse a motion event metadata property key.
     
     Format: event_<padded_idx>_<category>
@@ -133,7 +134,7 @@ def iter_track_properties(action: bpy.types.Action) -> List[Tuple[int, str, str]
     """
     results = []
     for key in action.keys():
-        parsed = parse_track_property_key(key)
+        parsed = _parse_track_property_key(key)
         if parsed:
             track_idx, track_name = parsed
             results.append((track_idx, track_name, action[key]))
@@ -143,7 +144,28 @@ def iter_track_properties(action: bpy.types.Action) -> List[Tuple[int, str, str]
     return results
 
 
-# Generic Node Parameters ####################################################################
+def iter_event_properties(action: bpy.types.Action) -> List[Tuple[int, str, str]]:
+    """Iterate through all motion event properties on an action.
+    
+    Args:
+        action: Blender action to read properties from
+        
+    Returns:
+        List of tuples (event_idx, category_name, property_value) sorted by event_idx
+    """
+    results = []
+    for key in action.keys():
+        parsed = _parse_event_property_key(key)
+        if parsed:
+            event_idx, category_name = parsed
+            results.append((event_idx, category_name, action[key]))
+    
+    # Sort by event index
+    results.sort(key=lambda x: x[0])
+    return results
+
+
+# Node param storage/parsing ####################################################################
 # Unified store/parse for FoxData node parameters accessible by node path key (e.g., "MOTION",
 # "SHADER/TENSION_CHEEKL"). Format: "NAME:value,NAME:value" with implicit type inference from
 # value content ('.' → float, digits-only → int, else → str).
@@ -185,7 +207,7 @@ def store_node_params_on_action(
     )
 
 
-def parse_node_params_from_action(
+def _parse_node_params_from_action(
     action: bpy.types.Action,
     node_key: str,
 ) -> List[Tuple[int, Union[float, str, int]]]:
@@ -248,7 +270,7 @@ def iter_all_node_params_from_action(action: bpy.types.Action) -> Dict[str, List
     for key in action.keys():
         if key.startswith(PROP_NODE_PARAMS_PREFIX):
             node_key = key[len(PROP_NODE_PARAMS_PREFIX):]
-            params = parse_node_params_from_action(action, node_key)
+            params = _parse_node_params_from_action(action, node_key)
             if params:
                 result[node_key] = params
     return result
@@ -269,28 +291,9 @@ def merge_node_params(
     return merged
 
 
-def resolve_gani_frame_info(
-    gani_layout_track: Optional[Tracks],
-    gani_track_mini_header: Optional[TrackMiniHeader],
-    gani_motion_point_track_header: Optional[TrackHeader],
-) -> Tuple[int, int]:
-    """Resolve frame count and rate for exported GANI based on available sources."""
-    frame_count = 0
-    frame_rate = 60
+# GANI/MOTION shorthand helpers ####################################################################
 
-    if gani_track_mini_header is not None:
-        frame_count = gani_track_mini_header.frame_count
-    elif gani_layout_track is not None:
-        frame_count = gani_layout_track.header.frame_count
-
-    if gani_layout_track is not None and gani_layout_track.header.frame_rate > 0:
-        frame_rate = gani_layout_track.header.frame_rate
-    elif gani_motion_point_track_header is not None:
-        frame_rate = gani_motion_point_track_header.frame_rate
-
-    return frame_count, frame_rate
-
-
+# Not used! Investigate why.
 def store_gani_params_on_action(action: bpy.types.Action, params: List[Tuple[int, Union[float, str, int]]]) -> None:
     """Store Gani2/MOTION params as a single custom property on a Blender action.
 
@@ -303,7 +306,7 @@ def store_gani_params_on_action(action: bpy.types.Action, params: List[Tuple[int
     """
     store_node_params_on_action(action, "MOTION", params)
 
-
+# Not used! Investigate why.
 def parse_gani_params_from_action(action: bpy.types.Action) -> List[Tuple[int, Union[float, str, int]]]:
     """Read Gani2/MOTION params back from a Blender action custom property.
 
@@ -317,9 +320,9 @@ def parse_gani_params_from_action(action: bpy.types.Action) -> List[Tuple[int, U
         List of ``(name_hash, value)`` tuples, or empty list if the property is
         absent or the action carries no params.
     """
-    return parse_node_params_from_action(action, "MOTION")
+    return _parse_node_params_from_action(action, "MOTION")
 
-
+# Not used! Investigate why.
 def store_shader_node_params_on_action(
     action: bpy.types.Action,
     prop_name: str,
@@ -337,7 +340,7 @@ def store_shader_node_params_on_action(
     """
     store_node_params_on_action(action, f"SHADER/{prop_name}", params)
 
-
+# Not used! Investigate why.
 def parse_shader_node_params_from_action(
     action: bpy.types.Action,
     prop_name: str,
@@ -355,8 +358,10 @@ def parse_shader_node_params_from_action(
         List of ``(name_hash, value)`` tuples, or empty list if the property is
         absent or the action carries no params for this property.
     """
-    return parse_node_params_from_action(action, f"SHADER/{prop_name}")
+    return _parse_node_params_from_action(action, f"SHADER/{prop_name}")
 
+
+# FoxData stringlist helpers ####################################################################
 
 def store_foxdata_stringlist_on_action(
     action: bpy.types.Action,
@@ -429,116 +434,7 @@ def parse_foxdata_stringlist_from_action(
     return result
 
 
-def iter_event_properties(action: bpy.types.Action) -> List[Tuple[int, str, str]]:
-    """Iterate through all motion event properties on an action.
-    
-    Args:
-        action: Blender action to read properties from
-        
-    Returns:
-        List of tuples (event_idx, category_name, property_value) sorted by event_idx
-    """
-    results = []
-    for key in action.keys():
-        parsed = parse_event_property_key(key)
-        if parsed:
-            event_idx, category_name = parsed
-            results.append((event_idx, category_name, action[key]))
-    
-    # Sort by event index
-    results.sort(key=lambda x: x[0])
-    return results
-
-
-# Track Metadata Storage #############################################################
-
-def store_track_metadata_on_action(
-    action: bpy.types.Action,
-    track_metadata_list: List['TrackMetaData'],
-    include_segments: bool = True,
-) -> None:
-    """Store track metadata from :class:`TrackMetaData` objects as action custom properties.
-
-    Stores metadata in unified ``key=value`` format.
-
-    Layout track format::
-
-        name=<name> ; segments=<segs> ; bits=<bit_sizes> ; flags=<flags>
-
-    GANI track format::
-
-        name=<name> ; bits=<bit_sizes> ; flags=<flag_names>
-
-    Args:
-        action:             The Blender action to store metadata on.
-        track_metadata_list: List of :class:`TrackMetaData` objects to serialise.
-        include_segments:   Include segment-type abbreviations (``True`` for
-                            layout tracks, ``False`` for GANI tracks).
-    """
-    track_type = "layout" if include_segments else "GANI"
-    Debug.log(
-        f"Storing {track_type} track metadata for "
-        f"{len(track_metadata_list)} track(s) on action '{action.name}'"
-    )
-
-    for track_idx, track_meta in enumerate(track_metadata_list):
-        track_name = track_meta.track_name
-        metadata_parts = []
-
-        if include_segments:
-            abbrev_map = {
-                SegmentType.QUAT: 'q',
-                SegmentType.QUAT_DIFF: 'qd',
-                SegmentType.VECTOR3: 'v',
-                SegmentType.VECTOR_DIFF: 'vd',
-                SegmentType.FLOAT: 'f',
-                SegmentType.VECTOR2: 'v2',
-                SegmentType.VECTOR4: 'v4',
-            }
-            segment_str = ','.join(
-                abbrev_map.get(seg_type, '?')
-                for seg_type in track_meta.segment_types
-            )
-            metadata_parts.append(f"segments={segment_str}")
-
-        bit_sizes_str = ''
-        if track_meta.component_bit_sizes:
-            bit_sizes_str = ','.join(str(b) for b in track_meta.component_bit_sizes)
-        if bit_sizes_str:
-            metadata_parts.append(f"bits={bit_sizes_str}")
-
-        if track_meta.unit_flags is not None:
-            flags_list = TrackUnitFlags.int_to_track_unit_flags(track_meta.unit_flags)
-            flag_names = [flag.name for flag in flags_list]
-            flags_str = ','.join(flag_names) if flag_names else (
-                'NONE' if not include_segments else ''
-            )
-        else:
-            flags_str = 'NONE' if not include_segments else ''
-        if flags_str:
-            metadata_parts.append(f"flags={flags_str}")
-
-
-        if track_meta.rig_unit_type is not None:
-            metadata_parts.append(f"type={track_meta.rig_unit_type.name}")
-
-        metadata_value = f"name={track_name} ; {' ; '.join(metadata_parts)}"
-        property_key = make_track_property_key(track_idx, track_name)
-        action[property_key] = metadata_value
-        action.id_properties_ui(property_key).update(
-            description=f"Track metadata for {track_name}"
-        )
-
-        if include_segments:
-            Debug.log(f"  Stored: {property_key} = {metadata_value}")
-        else:
-            Debug.log(
-                f"  Track {track_idx} ({track_name}): "
-                f"bits=[{bit_sizes_str}], flags={flags_str}"
-            )
-
-
-# Track Header Properties #############################################################
+# Track header & MTAR property I/O #############################################################
 
 def store_track_header_properties_on_action(action: bpy.types.Action, track_header: TrackHeader) -> None:
     """Store TrackHeader fields as custom properties on an action.
@@ -686,7 +582,340 @@ def read_mtar_properties_from_any_action(
     return {}
 
 
-# Track Metadata Parsing Helpers #############################################################
+# Track Metadata Storage #############################################################
+
+def store_track_metadata_on_action(
+    action: bpy.types.Action,
+    track_metadata_list: List['TrackMetaData'],
+    include_segments: bool = True,
+) -> None:
+    """Store track metadata from :class:`TrackMetaData` objects as action custom properties.
+
+    Stores metadata in unified ``key=value`` format.
+
+    Layout track format::
+
+        name=<name> ; segments=<segs> ; bits=<bit_sizes> ; flags=<flags>
+
+    GANI track format::
+
+        name=<name> ; bits=<bit_sizes> ; flags=<flag_names>
+
+    Args:
+        action:             The Blender action to store metadata on.
+        track_metadata_list: List of :class:`TrackMetaData` objects to serialise.
+        include_segments:   Include segment-type abbreviations (``True`` for
+                            layout tracks, ``False`` for GANI tracks).
+    """
+    track_type = "layout" if include_segments else "GANI"
+    Debug.log(
+        f"Storing {track_type} track metadata for "
+        f"{len(track_metadata_list)} track(s) on action '{action.name}'"
+    )
+
+    for track_idx, track_meta in enumerate(track_metadata_list):
+        track_name = track_meta.track_name
+        metadata_parts = []
+
+        if include_segments:
+            abbrev_map = {
+                SegmentType.QUAT: 'q',
+                SegmentType.QUAT_DIFF: 'qd',
+                SegmentType.VECTOR3: 'v',
+                SegmentType.VECTOR_DIFF: 'vd',
+                SegmentType.FLOAT: 'f',
+                SegmentType.VECTOR2: 'v2',
+                SegmentType.VECTOR4: 'v4',
+            }
+            segment_str = ','.join(
+                abbrev_map.get(seg_type, '?')
+                for seg_type in track_meta.segment_types
+            )
+            metadata_parts.append(f"segments={segment_str}")
+
+        bit_sizes_str = ''
+        if track_meta.component_bit_sizes:
+            bit_sizes_str = ','.join(str(b) for b in track_meta.component_bit_sizes)
+        if bit_sizes_str:
+            metadata_parts.append(f"bits={bit_sizes_str}")
+
+        if track_meta.unit_flags is not None:
+            flags_list = TrackUnitFlags.int_to_track_unit_flags(track_meta.unit_flags)
+            flag_names = [flag.name for flag in flags_list]
+            flags_str = ','.join(flag_names) if flag_names else (
+                'NONE' if not include_segments else ''
+            )
+        else:
+            flags_str = 'NONE' if not include_segments else ''
+        if flags_str:
+            metadata_parts.append(f"flags={flags_str}")
+
+
+        if track_meta.rig_unit_type is not None:
+            metadata_parts.append(f"type={track_meta.rig_unit_type.name}")
+
+        metadata_value = f"name={track_name} ; {' ; '.join(metadata_parts)}"
+        property_key = _make_track_property_key(track_idx, track_name)
+        action[property_key] = metadata_value
+        action.id_properties_ui(property_key).update(
+            description=f"Track metadata for {track_name}"
+        )
+
+        if include_segments:
+            Debug.log(f"  Stored: {property_key} = {metadata_value}")
+        else:
+            Debug.log(
+                f"  Track {track_idx} ({track_name}): "
+                f"bits=[{bit_sizes_str}], flags={flags_str}"
+            )
+
+
+def get_all_track_metadata_from_action(action: bpy.types.Action) -> Dict[str, TrackMetaData]:
+    """Parse all track structure metadata from layout track action.
+    
+    The layout track defines the shared structure for all animations:
+    - Track names and order
+    - Segment types per track
+    - Default unit flags
+    
+    Args:
+        layout_action: The layout track action containing structure metadata
+        
+    Returns:
+        Dictionary mapping fox_track_name -> TrackMetaData
+    """
+    metadata_dict = {}
+    
+    # Iterate through track properties using utility function
+    for track_idx, fox_track_name, metadata_str in iter_track_properties(action):
+        # We already have the metadata_str, but get_track_metadata_from_action does the parsing
+        # Call it to parse the metadata string
+        metadata = build_track_metadata_from_action(action, fox_track_name)
+        if metadata:
+            metadata_dict[fox_track_name] = metadata
+            Debug.log(f"    Parsed track {track_idx}: {fox_track_name} ({len(metadata.segment_types)} segments)")
+    
+    Debug.log(f"  Parsed {len(metadata_dict)} track(s) from layout action")
+    return metadata_dict
+
+
+def build_track_metadata_from_action(layout_action: bpy.types.Action, fox_track_name: str) -> Optional[TrackMetaData]:
+    """Retrieve track metadata for one track from a layout action."""
+    metadata_str = None
+    property_key = None
+
+    for key in layout_action.keys():
+        parsed = _parse_track_property_key(key)
+        if parsed:
+            _, track_name = parsed
+            if track_name == fox_track_name:
+                property_key = key
+                metadata_str = layout_action[key]
+                break
+
+    if metadata_str is None:
+        return None
+
+    if not isinstance(metadata_str, str):
+        Debug.log_warning(f"      Warning: Custom property '{property_key}' is not valid metadata")
+        return None
+
+    parsed = _parse_track_metadata_generic(metadata_str)
+    if not parsed:
+        Debug.log_warning(f"      Warning: Failed to parse metadata for track '{fox_track_name}'")
+        return None
+
+    rig_unit_type = None
+    if parsed['rig_unit_type']:
+        rig_unit_type = RigUnitType.parse_from_string(parsed['rig_unit_type'])
+        if rig_unit_type is None:
+            Debug.log_warning(f"      Warning: Unknown rig unit type '{parsed['rig_unit_type']}' in track '{fox_track_name}'")
+
+    track_name_val = parsed['track_name']
+    name_hash = util_hashing.hash_or_parse_name(track_name_val)
+
+    return TrackMetaData(
+        track_name=track_name_val,
+        name_hash=name_hash,
+        segment_types=parsed['segment_types'],
+        component_bit_sizes=parsed['component_bit_sizes'],
+        unit_flags=parsed['unit_flags'],
+        flags_list=parsed['flags_list'],
+        rig_unit_type=rig_unit_type
+    )
+
+
+def build_track_metadata_from_fcurves(bone_name: str, action: bpy.types.Action) -> Optional[TrackMetaData]:
+    """Infer minimal TrackMetaData from action fcurves."""
+    if not action or not util_blender_animation.action_has_fcurves(action):
+        return None
+
+    segment_types, default_bits = infer_segment_types_from_fcurves(action, bone_name)
+    if not segment_types:
+        return None
+
+    from ..py_fox.fox_hash_types import StrCode32
+
+    return TrackMetaData(
+        track_name=bone_name,
+        segment_types=segment_types,
+        unit_flags=0,
+        name_hash=StrCode32.from_string(bone_name).to_int(),
+        component_bit_sizes=default_bits,
+        rig_unit_type=None
+    )
+
+
+def build_track_metadata_from_layout_track_units(
+    track_units: List[TrackUnit],
+    track_name_prefix: str = "Track",
+    gani_tracks: Optional[List['TrackUnitWrapper']] = None,
+) -> List[TrackMetaData]:
+    """Convert layout track units to TrackMetaData objects."""
+    track_metadata_list: List[TrackMetaData] = []
+
+    for track_idx, track_unit in enumerate(track_units):
+        track_name: str = f"{track_name_prefix}{track_idx}"
+        name_hash: int = 0
+        if track_unit.name:
+            name_hash = track_unit.name.to_int() if hasattr(track_unit.name, 'to_int') else int(track_unit.name)
+            resolved_name: Optional[str] = util_hashing.unhash_rig_type(name_hash)
+            if resolved_name:
+                track_name = resolved_name
+            elif gani_tracks and track_idx < len(gani_tracks):
+                gani_name = gani_tracks[track_idx].name
+                track_name = gani_name if not util_hashing.is_hash_string(gani_name) else str(track_unit.name)
+            else:
+                track_name = str(track_unit.name)
+
+        segment_types: List[SegmentType] = []
+        component_bit_sizes: List[int] = []
+        for track_data in track_unit.segments_data:
+            segment_types.append(track_data.td_type)
+            component_bit_sizes.append(track_data.component_bit_size)
+
+        rig_unit_type: Optional[RigUnitType] = None
+        if gani_tracks and track_idx < len(gani_tracks):
+            rig_unit_type = gani_tracks[track_idx].rig_unit_type
+
+        track_metadata_list.append(TrackMetaData(
+            track_name=track_name,
+            name_hash=name_hash if name_hash != 0 else None,
+            segment_types=segment_types,
+            component_bit_sizes=component_bit_sizes,
+            unit_flags=track_unit.unit_flags,
+            flags_list=None,
+            rig_unit_type=rig_unit_type
+        ))
+
+    return track_metadata_list
+
+
+def build_track_metadata_from_gani_tracks(
+    gani_tracks: List['TrackUnitWrapper'],
+    segment_headers: List[Gani2TrackData],
+) -> List[TrackMetaData]:
+    """Convert GANI tracks and segment headers to TrackMetaData objects."""
+    track_metadata_list: List[TrackMetaData] = []
+    segment_idx_abs: int = 0
+
+    for _, gani_track in enumerate(gani_tracks):
+        track_name: str = gani_track.name
+        unit_flags: Optional[int] = None
+        if gani_track.unit_flags:
+            unit_flags = TrackUnitFlags.track_unit_flags_to_int(gani_track.unit_flags)
+
+        segment_count: int = len(gani_track.segments_track_data)
+        bit_sizes: List[int] = []
+        segment_types: List[SegmentType] = []
+
+        for seg_idx in range(segment_count):
+            abs_idx: int = segment_idx_abs + seg_idx
+            if abs_idx < len(segment_headers):
+                bit_sizes.append(segment_headers[abs_idx].component_bit_size)
+            else:
+                bit_sizes.append(0)
+
+            if seg_idx < len(gani_track.segments_track_data):
+                segment_types.append(gani_track.segments_track_data[seg_idx].data_blob.type)
+
+        track_metadata_list.append(TrackMetaData(
+            track_name=track_name,
+            name_hash=None,
+            segment_types=segment_types,
+            component_bit_sizes=bit_sizes,
+            unit_flags=unit_flags,
+            flags_list=None,
+            rig_unit_type=None
+        ))
+
+        segment_idx_abs += segment_count
+
+    return track_metadata_list
+
+
+def merge_track_metadata(layout_meta: TrackMetaData, action_meta: Optional[TrackMetaData]) -> TrackMetaData:
+    """Merge action-level TrackMetaData overrides into a layout-level TrackMetaData.
+
+    The function returns a new TrackMetaData instance with action-level fields overriding
+    layout-level defaults where present. The layout metadata defines segment_types and
+    defaults, while action metadata contains per-animation overrides like component bit
+    sizes and flags. This function is non-destructive: it makes a shallow copy of the
+    layout metadata and applies overrides.
+    """
+    if not layout_meta and not action_meta:
+        return TrackMetaData()
+    if not layout_meta:
+        # If no layout metadata, return a copy of action metadata (best-effort)
+        return copy.deepcopy(action_meta) if action_meta else TrackMetaData()
+
+    result = copy.deepcopy(layout_meta)
+    if not action_meta:
+        return result
+
+    # Override track name / hash
+    if action_meta.track_name:
+        result.track_name = action_meta.track_name
+        if action_meta.name_hash is not None:
+            result.name_hash = action_meta.name_hash
+        else:
+            # Derive hash from the track name string, handling numeric literals
+            # automatically via helper.
+            try:
+                result.name_hash = util_hashing.hash_or_parse_name(action_meta.track_name)
+            except Exception:
+                # if helper somehow fails (shouldn't), leave existing hash
+                pass
+    # Override flags: prefer explicit integer if available, otherwise flags list
+    # Edit: unit flags are a special case. The action always (!) overrides the layout
+    result.unit_flags = action_meta.unit_flags
+
+    # Override segment types if explicitly specified in action metadata.
+    # Users can add segments=q,f (or any segment code) to a GANI action's track
+    # custom property to force specific segment types, overriding the layout and
+    # FCurve-presence inference. This is the escape hatch for ambiguous cases
+    # (e.g. user-created FLOAT animation that only keys location[0]).
+    if action_meta.segment_types:
+        result.segment_types = action_meta.segment_types
+
+    # Override rig unit type if provided
+    if action_meta.rig_unit_type:
+        result.rig_unit_type = action_meta.rig_unit_type
+
+    # Other optional overrides (rotation_offset, etc.)
+    if action_meta.rotation_offset is not None:
+        result.rotation_offset = action_meta.rotation_offset
+    if action_meta.rotation_axis_map is not None:
+        result.rotation_axis_map = action_meta.rotation_axis_map
+    if action_meta.space_r is not None:
+        result.space_r = action_meta.space_r
+    if action_meta.as_ik_up is not None:
+        result.as_ik_up = action_meta.as_ik_up
+
+    return result
+
+
+# Segment/flags/type helpers #############################################################
 
 def _parse_segment_codes(segment_codes_str: str) -> List[SegmentType]:
     """Parse comma-separated segment codes into SegmentType list.
@@ -828,7 +1057,9 @@ def get_segments_for_track_type(track_type: str, count: Optional[int] = None) ->
     return type_segments.get(track_type, [])
 
 
-def parse_track_metadata_generic(metadata_str: str) -> Optional[dict]:
+# Track metadata parsing/lookup #############################################################
+
+def _parse_track_metadata_generic(metadata_str: str) -> Optional[dict]:
     """Unified parser for track metadata in key=value format.
 
     Accepts semicolon-separated key=value entries produced by actions or
@@ -960,7 +1191,7 @@ def parse_track_metadata_generic(metadata_str: str) -> Optional[dict]:
     return result
 
 
-def parse_track_type_from_metadata(metadata_str: str) -> Optional[RigUnitType]:
+def _parse_track_type_from_metadata(metadata_str: str) -> Optional[RigUnitType]:
     """Extract only the RigUnitType from track metadata string.
 
     Lightweight parser that extracts only the 'type=VALUE' key without
@@ -987,7 +1218,31 @@ def parse_track_type_from_metadata(metadata_str: str) -> Optional[RigUnitType]:
     return None
 
 
-def extract_fox_bone_to_rig_unit_type_mapping(layout_action: bpy.types.Action, cache: Optional[Dict[str, Dict[str, RigUnitType]]] = None) -> Dict[str, RigUnitType]:
+def _parse_action_track_metadata(metadata_value: str) -> Optional[dict]:
+    """Parse track metadata stored on actions (GANI file properties).
+
+    Format: name=<name> ; type=<type> ; [flags=<flags>] ; [bits=<bits>]
+
+    Uses the unified parse_track_metadata_generic() parser internally.
+
+    Returns:
+        Dictionary with 'track_name', 'component_bit_sizes', 'flags', 'type' keys
+    """
+    # Use unified parser
+    parsed = _parse_track_metadata_generic(metadata_value)
+    if not parsed:
+        return None
+    
+    # Convert to expected return format
+    return {
+        'track_name': parsed['track_name'],
+        'component_bit_sizes': parsed['component_bit_sizes'] if parsed['component_bit_sizes'] else [],
+        'flags': parsed['flags_list'] if parsed['flags_list'] else [],
+        'type': parsed['rig_unit_type'],
+    }
+
+
+def _extract_fox_bone_to_rig_unit_type_mapping(layout_action: bpy.types.Action, cache: Optional[Dict[str, Dict[str, RigUnitType]]] = None) -> Dict[str, RigUnitType]:
     """Extract fox bone name to RigUnitType mapping from layout action metadata.
     
     Parses track metadata stored in layout action custom properties (format: 'name=FoxBoneName ; type=ROOT ; bits=14')
@@ -1020,7 +1275,7 @@ def extract_fox_bone_to_rig_unit_type_mapping(layout_action: bpy.types.Action, c
                 continue
 
             # Parse rig unit type using lightweight parser
-            rig_unit_type = parse_track_type_from_metadata(metadata_str)
+            rig_unit_type = _parse_track_type_from_metadata(metadata_str)
             
             if rig_unit_type is None:
                 Debug.log_warning(f"Could not parse rig unit type from metadata: {metadata_str}")
@@ -1077,7 +1332,7 @@ def build_blender_bone_decimation_skip_map(
     if not skip_type_set:
         return skip_map
 
-    fox_bone_to_type = extract_fox_bone_to_rig_unit_type_mapping(layout_action, cache)
+    fox_bone_to_type = _extract_fox_bone_to_rig_unit_type_mapping(layout_action, cache)
     if not fox_bone_to_type:
         return skip_map
 
@@ -1094,29 +1349,239 @@ def build_blender_bone_decimation_skip_map(
     return skip_map
 
 
-def parse_action_track_metadata(metadata_value: str) -> Optional[dict]:
-    """Parse track metadata stored on actions (GANI file properties).
+def infer_segment_types_from_fcurves(
+    action: bpy.types.Action,
+    bone_name: str,
+) -> Tuple[List[SegmentType], List[int]]:
+    """Infer track segment types and default component bit sizes for a bone.
 
-    Format: name=<name> ; type=<type> ; [flags=<flags>] ; [bits=<bits>]
+    This helper examines *action* for F‑curves belonging to *bone_name* and
+    returns a pair ``(segment_types, default_bit_sizes)``.  The bit sizes are
+    **defaults only**; if explicit metadata is stored on the action it
+    overrides these values during export.
 
-    Uses the unified parse_track_metadata_generic() parser internally.
+    The algorithm mirrors the logic previously embedded in
+    :meth:`TrackMetaData.from_fcurves` and
+    ``build_track_metadata_dict_from_fcurves``:
+
+    * ``rotation_quaternion`` or ``rotation_euler`` curves → ``QUAT`` added.
+    * ``location`` curves are inspected by channel index:
+        - ``{0}`` → ``FLOAT``
+        - ``{0,1}`` → ``VECTOR2``
+        - any non-empty set containing 0,1,2 → ``VECTOR3``
+    * Both a rotation and a location type may be returned.
+
+    Unexpected situations (e.g. deriving ``VECTOR3`` with only one location
+    curve) generate a ``Debug.log_warning`` message so users can investigate.
+
+    Args:
+        action:      Blender action containing F‑curves.
+        bone_name:   Name of the bone whose curves to inspect.
 
     Returns:
-        Dictionary with 'track_name', 'component_bit_sizes', 'flags', 'type' keys
+        Tuple of (segment_types:list of SegmentType, default_bit_sizes:list of int).
+        May return ``([], [])`` if no relevant F‑curves are found.
     """
-    # Use unified parser
-    parsed = parse_track_metadata_generic(metadata_value)
-    if not parsed:
-        return None
     
-    # Convert to expected return format
-    return {
-        'track_name': parsed['track_name'],
-        'component_bit_sizes': parsed['component_bit_sizes'] if parsed['component_bit_sizes'] else [],
-        'flags': parsed['flags_list'] if parsed['flags_list'] else [],
-        'type': parsed['rig_unit_type'],
-    }
 
+    if not action or not util_blender_animation.action_has_fcurves(action):
+        return [], []
+
+    rotation_quat_path = util_blender_animation.build_data_path_for_bone(bone_name, 'rotation_quaternion')
+    rotation_euler_path = util_blender_animation.build_data_path_for_bone(bone_name, 'rotation_euler')
+    location_path = util_blender_animation.build_data_path_for_bone(bone_name, 'location')
+
+    has_rotation = False
+    location_indices: Set[int] = set()
+
+    for fc in util_blender_animation.iter_action_fcurves(action):
+        if fc.data_path in (rotation_quat_path, rotation_euler_path):
+            has_rotation = True
+        elif fc.data_path == location_path:
+            location_indices.add(fc.array_index)
+
+    segment_types: List[SegmentType] = []
+    if has_rotation:
+        segment_types.append(SegmentType.QUAT)
+
+    if location_indices == {0}:
+        segment_types.append(SegmentType.FLOAT)
+    elif location_indices == {0, 1}:
+        segment_types.append(SegmentType.VECTOR2)
+    elif location_indices:
+        segment_types.append(SegmentType.VECTOR3)
+
+    # warn about odd combinations
+    if location_indices and segment_types and segment_types[-1] == SegmentType.VECTOR3 and len(location_indices) < 3:
+        Debug.log_warning(
+            f"infer_segment_types_from_fcurves: bone '{bone_name}' has "
+            f"location indices {location_indices} but inferred VECTOR3"
+        )
+
+    # compute default bit sizes in parallel
+    default_bits: List[int] = []
+    for st in segment_types:
+        default_bits.append(15 if st in (SegmentType.QUAT, SegmentType.QUAT_DIFF) else 16)
+
+    return segment_types, default_bits
+
+
+def extract_space_bone_name(space_param) -> Optional[str]:
+    """Extract custom space bone name from a space parameter dict."""
+    if space_param and isinstance(space_param, dict):
+        return space_param.get('custom_bone')
+    return None
+
+
+def build_track_metadata_dict_from_fcurves(
+    armature: bpy.types.Object,
+    action: bpy.types.Action,
+    armature_label: str,
+    bone_skip_predicate: Optional[Callable[[bpy.types.Bone], bool]] = None,
+    name_hash_extractor_fn: Optional[Callable[[str, bpy.types.Bone], Optional[int]]] = None,
+    warn_on_missing_metadata: bool = True,
+) -> Dict[str, TrackMetaData]:
+    """Build a per-bone metadata dictionary by inspecting FCurves and stored properties.
+
+    This is the shared implementation used by motion-point and shader-node export.
+    Both callers have no layout-track action, so segment types are inferred from
+    FCurve existence (``rotation_quaternion`` → QUAT, ``location`` → VECTOR3 or
+    FLOAT) and bit-sizes / flags are read from the action's stored metadata.
+
+    The helper also reports bones that are animated but lack an explicit
+    metadata string; this is useful for layout‑track exports but generates
+    noise for motion-point/shader exports.  Set ``warn_on_missing_metadata`` to
+    ``False`` to suppress the warning and emit only a debug message instead.
+
+    Args:
+        armature:              Armature object whose bones are iterated.
+        action:                Blender action to inspect for FCurves and metadata.
+        armature_label:        Human-readable label for warning messages
+                               (e.g. ``"motion points"``).
+        bone_skip_predicate:   Optional callable ``(bone) -> bool``; return
+                               ``True`` to skip a bone entirely.  Used by the
+                               shader caller to skip property-parent bones (those
+                               with no parent of their own).
+        name_hash_extractor_fn: Optional callable ``(bone_name, bone) -> int|None``;
+                               returns the StrCode32 hash to store in
+                               :attr:`TrackMetaData.name_hash`.  When ``None``,
+                               the hash is computed via
+                               ``StrCode32.from_string(bone_name).to_int()``.
+                               The shader caller passes a function that parses the
+                               decimal suffix after the last ``.`` in the bone name.
+        warn_on_missing_metadata: If ``True`` (the default), log a warning when
+                               bones have animation but no stored metadata.
+                               Set to ``False`` to downgrade the message to
+                               a normal debug log.
+
+    Returns:
+        ``{bone_name: TrackMetaData}`` for every bone present in *action*.
+    """
+    metadata_dict: Dict[str, TrackMetaData] = {}
+
+    if not armature or armature.type != 'ARMATURE':
+        return metadata_dict
+
+    if not action:
+        Debug.log_warning(
+            f"  Warning: No action provided to build_track_metadata_dict_from_fcurves() "
+            f"for {armature_label} armature '{armature.name}', returning empty dict"
+        )
+        return metadata_dict
+
+    missing_metadata_bones: List[str] = []
+
+    for bone in armature.data.bones:
+        if bone_skip_predicate is not None and bone_skip_predicate(bone):
+            continue
+
+        bone_name = bone.name
+
+        # Determine whether we have any FCurves for this bone, used for
+        # deciding if the bone is present in the action at all.  We also
+        # infer segment types (and default bit sizes) from the curves when
+        # needed.
+        has_fcurves = util_blender_animation.action_has_fcurves(action)
+        segment_types: List[SegmentType] = []
+        default_bits: Optional[List[int]] = None
+        if has_fcurves:
+            segment_types, default_bits = infer_segment_types_from_fcurves(action, bone_name)
+
+        # has_rotation/has_location flags used only for the old bool-based
+        # detection; they are no longer needed.
+
+        component_bit_sizes = None
+        unit_flags = 0
+        found_metadata_in_action = False
+
+        for _, track_name, metadata_str in iter_track_properties(action):
+            if track_name == bone_name:
+                found_metadata_in_action = True
+                if isinstance(metadata_str, str):
+                    parsed = _parse_action_track_metadata(metadata_str)
+                    if parsed:
+                        if parsed.get('component_bit_sizes'):
+                            component_bit_sizes = parsed['component_bit_sizes']
+                        if parsed.get('flags'):
+                            flag_enums = [
+                                TrackUnitFlags[name]
+                                for name in parsed['flags']
+                                if name in TrackUnitFlags.__members__
+                            ]
+                            if flag_enums:
+                                unit_flags = TrackUnitFlags.track_unit_flags_to_int(flag_enums)
+                break
+
+        bone_present_in_action = found_metadata_in_action or has_fcurves
+        if bone_present_in_action and not found_metadata_in_action:
+            missing_metadata_bones.append(bone_name)
+
+        if not bone_present_in_action:
+            continue
+
+        # If we haven't already inferred segment_types above, do it now.  The
+        # helper may return an empty list in pathological cases (no fcurves);
+        # fall back to metadata-only FLOAT detection as before.
+        if not segment_types:
+            segment_types = []
+        if not segment_types and found_metadata_in_action:
+            segment_types.append(SegmentType.FLOAT)
+
+        # ensure component_bit_sizes defaults are assigned when no explicit
+        # metadata was found
+        if component_bit_sizes is None:
+            component_bit_sizes = default_bits
+
+        # Compute name hash
+        if name_hash_extractor_fn is not None:
+            name_hash_int = name_hash_extractor_fn(bone_name, bone)
+        else:
+            name_hash_int = StrCode32.from_string(bone_name).to_int()
+
+        metadata_dict[bone_name] = TrackMetaData(
+            track_name=bone_name,
+            segment_types=segment_types,
+            unit_flags=unit_flags,
+            name_hash=name_hash_int,
+            component_bit_sizes=component_bit_sizes,
+            rig_unit_type=None,
+        )
+
+    if missing_metadata_bones:
+        message = (
+            f"  No stored metadata for {len(missing_metadata_bones)} "
+            f"{armature_label} bone(s) in armature '{armature.name}': "
+            + ", ".join(missing_metadata_bones)
+        )
+        if warn_on_missing_metadata:
+            Debug.log_warning(message)
+        else:
+            Debug.log(message)
+
+    return metadata_dict
+
+
+# Extra metadata parser utilities #############################################################
 
 def parse_offset_r_parameter(param_value: str) -> Optional[dict]:
     try:
@@ -1219,336 +1684,25 @@ def parse_as_ik_up_parameter(param_value: str) -> Optional[dict]:
         return None
 
 
-# FCurve Helper #############################################################
+# Frame info utility #############################################################
 
-def infer_segment_types_from_fcurves(
-    action: bpy.types.Action,
-    bone_name: str,
-) -> Tuple[List[SegmentType], List[int]]:
-    """Infer track segment types and default component bit sizes for a bone.
+def resolve_gani_frame_info(
+    gani_layout_track: Optional[Tracks],
+    gani_track_mini_header: Optional[TrackMiniHeader],
+    gani_motion_point_track_header: Optional[TrackHeader],
+) -> Tuple[int, int]:
+    """Resolve frame count and rate for exported GANI based on available sources."""
+    frame_count = 0
+    frame_rate = 60
 
-    This helper examines *action* for F‑curves belonging to *bone_name* and
-    returns a pair ``(segment_types, default_bit_sizes)``.  The bit sizes are
-    **defaults only**; if explicit metadata is stored on the action it
-    overrides these values during export.
+    if gani_track_mini_header is not None:
+        frame_count = gani_track_mini_header.frame_count
+    elif gani_layout_track is not None:
+        frame_count = gani_layout_track.header.frame_count
 
-    The algorithm mirrors the logic previously embedded in
-    :meth:`TrackMetaData.from_fcurves` and
-    ``build_track_metadata_dict_from_fcurves``:
+    if gani_layout_track is not None and gani_layout_track.header.frame_rate > 0:
+        frame_rate = gani_layout_track.header.frame_rate
+    elif gani_motion_point_track_header is not None:
+        frame_rate = gani_motion_point_track_header.frame_rate
 
-    * ``rotation_quaternion`` or ``rotation_euler`` curves → ``QUAT`` added.
-    * ``location`` curves are inspected by channel index:
-        - ``{0}`` → ``FLOAT``
-        - ``{0,1}`` → ``VECTOR2``
-        - any non-empty set containing 0,1,2 → ``VECTOR3``
-    * Both a rotation and a location type may be returned.
-
-    Unexpected situations (e.g. deriving ``VECTOR3`` with only one location
-    curve) generate a ``Debug.log_warning`` message so users can investigate.
-
-    Args:
-        action:      Blender action containing F‑curves.
-        bone_name:   Name of the bone whose curves to inspect.
-
-    Returns:
-        Tuple of (segment_types:list of SegmentType, default_bit_sizes:list of int).
-        May return ``([], [])`` if no relevant F‑curves are found.
-    """
-    
-
-    if not action or not util_blender_animation.action_has_fcurves(action):
-        return [], []
-
-    rotation_quat_path = util_blender_animation.build_data_path_for_bone(bone_name, 'rotation_quaternion')
-    rotation_euler_path = util_blender_animation.build_data_path_for_bone(bone_name, 'rotation_euler')
-    location_path = util_blender_animation.build_data_path_for_bone(bone_name, 'location')
-
-    has_rotation = False
-    location_indices: Set[int] = set()
-
-    for fc in util_blender_animation.iter_action_fcurves(action):
-        if fc.data_path in (rotation_quat_path, rotation_euler_path):
-            has_rotation = True
-        elif fc.data_path == location_path:
-            location_indices.add(fc.array_index)
-
-    segment_types: List[SegmentType] = []
-    if has_rotation:
-        segment_types.append(SegmentType.QUAT)
-
-    if location_indices == {0}:
-        segment_types.append(SegmentType.FLOAT)
-    elif location_indices == {0, 1}:
-        segment_types.append(SegmentType.VECTOR2)
-    elif location_indices:
-        segment_types.append(SegmentType.VECTOR3)
-
-    # warn about odd combinations
-    if location_indices and segment_types and segment_types[-1] == SegmentType.VECTOR3 and len(location_indices) < 3:
-        Debug.log_warning(
-            f"infer_segment_types_from_fcurves: bone '{bone_name}' has "
-            f"location indices {location_indices} but inferred VECTOR3"
-        )
-
-    # compute default bit sizes in parallel
-    default_bits: List[int] = []
-    for st in segment_types:
-        default_bits.append(15 if st in (SegmentType.QUAT, SegmentType.QUAT_DIFF) else 16)
-
-    return segment_types, default_bits
-
-
-# Track MetaData helper functions (migrated from TrackMetaData static methods) #######
-
-def build_track_metadata_from_action(layout_action: bpy.types.Action, fox_track_name: str) -> Optional[TrackMetaData]:
-    """Retrieve track metadata for one track from a layout action."""
-    metadata_str = None
-    property_key = None
-
-    for key in layout_action.keys():
-        parsed = parse_track_property_key(key)
-        if parsed:
-            _, track_name = parsed
-            if track_name == fox_track_name:
-                property_key = key
-                metadata_str = layout_action[key]
-                break
-
-    if metadata_str is None:
-        return None
-
-    if not isinstance(metadata_str, str):
-        Debug.log_warning(f"      Warning: Custom property '{property_key}' is not valid metadata")
-        return None
-
-    parsed = parse_track_metadata_generic(metadata_str)
-    if not parsed:
-        Debug.log_warning(f"      Warning: Failed to parse metadata for track '{fox_track_name}'")
-        return None
-
-    rig_unit_type = None
-    if parsed['rig_unit_type']:
-        rig_unit_type = RigUnitType.parse_from_string(parsed['rig_unit_type'])
-        if rig_unit_type is None:
-            Debug.log_warning(f"      Warning: Unknown rig unit type '{parsed['rig_unit_type']}' in track '{fox_track_name}'")
-
-    track_name_val = parsed['track_name']
-    name_hash = util_hashing.hash_or_parse_name(track_name_val)
-
-    return TrackMetaData(
-        track_name=track_name_val,
-        name_hash=name_hash,
-        segment_types=parsed['segment_types'],
-        component_bit_sizes=parsed['component_bit_sizes'],
-        unit_flags=parsed['unit_flags'],
-        flags_list=parsed['flags_list'],
-        rig_unit_type=rig_unit_type
-    )
-
-
-def build_track_metadata_from_fcurves(bone_name: str, action: bpy.types.Action) -> Optional[TrackMetaData]:
-    """Infer minimal TrackMetaData from action fcurves."""
-    if not action or not util_blender_animation.action_has_fcurves(action):
-        return None
-
-    segment_types, default_bits = infer_segment_types_from_fcurves(action, bone_name)
-    if not segment_types:
-        return None
-
-    from ..py_fox.fox_hash_types import StrCode32
-
-    return TrackMetaData(
-        track_name=bone_name,
-        segment_types=segment_types,
-        unit_flags=0,
-        name_hash=StrCode32.from_string(bone_name).to_int(),
-        component_bit_sizes=default_bits,
-        rig_unit_type=None
-    )
-
-
-def build_track_metadata_from_layout_track_units(
-    track_units: List[TrackUnit],
-    track_name_prefix: str = "Track",
-    gani_tracks: Optional[List['TrackUnitWrapper']] = None,
-) -> List[TrackMetaData]:
-    """Convert layout track units to TrackMetaData objects."""
-    track_metadata_list: List[TrackMetaData] = []
-
-    for track_idx, track_unit in enumerate(track_units):
-        track_name: str = f"{track_name_prefix}{track_idx}"
-        name_hash: int = 0
-        if track_unit.name:
-            name_hash = track_unit.name.to_int() if hasattr(track_unit.name, 'to_int') else int(track_unit.name)
-            resolved_name: Optional[str] = util_hashing.unhash_rig_type(name_hash)
-            if resolved_name:
-                track_name = resolved_name
-            elif gani_tracks and track_idx < len(gani_tracks):
-                gani_name = gani_tracks[track_idx].name
-                track_name = gani_name if not util_hashing.is_hash_string(gani_name) else str(track_unit.name)
-            else:
-                track_name = str(track_unit.name)
-
-        segment_types: List[SegmentType] = []
-        component_bit_sizes: List[int] = []
-        for track_data in track_unit.segments_data:
-            segment_types.append(track_data.td_type)
-            component_bit_sizes.append(track_data.component_bit_size)
-
-        rig_unit_type: Optional[RigUnitType] = None
-        if gani_tracks and track_idx < len(gani_tracks):
-            rig_unit_type = gani_tracks[track_idx].rig_unit_type
-
-        track_metadata_list.append(TrackMetaData(
-            track_name=track_name,
-            name_hash=name_hash if name_hash != 0 else None,
-            segment_types=segment_types,
-            component_bit_sizes=component_bit_sizes,
-            unit_flags=track_unit.unit_flags,
-            flags_list=None,
-            rig_unit_type=rig_unit_type
-        ))
-
-    return track_metadata_list
-
-
-def build_track_metadata_from_gani_tracks(
-    gani_tracks: List['TrackUnitWrapper'],
-    segment_headers: List[Gani2TrackData],
-) -> List[TrackMetaData]:
-    """Convert GANI tracks and segment headers to TrackMetaData objects."""
-    track_metadata_list: List[TrackMetaData] = []
-    segment_idx_abs: int = 0
-
-    for _, gani_track in enumerate(gani_tracks):
-        track_name: str = gani_track.name
-        unit_flags: Optional[int] = None
-        if gani_track.unit_flags:
-            unit_flags = TrackUnitFlags.track_unit_flags_to_int(gani_track.unit_flags)
-
-        segment_count: int = len(gani_track.segments_track_data)
-        bit_sizes: List[int] = []
-        segment_types: List[SegmentType] = []
-
-        for seg_idx in range(segment_count):
-            abs_idx: int = segment_idx_abs + seg_idx
-            if abs_idx < len(segment_headers):
-                bit_sizes.append(segment_headers[abs_idx].component_bit_size)
-            else:
-                bit_sizes.append(0)
-
-            if seg_idx < len(gani_track.segments_track_data):
-                segment_types.append(gani_track.segments_track_data[seg_idx].data_blob.type)
-
-        track_metadata_list.append(TrackMetaData(
-            track_name=track_name,
-            name_hash=None,
-            segment_types=segment_types,
-            component_bit_sizes=bit_sizes,
-            unit_flags=unit_flags,
-            flags_list=None,
-            rig_unit_type=None
-        ))
-
-        segment_idx_abs += segment_count
-
-    return track_metadata_list
-
-
-def extract_space_bone_name(space_param) -> Optional[str]:
-    """Extract custom space bone name from a space parameter dict."""
-    if space_param and isinstance(space_param, dict):
-        return space_param.get('custom_bone')
-    return None
-
-
-# Track MetaData wrapper #############################################################
-
-def merge_track_metadata(layout_meta: TrackMetaData, action_meta: Optional[TrackMetaData]) -> TrackMetaData:
-    """Merge action-level TrackMetaData overrides into a layout-level TrackMetaData.
-
-    The function returns a new TrackMetaData instance with action-level fields overriding
-    layout-level defaults where present. The layout metadata defines segment_types and
-    defaults, while action metadata contains per-animation overrides like component bit
-    sizes and flags. This function is non-destructive: it makes a shallow copy of the
-    layout metadata and applies overrides.
-    """
-    if not layout_meta and not action_meta:
-        return TrackMetaData()
-    if not layout_meta:
-        # If no layout metadata, return a copy of action metadata (best-effort)
-        return copy.deepcopy(action_meta) if action_meta else TrackMetaData()
-
-    result = copy.deepcopy(layout_meta)
-    if not action_meta:
-        return result
-
-    # Override track name / hash
-    if action_meta.track_name:
-        result.track_name = action_meta.track_name
-        if action_meta.name_hash is not None:
-            result.name_hash = action_meta.name_hash
-        else:
-            # Derive hash from the track name string, handling numeric literals
-            # automatically via helper.
-            try:
-                result.name_hash = util_hashing.hash_or_parse_name(action_meta.track_name)
-            except Exception:
-                # if helper somehow fails (shouldn't), leave existing hash
-                pass
-    # Override flags: prefer explicit integer if available, otherwise flags list
-    # Edit: unit flags are a special case. The action always (!) overrides the layout
-    result.unit_flags = action_meta.unit_flags
-
-    # Override segment types if explicitly specified in action metadata.
-    # Users can add segments=q,f (or any segment code) to a GANI action's track
-    # custom property to force specific segment types, overriding the layout and
-    # FCurve-presence inference. This is the escape hatch for ambiguous cases
-    # (e.g. user-created FLOAT animation that only keys location[0]).
-    if action_meta.segment_types:
-        result.segment_types = action_meta.segment_types
-
-    # Override rig unit type if provided
-    if action_meta.rig_unit_type:
-        result.rig_unit_type = action_meta.rig_unit_type
-
-    # Other optional overrides (rotation_offset, etc.)
-    if action_meta.rotation_offset is not None:
-        result.rotation_offset = action_meta.rotation_offset
-    if action_meta.rotation_axis_map is not None:
-        result.rotation_axis_map = action_meta.rotation_axis_map
-    if action_meta.space_r is not None:
-        result.space_r = action_meta.space_r
-    if action_meta.as_ik_up is not None:
-        result.as_ik_up = action_meta.as_ik_up
-
-    return result
-
-
-def get_all_track_metadata_from_action(action: bpy.types.Action) -> Dict[str, TrackMetaData]:
-    """Parse all track structure metadata from layout track action.
-    
-    The layout track defines the shared structure for all animations:
-    - Track names and order
-    - Segment types per track
-    - Default unit flags
-    
-    Args:
-        layout_action: The layout track action containing structure metadata
-        
-    Returns:
-        Dictionary mapping fox_track_name -> TrackMetaData
-    """
-    metadata_dict = {}
-    
-    # Iterate through track properties using utility function
-    for track_idx, fox_track_name, metadata_str in iter_track_properties(action):
-        # We already have the metadata_str, but get_track_metadata_from_action does the parsing
-        # Call it to parse the metadata string
-        metadata = build_track_metadata_from_action(action, fox_track_name)
-        if metadata:
-            metadata_dict[fox_track_name] = metadata
-            Debug.log(f"    Parsed track {track_idx}: {fox_track_name} ({len(metadata.segment_types)} segments)")
-    
-    Debug.log(f"  Parsed {len(metadata_dict)} track(s) from layout action")
-    return metadata_dict
+    return frame_count, frame_rate
