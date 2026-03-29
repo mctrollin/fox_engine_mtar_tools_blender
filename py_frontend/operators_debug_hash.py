@@ -273,8 +273,7 @@ def _get_path64_dict() -> Dict[int, str]:
     """Build (or return cached) PathCode64 hash -> path dictionary."""
     global _path64_dict_cache
     if _path64_dict_cache is None:
-        dict_path = os.path.join(os.path.dirname(__file__), "dic", "path64", "mtar_dictionary.txt")
-        _path64_dict_cache = tools_hash_generator.build_gani_hash_dictionary(dict_path)
+        _path64_dict_cache = tools_hash_generator.build_gani_hash_dictionary(util_hashing.get_path64_dir())
     return _path64_dict_cache
 
 

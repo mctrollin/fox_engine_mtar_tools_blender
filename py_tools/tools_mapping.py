@@ -13,7 +13,7 @@ is now independent of Blender context or UI.
 """
 
 import os
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Tuple
 
 from ..py_core.core_logging import Debug
 
@@ -25,7 +25,7 @@ from ..py_foxwrap import fwrap_metadata
 from ..py_foxwrap.fwrap_mtar_reader import MtarReader
 
 
-def _load_mapping_sources(frig_filepath: Optional[str], mtar_filepath: Optional[str]):
+def _load_mapping_sources(frig_filepath: Optional[str], mtar_filepath: Optional[str]) -> Tuple[List[Optional[RigUnitDef]], Optional[List[Any]], int]:
     """Load FRIG and MTAR source data; return (unit_defs, layout_units, track_count)."""
     frig_data: Optional[FrigFile] = None
     if frig_filepath:
@@ -78,7 +78,7 @@ def _determine_output_path(frig_filepath: Optional[str], mtar_filepath: Optional
     return output_path
 
 
-def _resolve_track_name(track_idx: int, layout_unit: Any):
+def _resolve_track_name(track_idx: int, layout_unit: Any) -> Tuple[str, Optional[Any]]:
     track_name = f"Track{track_idx}"
     track_hash = None
 
@@ -95,7 +95,7 @@ def _resolve_track_name(track_idx: int, layout_unit: Any):
     return track_name, track_hash
 
 
-def _map_segment_type_to_shorthand(segment_type):
+def _map_segment_type_to_shorthand(segment_type: Any) -> str:
     if segment_type is None:
         return '?'
     seg_name = segment_type.name if hasattr(segment_type, 'name') else str(segment_type)
@@ -112,7 +112,7 @@ def _map_segment_type_to_shorthand(segment_type):
     return '?'
 
 
-def _infer_segment_info(track_type: Optional[str], actual_segment_count: Optional[int], unit_def: Any, layout_unit: Any):
+def _infer_segment_info(track_type: Optional[str], actual_segment_count: Optional[int], unit_def: Any, layout_unit: Any) -> Tuple[int, List[str], str]:
     segments_shorthand: List[str] = []
     segment_count = 1
 

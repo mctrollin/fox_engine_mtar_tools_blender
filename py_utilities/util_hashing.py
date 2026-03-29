@@ -4,6 +4,8 @@ Utilities for handling Fox Engine hash values and rig type name mappings.
 import os
 from typing import Optional, Dict, Set, Tuple
 
+import bpy
+
 from . import util_hashing_cityhash
 
 from ..py_core.core_logging import Debug
@@ -15,6 +17,31 @@ _strcode32_cache: Dict[int, str] = {}
 # Set of already-loaded dictionary absolute paths (to prevent redundant re-loading)
 _loaded_dict_paths: Set[str] = set()
 
+def get_dictionary_folders() -> Tuple[str, str]:
+    """Return configured dictionary folders from addon prefs with fallback defaults."""
+    default_path64 = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dic", "path64")
+    default_str32 = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dic", "str32")
+
+    try:
+        addon = bpy.context.preferences.addons.get("fox_engine_mtar_tools_blender")
+        if addon is not None:
+            prefs = addon.preferences
+            path64 = getattr(prefs, 'path64_dictionary_folder', '')
+            str32 = getattr(prefs, 'str32_dictionary_folder', '')
+            if path64:
+                default_path64 = path64
+            if str32:
+                default_str32 = str32
+    except Exception:
+        pass
+
+    return default_path64, default_str32
+
+def get_path64_dir() -> Tuple[str, str]:
+    """Returns the path to the path64 dictionary file. """
+    path64_folder, _ = get_dictionary_folders()
+    dict_path = os.path.join(path64_folder, 'mtar_dictionary.txt')
+    return dict_path
 
 def load_strcode32_dictionary(dict_path: str) -> None:
     """Load a StrCode32 name dictionary into the unified cache.
@@ -65,9 +92,7 @@ def preload_strcode32_dictionaries() -> None:
     The plugin does not need to know which individual files exist or how they
     are named — all files in the folder are treated as StrCode32 dictionaries.
     """
-    str32_dir = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'dic', 'str32'
-    )
+    str32_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'dic', 'str32')
     if not os.path.isdir(str32_dir):
         Debug.log_warning(f"StrCode32 dictionary folder not found: {str32_dir}")
         return

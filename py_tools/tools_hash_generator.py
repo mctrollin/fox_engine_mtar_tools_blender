@@ -14,28 +14,7 @@ import bpy
 
 from ..py_core.core_logging import Debug
 
-from ..py_utilities import util_hashing_cityhash
-
-
-def get_dictionary_folders() -> Tuple[str, str]:
-    """Return configured dictionary folders from addon prefs with fallback defaults."""
-    default_path64 = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dic", "path64")
-    default_str32 = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dic", "str32")
-
-    try:
-        addon = bpy.context.preferences.addons.get("fox_engine_mtar_tools_blender")
-        if addon is not None:
-            prefs = addon.preferences
-            path64 = getattr(prefs, 'path64_dictionary_folder', '')
-            str32 = getattr(prefs, 'str32_dictionary_folder', '')
-            if path64:
-                default_path64 = path64
-            if str32:
-                default_str32 = str32
-    except Exception:
-        pass
-
-    return default_path64, default_str32
+from ..py_utilities import util_hashing_cityhash, util_hashing
 
 
 def _parse_input_name_and_ext(input_string: str) -> Tuple[str, str]:
@@ -163,6 +142,8 @@ def hash_animation_name_from_blender_context(input_string: str) -> Tuple[bool, D
         return False, {}, f"Error in Python hash: {str(e)}"
 
 
+# Build hash dictionaries ####################################################
+
 def build_gani_hash_dictionary(dictionary_path: str = None) -> Dict[int, str]:
     """Build a GANI path hash dictionary from dic/path64/mtar_dictionary.txt using pure Python CityHash.
 
@@ -239,7 +220,7 @@ def build_event_hash_dictionary(dictionary_path: str = None) -> Dict[int, str]:
     result: Dict[int, str] = {}
 
     if not dictionary_path:
-        _, str32_folder = get_dictionary_folders()
+        _, str32_folder = util_hashing.get_dictionary_folders()
         dictionary_path = os.path.join(str32_folder, "events_dictionary.txt")
 
     dict_file = Path(dictionary_path)

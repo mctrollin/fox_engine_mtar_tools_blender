@@ -6,9 +6,12 @@ import os
 import bpy
 from bpy.types import Context, UILayout
 
+from ..py_utilities import util_hashing
+
 from ..py_foxwrap.fwrap_mtar_reader import MtarReader
 
 from .operators_mtar_import import MTAR_OT_GenerateTrackMappingTemplateFile, MTAR_OT_ImportAnimationFromMTAR
+
 
 from . import panel_shared
 
@@ -89,8 +92,7 @@ def draw_import_page(layout: UILayout, context: Context) -> None:
         # Hash dictionary for GANI name unhashing (advanced setting)
         panel_shared.draw_bool_prop_checkbox_icon(adv_box, import_props, "import_use_hash_dictionary")
         if import_props.import_use_hash_dictionary:
-            dict_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dic', 'path64', 'mtar_dictionary.txt')
-            if not os.path.exists(dict_path):
+            if not os.path.exists(util_hashing.get_path64_dir()):
                 row = adv_box.row()
                 row.alert = True
                 row.label(text="dic/path64/mtar_dictionary.txt not found", icon='ERROR')

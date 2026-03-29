@@ -5,7 +5,7 @@ Provides consistent naming format across import/export workflows.
 """
 from typing import Optional, Dict, Tuple
 
-from ..py_utilities import util_hashing
+from . import util_hashing
 
 from ..py_fox.fox_mtar_types import MtarTableList2
 

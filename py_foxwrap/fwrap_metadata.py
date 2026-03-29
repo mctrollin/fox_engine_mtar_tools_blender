@@ -712,7 +712,7 @@ def build_track_metadata_from_layout_track_units(
         track_name: str = f"{track_name_prefix}{track_idx}"
         name_hash: int = 0
         if track_unit.name:
-            name_hash = track_unit.name.to_int() if hasattr(track_unit.name, 'to_int') else int(track_unit.name)
+            name_hash = track_unit.name.to_int()
             resolved_name: Optional[str] = util_hashing.unhash_rig_type(name_hash)
             if resolved_name:
                 track_name = resolved_name
@@ -1571,6 +1571,18 @@ def build_track_metadata_dict_from_fcurves(
 # Extra metadata parser utilities #############################################################
 
 def parse_offset_r_parameter(param_value: str) -> Optional[dict]:
+    """Parse rotation offset parameter (offset_r) from mapping metadata.
+
+    The expected format is "<x>,<y>,<z>[,<order>]" where <x>, <y>, <z> are floats
+    and <order> is one of XYZ/XZY/YXZ/YZX/ZXY/ZYX. If order is omitted, defaults
+    to 'XYZ'.
+
+    Args:
+        param_value: Offset string from mapping file (e.g. "90,0,0,ZYX").
+
+    Returns:
+        Dict containing 'euler' as [x, y, z] and 'order', or None on parse failure.
+    """
     try:
         offset_parts = param_value.split(',')
         if len(offset_parts) >= 3:
@@ -1591,6 +1603,17 @@ def parse_offset_r_parameter(param_value: str) -> Optional[dict]:
 
 
 def parse_map_r_parameter(param_value: str) -> Optional[List[dict]]:
+    """Parse axis map parameter (map_r) from mapping metadata.
+
+    The expected format is a comma-separated triple of axes, each optionally
+    prefixed by '-' to indicate negation (e.g. "x,-z,y").
+
+    Args:
+        param_value: Axis mapping string from mapping file.
+
+    Returns:
+        List of dicts with keys 'axis' and 'negate', or None on invalid input.
+    """
     try:
         map_parts = param_value.split(',')
         if len(map_parts) == 3:

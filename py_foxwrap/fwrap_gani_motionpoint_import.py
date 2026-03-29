@@ -16,7 +16,7 @@ Dependency chain (no circularity):
 from typing import Optional, List, Dict, Tuple
 
 import bpy
-from ..py_foxwrap_utilities import futil_naming
+from ..py_utilities import util_naming
 
 from ..py_core.core_logging import Debug
 
@@ -36,11 +36,9 @@ from .fwrap_gani_track_import import import_gani_track
 
 
 
-# ---------------------------------------------------------------------------
-# Shared NLA helpers  (used by both this module and tools_mtar_importer)
-# ---------------------------------------------------------------------------
+# Shared NLA helpers ####################################################
 
-def get_action_length(action: bpy.types.Action) -> int:
+def _get_action_length(action: bpy.types.Action) -> int:
     """Return the frame-end value for *action*.
 
     Tries ``action.use_frame_range`` / ``action.frame_end`` first; falls back
@@ -104,15 +102,15 @@ def create_nla_strips_for_actions(
         if action is None:
             Debug.log(f"  Skipped GANI {index} (no action data)")
             if reference_actions and index < len(reference_actions) and reference_actions[index]:
-                ref_len = get_action_length(reference_actions[index])
+                ref_len = _get_action_length(reference_actions[index])
                 if ref_len > 0:
                     current_frame_offset += ref_len + strip_padding
             continue
 
-        action_length = get_action_length(action)
+        action_length = _get_action_length(action)
 
         if reference_actions and index < len(reference_actions) and reference_actions[index]:
-            reference_action_length = get_action_length(reference_actions[index])
+            reference_action_length = _get_action_length(reference_actions[index])
         else:
             reference_action_length = action_length
 
@@ -129,9 +127,9 @@ def create_nla_strips_for_actions(
             if mtar_const.TABL_PATH in action.keys():
                 gani_path_val = str(action[mtar_const.TABL_PATH])
                 if not util_hashing.is_gani_path_a_hash(gani_path_val):
-                    gani_name_segment = futil_naming.extract_gani_name_from_path(gani_path_val)
+                    gani_name_segment = util_naming.extract_gani_name_from_path(gani_path_val)
 
-            strip.name = futil_naming.format_strip_name(
+            strip.name = util_naming.format_strip_name(
                 mtar_file_name, index, h_idx, d_idx,
                 use_verbose_naming,
                 is_motion_points=is_motion_points,
@@ -155,9 +153,7 @@ def create_nla_strips_for_actions(
     return current_frame_offset
 
 
-# ---------------------------------------------------------------------------
-# Motion-point animation actions
-# ---------------------------------------------------------------------------
+# Motion-point animation actions ####################################################
 
 def create_motion_points_animation_actions(
     context: bpy.types.Context,
@@ -229,11 +225,11 @@ def create_motion_points_animation_actions(
                 f"0x{file_header.path:016X}, using h0_d0"
             )
 
-        gani_full_path, gani_name_segment = futil_naming.resolve_gani_name_segment(
+        gani_full_path, gani_name_segment = util_naming.resolve_gani_name_segment(
             file_header, gani_hash_dict
         )
 
-        action_name: str = futil_naming.format_action_name(
+        action_name: str = util_naming.format_action_name(
             mtar_file_name, gani_index, h_idx, d_idx,
             use_verbose_naming,
             is_motion_points=True,
@@ -259,11 +255,10 @@ def create_motion_points_animation_actions(
         if motion_point_track_header is not None:
             fwrap_metadata.store_track_header_properties_on_action(action, motion_point_track_header)
 
-        if hasattr(file_header, 'path'):
-            if gani_full_path is not None:
-                action[mtar_const.TABL_PATH] = gani_full_path
-            else:
-                action[mtar_const.TABL_PATH] = str(file_header.path)
+        if gani_full_path is not None:
+            action[mtar_const.TABL_PATH] = gani_full_path
+        else:
+            action[mtar_const.TABL_PATH] = str(file_header.path)
 
         gani_frame_count: int = (
             motion_point_track_header.frame_count
@@ -310,9 +305,7 @@ def create_motion_points_animation_actions(
     return motion_point_actions
 
 
-# ---------------------------------------------------------------------------
-# Motion-point armature
-# ---------------------------------------------------------------------------
+# Motion-point armature ####################################################
 
 def create_and_setup_motion_points_armature(
     context: bpy.types.Context,
@@ -422,8 +415,7 @@ def create_and_setup_motion_points_armature(
     return armature
 
 
-
-
+# Gani1 Stringlists ####################################################
 
 def store_motion_point_stringlists_on_action(
     action: bpy.types.Action,
@@ -450,4 +442,3 @@ def store_motion_point_stringlists_on_action(
     if mtp_parent_list is not None:
         fwrap_metadata.store_foxdata_stringlist_on_action(action, fwrap_metadata.PROP_MTP_PARENT_LIST, mtp_parent_list)
         Debug.log(f"  Stored {fwrap_metadata.PROP_MTP_PARENT_LIST}: {len(mtp_parent_list)} entries")
-

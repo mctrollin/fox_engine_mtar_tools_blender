@@ -9,10 +9,9 @@ import bpy
 from bpy.types import Operator, Context
 
 from ..py_core.core_logging import Debug
-
 from ..py_core.core_blender_properties import get_effective_import_bake_decimate_error
 
-from ..py_utilities import util_blender_state, util_parsing, util_blender_animation
+from ..py_utilities import util_blender_state, util_parsing, util_hashing, util_blender_animation
 
 from ..py_fox.fox_frig_types import FrigFile
 
@@ -166,10 +165,8 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
         # Build GANI hash dictionary on-the-fly from mtar_dictionary.txt using Python CityHash
         gani_hash_dict = None
         if import_props.import_use_hash_dictionary:
-            path64_folder, _ = tools_hash_generator.get_dictionary_folders()
-            dict_path = os.path.join(path64_folder, 'mtar_dictionary.txt')
             Debug.start_timer("Build GANI hash dict (import)")
-            gani_hash_dict = tools_hash_generator.build_gani_hash_dictionary(dict_path)
+            gani_hash_dict = tools_hash_generator.build_gani_hash_dictionary(util_hashing.get_path64_dir())
             Debug.stop_timer("Build GANI hash dict (import)")
             Debug.log(f"Built GANI hash dictionary: {len(gani_hash_dict)} entries")
 

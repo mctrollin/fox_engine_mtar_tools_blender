@@ -27,7 +27,7 @@ Dependency chain (no circularity):
 from typing import Optional, List, Dict, Tuple
 
 import bpy
-from ..py_foxwrap_utilities import futil_naming
+from ..py_utilities import util_naming
 
 from ..py_core.core_logging import Debug
 
@@ -180,9 +180,9 @@ def create_shader_animation_actions(
         file_header = all_file_headers[gani_index]
         h_idx, d_idx = path_to_indices.get(file_header.path, (0, 0))
 
-        gani_full_path, gani_name_segment = futil_naming.resolve_gani_name_segment(file_header, gani_hash_dict)
+        gani_full_path, gani_name_segment = util_naming.resolve_gani_name_segment(file_header, gani_hash_dict)
 
-        action_name: str = futil_naming.format_action_name(
+        action_name: str = util_naming.format_action_name(
             mtar_file_name, gani_index, h_idx, d_idx,
             use_verbose_naming,
             is_shader_nodes=True,
@@ -193,11 +193,10 @@ def create_shader_animation_actions(
         shader_actions.append(action)
         Debug.log(f"  Created shader nodes action: {action_name}")
 
-        if hasattr(file_header, 'path'):
-            if gani_full_path is not None:
-                action[mtar_const.TABL_PATH] = gani_full_path
-            else:
-                action[mtar_const.TABL_PATH] = str(file_header.path)
+        if gani_full_path is not None:
+            action[mtar_const.TABL_PATH] = gani_full_path
+        else:
+            action[mtar_const.TABL_PATH] = str(file_header.path)
 
         gani_frame_count: int = 0
 

@@ -1,4 +1,3 @@
-from typing import TYPE_CHECKING, Tuple
 import os
 import traceback
 
@@ -29,32 +28,6 @@ bl_info = {
     "category": "Import-Export",
     "tracker_url": "https://github.com/mctrollin/fox_engine_mtar_tools_blender/issues",
 }
-
-
-def get_dictionary_folders() -> Tuple[str, str]:
-    """Return configured dictionary folders from addon prefs with fallback defaults."""
-    addon_root = os.path.dirname(__file__)
-    default_path64 = os.path.join(addon_root, "dic", "path64")
-    default_str32 = os.path.join(addon_root, "dic", "str32")
-
-    try:
-        addon = bpy.context.preferences.addons.get(__name__)
-        if addon is not None:
-            prefs = addon.preferences
-            path64 = getattr(prefs, 'path64_dictionary_folder', '')
-            str32 = getattr(prefs, 'str32_dictionary_folder', '')
-            if path64:
-                if not os.path.isabs(path64):
-                    path64 = os.path.join(addon_root, path64)
-                default_path64 = os.path.normpath(path64)
-            if str32:
-                if not os.path.isabs(str32):
-                    str32 = os.path.join(addon_root, str32)
-                default_str32 = os.path.normpath(str32)
-    except Exception:
-        pass
-
-    return default_path64, default_str32
 
 
 class MTAR_AddonPreferences(bpy.types.AddonPreferences):
@@ -159,7 +132,6 @@ def register() -> None:
             _debug_registered = False
 
 
-
 def unregister() -> None:
 
     # Unregister debug panel if it was registered
@@ -185,6 +157,7 @@ def unregister() -> None:
 
     # Unregister properties last
     core_blender_properties.unregister()
+
 
 if __name__ == "__main__":
     register()

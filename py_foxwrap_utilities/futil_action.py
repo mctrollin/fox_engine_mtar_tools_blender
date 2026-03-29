@@ -12,9 +12,8 @@ import bpy
 
 from ..py_core.core_logging import Debug
 
-from ..py_utilities import util_blender_animation
+from ..py_utilities import util_blender_animation, util_naming
 
-from . import futil_naming
 from .futil_action_types import ExportActionData
 
 
@@ -40,7 +39,7 @@ def _build_action_maps_by_tag(
     by_gani_index: Dict[int, ExportActionData] = {}
 
     for a in actions:
-        result = futil_naming.extract_track_infos_from_action_label(a.action.name)
+        result = util_naming.extract_track_infos_from_action_label(a.action.name)
         if result:
             idx, type_tag = result
             if type_tag == expected_type_tag:
@@ -106,7 +105,7 @@ def _find_action_for_gani(
     Returns:
         :class:`ExportActionData` if found, else ``None``.
     """
-    result = futil_naming.extract_track_infos_from_action_label(gani_name)
+    result = util_naming.extract_track_infos_from_action_label(gani_name)
     if result:
         idx, type_tag = result
         if type_tag == 'track':
