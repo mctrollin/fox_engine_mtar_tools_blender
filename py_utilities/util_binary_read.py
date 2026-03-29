@@ -5,8 +5,6 @@ import struct
 import math
 from typing import List, Tuple
 
-from ..py_core.core_logging import Debug
-
 
 def read_bits(buffer: bytes, bit_pos: int, bit_size: int) -> tuple[int, int]:
     """Read up to 32 bits from buffer starting at bit_pos (little-endian bit order).
@@ -25,7 +23,7 @@ def read_bits(buffer: bytes, bit_pos: int, bit_size: int) -> tuple[int, int]:
 
     # Guard bounds
     if byte_pos + total_bytes > len(buffer):
-        Debug.raise_error("read_bits out of range", IndexError)
+        raise IndexError("read_bits out of range")
 
     # Read little-endian integer from those bytes
     raw = int.from_bytes(buffer[byte_pos:byte_pos + total_bytes], 'little')
@@ -52,7 +50,7 @@ def read_unaligned_quaternion(buffer: bytes, bit_pos: int, bit_size: int) -> tup
     Based on Fox Engine's axis-angle quaternion encoding.
     """
     if bit_size not in (12, 13, 15):
-        Debug.raise_error(f"Unsupported quaternion bit size: {bit_size}", ValueError)
+        raise ValueError(f"Unsupported quaternion bit size: {bit_size}")
 
     # Read three components and three sign bits
     a, bit_pos = read_bits(buffer, bit_pos, bit_size)

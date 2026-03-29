@@ -141,7 +141,7 @@ class GaniWriter:
             ValueError: If ``gani_tracks`` is empty.
         """
         if not gani_tracks:
-            Debug.raise_error("gani_tracks cannot be empty", ValueError)
+            raise ValueError("gani_tracks cannot be empty")
 
         # UNIT track order -------------------------------------------
         # Tracks are written in the order received (original binary order from import).

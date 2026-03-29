@@ -7,8 +7,6 @@ from typing import BinaryIO, List, Optional
 from enum import IntEnum
 import struct
 
-from ..py_core.core_logging import Debug
-
 from .fox_hash_types import StrCode32
 
 
@@ -71,7 +69,7 @@ class Vector3W:
         """Read a Vector3W (4 floats) from binary stream."""
         data = br.read(16)
         if len(data) < 16:
-            Debug.raise_error('Unexpected EOF while reading Vector3W', EOFError)
+            raise EOFError('Unexpected EOF while reading Vector3W')
         x, y, z, w = struct.unpack('<ffff', data)
         return cls(x=x, y=y, z=z, w=w)
 
@@ -188,7 +186,7 @@ class RigUnitDef:
         # Read base fields
         base_data = br.read(cls.BASE_SIZE)
         if len(base_data) < cls.BASE_SIZE:
-            Debug.raise_error('Unexpected EOF while reading RigUnitDef base', EOFError)
+            raise EOFError('Unexpected EOF while reading RigUnitDef base')
         unit_type_val, track_count, bone_count, parent_bone_index, parent_unit_index, padding = struct.unpack('<IhhhhI', base_data)
         unit_type = RigUnitType(unit_type_val)
         # Read type-specific data
@@ -312,7 +310,7 @@ class MaskUnitDef:
         # Read hash and name
         data = br.read(16)  # 4 bytes hash + 12 bytes name
         if len(data) < 16:
-            Debug.raise_error('Unexpected EOF while reading MaskUnitDef', EOFError)
+            raise EOFError('Unexpected EOF while reading MaskUnitDef')
         
         hash_val = struct.unpack('<I', data[0:4])[0]
         name_bytes = data[4:16]
@@ -322,7 +320,7 @@ class MaskUnitDef:
         # Read weights
         weights_data = br.read(rig_unit_count * 4)
         if len(weights_data) < rig_unit_count * 4:
-            Debug.raise_error('Unexpected EOF while reading MaskUnitDef weights', EOFError)
+            raise EOFError('Unexpected EOF while reading MaskUnitDef weights')
         
         weights = list(struct.unpack(f'<{rig_unit_count}f', weights_data))
         
@@ -342,7 +340,7 @@ class Bone:
         """Read a Bone from binary stream."""
         data = br.read(cls.SIZE)
         if len(data) < cls.SIZE:
-            Debug.raise_error('Unexpected EOF while reading Bone', EOFError)
+            raise EOFError('Unexpected EOF while reading Bone')
         
         rig_index, name_hash = struct.unpack('<II', data)
         return cls(rig_index=rig_index, name=StrCode32(name_hash))
@@ -366,7 +364,7 @@ class RigFileHeader:
         """Read a RigFileHeader from binary stream."""
         data = br.read(cls.SIZE)
         if len(data) < cls.SIZE:
-            Debug.raise_error('Unexpected EOF while reading RigFileHeader', EOFError)
+            raise EOFError('Unexpected EOF while reading RigFileHeader')
         
         # Read FoxDataName as uint64 (two uints)
         name_a, name_b, version, rig_unit_count, segment_count, file_size, bone_list_offset, mask_def_offset = struct.unpack('<IIIIIIII', data)
@@ -395,7 +393,7 @@ class RigDef:
         # Read all offsets
         offsets_data = br.read(header.rig_unit_count * 4)
         if len(offsets_data) < header.rig_unit_count * 4:
-            Debug.raise_error('Unexpected EOF while reading RigDef offsets', EOFError)
+            raise EOFError('Unexpected EOF while reading RigDef offsets')
         
         offsets = list(struct.unpack(f'<{header.rig_unit_count}i', offsets_data))
         
@@ -425,14 +423,14 @@ class MaskDef:
         # Read counts
         counts_data = br.read(8)
         if len(counts_data) < 8:
-            Debug.raise_error('Unexpected EOF while reading MaskDef counts', EOFError)
+            raise EOFError('Unexpected EOF while reading MaskDef counts')
         
         rig_unit_count, layer_count = struct.unpack('<II', counts_data)
         
         # Read offsets
         offsets_data = br.read(layer_count * 4)
         if len(offsets_data) < layer_count * 4:
-            Debug.raise_error('Unexpected EOF while reading MaskDef offsets', EOFError)
+            raise EOFError('Unexpected EOF while reading MaskDef offsets')
         
         offsets = list(struct.unpack(f'<{layer_count}i', offsets_data))
         
@@ -464,13 +462,13 @@ class BoneList:
         # Read bone count
         count_data = br.read(4)
         if len(count_data) < 4:
-            Debug.raise_error('Unexpected EOF while reading BoneList count', EOFError)
+            raise EOFError('Unexpected EOF while reading BoneList count')
         
         bone_count = struct.unpack('<i', count_data)[0]
-        
-        if bone_count < 0:
-            Debug.raise_error('Unexpected bone count while reading BoneList', ValueError)
 
+        if bone_count < 0:
+            raise ValueError('Unexpected bone count while reading BoneList')
+        
         # Read all bones
         bones = []
         for _ in range(bone_count):
@@ -496,7 +494,7 @@ class FrigFile:
         
         # Validate version
         if header.version != 102:
-            Debug.raise_error(f"Unsupported FRIG version: {header.version} (expected 102)", ValueError)
+            raise ValueError(f"Unsupported FRIG version: {header.version} (expected 102)")
         
         # Read rig definition
         rig_def = RigDef.read(br, header)

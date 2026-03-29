@@ -6,6 +6,7 @@ names that include GANI index metadata, and resolve associated motion-point
 or shader-node actions for given main GANI track names.
 """
 from typing import Optional, List, Dict
+import re
 
 import bpy
 
@@ -115,12 +116,19 @@ def _find_action_for_gani(
                 f"Warning: GANI '{gani_name}' has type '{type_tag}', expected 'track' - "
                 f"{track_label} will be skipped for this GANI"
             )
-    else:
-        Debug.log_warning(
-            f"Warning: No GANI index could be extracted from GANI name '{gani_name}' - "
-            f"{track_label} will be skipped for this GANI"
+            return None
+
+    if re.search(r"\.\d+$", gani_name):
+        raise ValueError(
+            f"Invalid GANI name '{gani_name}': trailing numeric suffix detected (e.g. '.001'). "
+            "Rename the Blender action/strip to remove Blender auto-suffix, "
+            "so the name matches '<mtar-name>.<animation-parts>.<index>.<type>.(gani|strip)'."
         )
-    return None
+
+    raise ValueError(
+        f"Invalid GANI name '{gani_name}': expected format '<mtar-name>.<animation-parts>.<index>.<type>.(gani|strip)'. "
+        "Got unrecognized name; ensure track names follow the exporter naming schema."
+    )
 
 def find_motion_point_action_for_gani(gani_name: str, by_gani_index: Dict[int, ExportActionData]) -> Optional[ExportActionData]:
     """Resolve motion-point action for a GANI track.

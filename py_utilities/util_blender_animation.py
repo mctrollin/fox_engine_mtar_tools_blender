@@ -366,7 +366,8 @@ def assign_action_to_datablock(datablock: bpy.types.ID, action: bpy.types.Action
         try:
             slot = get_action_slot(action, slot_name)
         except RuntimeError as e:
-            Debug.raise_error(f"Failed to get or create slot '{slot_name}' for action '{getattr(action, 'name', '<unknown>')}': {e}", RuntimeError)
+            Debug.log_warning(f"Failed to get or create slot '{slot_name}' for action '{getattr(action, 'name', '<unknown>')}': {e}")
+            raise
 
         # Assign the action first.  This prevents the "Cannot set slot without an
         # assigned Action" error when the datablock has no action yet.  On
@@ -380,7 +381,8 @@ def assign_action_to_datablock(datablock: bpy.types.ID, action: bpy.types.Action
         try:
             anim_data.action_slot = slot
         except Exception as e:
-            Debug.raise_error(f"Failed to set action slot for '{getattr(datablock, 'name', '<unknown>')}': {e}", RuntimeError)
+            Debug.log_warning(f"Failed to set action slot for '{getattr(datablock, 'name', '<unknown>')}': {e}")
+            raise
 
         # Also attempt to set action again in case the slot setter didn't.
         try:
@@ -622,6 +624,7 @@ def set_nla_solo(
             # Unmute the selected track
             if keep_track is not None:
                 keep_track.mute = False
+
         yield
     finally:
         # Restore original mute states for all armatures we touched
@@ -662,11 +665,11 @@ def get_action_slot(action: bpy.types.Action, slot_name: Optional[str] = None) -
         RuntimeError: If the slot cannot be found or created.
     """
     if action is None:
-        Debug.raise_error("Action is None when requesting slot", RuntimeError)
+        raise RuntimeError("Action is None when requesting slot")
 
     # Check if the action has a 'slots' attribute AND if it's a bpy_prop_collection 
     if not hasattr(action, "slots"):
-        Debug.raise_error("Action does not expose 'slots' collection", RuntimeError)
+        raise RuntimeError("Action does not expose 'slots' collection")
 
     slots = getattr(action, 'slots', None)
 
@@ -684,10 +687,7 @@ def get_action_slot(action: bpy.types.Action, slot_name: Optional[str] = None) -
             Debug.log(f"  Created slot '{slot_name}' on action '{action.name}'")
             return new_slot
         except Exception as e:
-            Debug.raise_error(
-                f"Could not create slot '{slot_name}' on action '{getattr(action, 'name', '<unknown>')}': {e}",
-                RuntimeError
-            )
+            raise RuntimeError(f"Could not create slot '{slot_name}' on action '{getattr(action, 'name', '<unknown>')}': {e}") from e
 
     # No explicit slot name: legacy behavior
     # Prefer an explicit 'Legacy Slot' if present

@@ -24,7 +24,7 @@ bl_info = {
     "description": "Import and export MTAR animations from Metal Gear Solid V.",
     "author": "rollin",
     "version": (1, 0),
-    "blender": (3, 0, 0),
+    "blender": (3, 1, 2),
     "location" : "View3D Panel",
     "category": "Import-Export",
     "tracker_url": "https://github.com/mctrollin/fox_engine_mtar_tools_blender/issues",

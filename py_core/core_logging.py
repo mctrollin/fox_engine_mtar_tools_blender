@@ -14,7 +14,7 @@ only WARNING and ERROR are shown.
 """
 import time
 import math
-from typing import Dict, Optional, List, Type, Union
+from typing import Dict, Optional, List
 from enum import IntEnum
 from contextlib import contextmanager
 
@@ -484,25 +484,6 @@ class Debug:
         if not _should_log(_LogLevel.ERROR):
             return
         print(f"[ERROR] {message}")
-
-    @staticmethod
-    def raise_error(message: str, exception: Type[Exception]) -> None:
-        """Log a clean error message for user-facing UI, optionally print stack to console, then raise."""
-        # User-facing message (popup + line) without full traceback details in popup
-        _notify_player(message, _LogLevel.ERROR)
-
-        if _should_log(_LogLevel.ERROR):
-            print(f"[ERROR] {message}")
-            try:
-                import traceback
-                traceback.print_stack(limit=10)
-            except Exception:
-                pass
-
-        if not isinstance(exception, type) or not issubclass(exception, Exception):
-            raise TypeError("Debug.raise_error() expects an Exception type")
-
-        raise exception(message)
 
     # ------------------------------------------------------------------
     # Backwards-compatible Debug wrappers for module-level public helpers

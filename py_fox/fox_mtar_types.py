@@ -38,7 +38,7 @@ class MtarHeader:
         # Read fields in the same order as written in the file
         data = br.read(cls.SIZE)
         if len(data) < cls.SIZE:
-            Debug.raise_error('Unexpected EOF while reading MtarHeader', EOFError)
+            raise EOFError('Unexpected EOF while reading MtarHeader')
         version, file_count, track_count, segment_count, shader_node_count, shader_unit_count, motion_point_unit_count, flags, common_info_offset, padding = struct.unpack('<IIHHHHHHIQ', data)
         return cls(
             version=version,
@@ -87,7 +87,7 @@ class MtarTableList2:
     def read(cls, br: BinaryIO) -> 'MtarTableList2':
         data = br.read(cls.SIZE)
         if len(data) < cls.SIZE:
-            Debug.raise_error('Unexpected EOF while reading MtarTableList2', EOFError)
+            raise EOFError('Unexpected EOF while reading MtarTableList2')
         path, tracks_offset, tracks_data_size, motion_point_tracks_offset, motion_point_tracks_data_size, shader_tracks_offset, shader_tracks_data_size, padding0, motion_events_offset, padding1 = struct.unpack('<QIHHHHHHII', data)
         return cls(
             path=path,
@@ -130,7 +130,7 @@ class MtarTableList:
     def read(cls, br: BinaryIO) -> 'MtarTableList':
         data = br.read(cls.SIZE)
         if len(data) < cls.SIZE:
-            Debug.raise_error('Unexpected EOF while reading MtarTableList', EOFError)
+            raise EOFError('Unexpected EOF while reading MtarTableList')
         path, tracks_offset, tracks_data_size, unknown = struct.unpack('<QIHH', data)
         return cls(
             path=path,
@@ -174,7 +174,7 @@ class MtarMiniDataNode:
     def read(cls, br: BinaryIO) -> 'MtarMiniDataNode':
         data = br.read(cls.SIZE)
         if len(data) < cls.SIZE:
-            Debug.raise_error('Unexpected EOF while reading MtarMiniDataNode', EOFError)
+            raise EOFError('Unexpected EOF while reading MtarMiniDataNode')
         name_int, data_size, next_node_offset, padding = struct.unpack('<IIII', data)
         return cls(name=StrCode32(name_int), data_size=data_size, next_node_offset=next_node_offset, padding=padding)
     
@@ -204,13 +204,13 @@ class MotionPointList2:
     def read(cls, br: BinaryIO) -> 'MotionPointList2':
         count_raw = br.read(4)
         if len(count_raw) < 4:
-            Debug.raise_error('Unexpected EOF while reading MotionPointList2 count', EOFError)
+            raise EOFError('Unexpected EOF while reading MotionPointList2 count')
         count = struct.unpack('<I', count_raw)[0]
         entries: List[MotionPointEntry] = []
         for _ in range(count):
             raw = br.read(8)
             if len(raw) < 8:
-                Debug.raise_error('Unexpected EOF while reading MotionPointList2 entry', EOFError)
+                raise EOFError('Unexpected EOF while reading MotionPointList2 entry')
             name_int, parent_name_int = struct.unpack('<II', raw)
             entries.append(MotionPointEntry(name=StrCode32(name_int), parent_name=StrCode32(parent_name_int)))
         return cls(count=count, entries=entries)

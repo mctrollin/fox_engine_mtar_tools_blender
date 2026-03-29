@@ -430,12 +430,12 @@ def bake_armature_constraints_to_keyframes(rig_armature: bpy.types.Object,
     """
     # Validate input
     if not rig_armature or rig_armature.type != 'ARMATURE':
-        Debug.raise_error("Invalid armature object", ValueError)
+        raise ValueError("Invalid armature object")
     
     # Get action to bake
     if action is None:
         if not rig_armature.animation_data or not rig_armature.animation_data.action:
-            Debug.raise_error("Armature has no active action", ValueError)
+            raise ValueError("Armature has no active action")
         action = rig_armature.animation_data.action
     
     # Ensure action is assigned to armature
@@ -678,7 +678,7 @@ def bake_armature_constraints_to_keyframes(rig_armature: bpy.types.Object,
                 # If restoration fails, swallow the error (main error is more important)
                 pass
 
-            Debug.raise_error(f"Failed to bake armature action: {str(e)}", RuntimeError)
+            raise RuntimeError(f"Failed to bake armature action: {str(e)}") from e
 
 
 def _bake_armature_nla_strips_to_keyframes(rig_armature: bpy.types.Object,
@@ -714,10 +714,10 @@ def _bake_armature_nla_strips_to_keyframes(rig_armature: bpy.types.Object,
     """
     # Validate input
     if not rig_armature or rig_armature.type != 'ARMATURE':
-        Debug.raise_error("Invalid rig armature object", ValueError)
+        raise ValueError("Invalid rig armature object")
     
     if not rig_armature.animation_data or not rig_armature.animation_data.nla_tracks:
-        Debug.raise_error("Rig armature has no NLA tracks", ValueError)
+        raise ValueError("Rig armature has no NLA tracks")
     
     Debug.log(f"Baking NLA strips for rig armature '{rig_armature.name}'")
     
