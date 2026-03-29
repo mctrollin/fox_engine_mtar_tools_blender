@@ -8,9 +8,9 @@ from bpy.types import Context, UILayout
 
 from ..py_foxwrap.fwrap_mtar_reader import MtarReader
 
-from .blender_operators_import import MTAR_OT_GenerateTrackMappingTemplateFile, MTAR_OT_ImportAnimationFromMTAR
+from .operators_import import MTAR_OT_GenerateTrackMappingTemplateFile, MTAR_OT_ImportAnimationFromMTAR
 
-from . import blender_panel_shared
+from . import panel_shared
 
 
 def draw_import_page(layout: UILayout, context: Context) -> None:
@@ -71,7 +71,7 @@ def draw_import_page(layout: UILayout, context: Context) -> None:
     row.prop(props, "mapping_filepath", text="", icon='TEXT')
     row.operator("mtar.generate_track_mapping_template_file", text="", icon='FILE_NEW')
 
-    selected_count = blender_panel_shared.draw_gani_selection_filter(
+    selected_count = panel_shared.draw_gani_selection_filter(
         layout,
         props,
         import_props,
@@ -84,10 +84,10 @@ def draw_import_page(layout: UILayout, context: Context) -> None:
         adv_box.alert = True
 
         # Verbose naming (advanced setting)
-        blender_panel_shared.draw_bool_prop_checkbox_icon(adv_box, import_props, "use_verbose_naming")
+        panel_shared.draw_bool_prop_checkbox_icon(adv_box, import_props, "use_verbose_naming")
 
         # Hash dictionary for GANI name unhashing (advanced setting)
-        blender_panel_shared.draw_bool_prop_checkbox_icon(adv_box, import_props, "import_use_hash_dictionary")
+        panel_shared.draw_bool_prop_checkbox_icon(adv_box, import_props, "import_use_hash_dictionary")
         if import_props.import_use_hash_dictionary:
             dict_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dic', 'path64', 'mtar_dictionary.txt')
             if not os.path.exists(dict_path):
@@ -109,17 +109,17 @@ def draw_import_page(layout: UILayout, context: Context) -> None:
         adv_box.prop(import_props, "ik_up_distance", text="IK Up Distance", icon='DRIVER_DISTANCE')
         
         # Bake after import checkbox (only shown if advanced settings enabled and custom rig is specified)
-        blender_panel_shared.draw_bool_prop_checkbox_icon(adv_box, import_props, "import_bake_constraints")
+        panel_shared.draw_bool_prop_checkbox_icon(adv_box, import_props, "import_bake_constraints")
 
         if import_props.import_bake_constraints:
             row = adv_box.row(align=True)
-            blender_panel_shared.draw_bool_prop_checkbox_icon(row, import_props, 'import_bake_do_decimate')
+            panel_shared.draw_bool_prop_checkbox_icon(row, import_props, 'import_bake_do_decimate')
             sub = row.row(align=True)
             sub.enabled = import_props.import_bake_do_decimate
             sub.prop(import_props, 'import_bake_decimate_fcurve_error', text=':', icon='IPO_BEZIER')
             sub.prop(import_props, 'import_bake_decimate_skip_types', text='', icon='FILTER')
 
-            blender_panel_shared.draw_bool_prop_checkbox_icon(adv_box, import_props, "delete_import_armature")
+            panel_shared.draw_bool_prop_checkbox_icon(adv_box, import_props, "delete_import_armature")
 
     # Import button
     box_button = layout.box()
@@ -129,7 +129,7 @@ def draw_import_page(layout: UILayout, context: Context) -> None:
     col.enabled = bool(import_props.mtar_filepath)
     col.operator("mtar.import_animation", text="Import Animation", icon='IMPORT')
 
-    blender_panel_shared.draw_progress_bar(box_button, props)
+    panel_shared.draw_progress_bar(box_button, props)
 
     import_info_box = box_button.box()
     if not import_props.mtar_filepath:
@@ -143,7 +143,7 @@ def draw_import_page(layout: UILayout, context: Context) -> None:
             if import_props.import_bake_do_decimate:
                 est_time_per_gani += 1
 
-    blender_panel_shared.draw_estimated_operation_time(import_info_box, selected_count, est_time_per_gani)
+    panel_shared.draw_estimated_operation_time(import_info_box, selected_count, est_time_per_gani)
 
 
 

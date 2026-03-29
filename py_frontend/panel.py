@@ -18,7 +18,7 @@ This module only defines the panel and its registration boilerplate.
 import bpy
 from bpy.types import Panel, Context
 
-from . import blender_panel_settings, blender_panel_import, blender_panel_export
+from . import panel_export, panel_import, panel_settings
 
 
 class MTAR_PT_MainPanel(Panel):
@@ -43,11 +43,11 @@ class MTAR_PT_MainPanel(Panel):
         # dispatch to page
         tab = settings_props.active_tab
         if tab == 'IMPORT':
-            blender_panel_import.draw_import_page(layout, context)
+            panel_import.draw_import_page(layout, context)
         elif tab == 'EXPORT':
-            blender_panel_export.draw_export_page(layout, context)
+            panel_export.draw_export_page(layout, context)
         else:
-            blender_panel_settings.draw_settings_page(layout, context)
+            panel_settings.draw_settings_page(layout, context)
 
 
 # panel installer -------------------------------------------------------------

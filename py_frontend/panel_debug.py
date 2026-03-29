@@ -10,18 +10,18 @@ for bones at specific frames, useful for verifying export/import transform corre
 import bpy
 from bpy.types import Panel, Context
 
-from . import blender_panel_debug_map_r, blender_panel_debug_nla, blender_panel_debug_transform, blender_panel_debug_bake, blender_panel_debug_hash
-from .blender_operators_debug_transform import (
+from . import panel_debug_bake, panel_debug_hash, panel_debug_map_r, panel_debug_nla, panel_debug_transform
+from .operators_debug_transform import (
     MTAR_PG_DebugTransformProperties,
     MTAR_OT_InspectWorldSpaceTransform,
     MTAR_OT_CreateTransformDummies,
     MTAR_OT_CopySingleResult,
     MTAR_OT_CopyTransformDebugResults,
 )
-from .blender_operators_debug import (
+from .operators_debug import (
     MTAR_PG_DebugPanelProperties,
 )
-from .blender_operators_debug_nla import (
+from .operators_debug_nla import (
     MTAR_PG_DebugNLAProperties,
     MTAR_OT_DebugCollectNLAPathClipboard,
     MTAR_OT_DebugSelectNLAByClipboardIndex,
@@ -37,11 +37,11 @@ from .blender_operators_debug_nla import (
     MTAR_OT_DebugMuteAllNLA,
     MTAR_OT_DebugUnmuteAllNLA,
 )
-from .blender_operators_debug_bake import (
+from .operators_debug_bake import (
     MTAR_OT_DebugRunBake,
     MTAR_OT_DebugSetupGraphContext,
 )
-from .blender_operators_debug_hash import (
+from .operators_debug_hash import (
     MTAR_PG_DebugHashProperties,
     MTAR_OT_ValidateHashGeneratorExe,
     MTAR_OT_GenerateHash,
@@ -75,15 +75,15 @@ class MTAR_PT_DebugMainPanel(Panel):
         layout.separator()
         tab = props.debug_active_tab
         if tab == 'HASH':
-            blender_panel_debug_hash.draw_hash_page(layout, context)
+            panel_debug_hash.draw_hash_page(layout, context)
         elif tab == 'NLA':
-            blender_panel_debug_nla.draw_nla_page(layout, context)
+            panel_debug_nla.draw_nla_page(layout, context)
         elif tab == 'TRANSFORM':
-            blender_panel_debug_transform.draw_transform_page(layout, context)
+            panel_debug_transform.draw_transform_page(layout, context)
         elif tab == 'BAKE':
-            blender_panel_debug_bake.draw_bake_page(layout, context)
+            panel_debug_bake.draw_bake_page(layout, context)
         elif tab == 'MAP_R':
-            blender_panel_debug_map_r.draw_map_r_page(layout, context)
+            panel_debug_map_r.draw_map_r_page(layout, context)
 
 
 # Registration
@@ -153,7 +153,7 @@ def register() -> None:
     
     # Register map_r debug module
     try:
-        blender_panel_debug_map_r.register()
+        panel_debug_map_r.register()
     except Exception:
         # ignore if already registered or missing
         pass
@@ -162,7 +162,7 @@ def unregister() -> None:
     """Unregister debug classes."""
     # Unregister map_r debug module first
     try:
-        blender_panel_debug_map_r.unregister()
+        panel_debug_map_r.unregister()
     except Exception:
         pass
     

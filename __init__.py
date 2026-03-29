@@ -10,9 +10,9 @@ from bpy.props import BoolProperty, StringProperty
 from .py_core.core_logging import Debug
 
 # from .py_tools.tools_mtar_importer import import_mtar
-from .py_frontend import blender_panel_import
-from .py_frontend import blender_panel_export
-from .py_frontend import blender_panel
+from .py_frontend import panel_import
+from .py_frontend import panel_export
+from .py_frontend import panel
 from . import blender_properties
 
 blender_debug_module = None
@@ -66,7 +66,7 @@ class MTAR_AddonPreferences(bpy.types.AddonPreferences):
         try:
             # If enabling debug and not already registered, try to register
             if self.enable_debug_tools and not _debug_registered:
-                from .py_frontend import blender_panel_debug as _bd
+                from .py_frontend import panel_debug as _bd
                 blender_debug_module = _bd
                 blender_debug_module.register()
                 # bpy.utils.register_class(MTAR_PT_DebugPanel)
@@ -120,9 +120,9 @@ def register() -> None:
     blender_properties.register()
 
     # Register panels (includes their own classes)
-    blender_panel_import.register()
-    blender_panel_export.register()
-    blender_panel.register()
+    panel_import.register()
+    panel_export.register()
+    panel.register()
     # settings panel no longer registers any classes; UI merged into import_panel
 
     # Register addon preferences so users can toggle debug tools
@@ -149,7 +149,7 @@ def register() -> None:
     _debug_registered = False
     if enable_debug:
         try:
-            from .py_frontend import blender_panel_debug as _bd
+            from .py_frontend import panel_debug as _bd
             blender_debug_module = _bd
             blender_debug_module.register()
             _debug_registered = True
@@ -179,8 +179,8 @@ def unregister() -> None:
         pass
 
     # Unregister panels    blender_panel.unregister()
-    blender_panel_export.unregister()
-    blender_panel_import.unregister()
+    panel_export.unregister()
+    panel_import.unregister()
 
     # Unregister properties last
     blender_properties.unregister()

@@ -11,8 +11,8 @@ from ..py_fox.fox_mtar_types import is_new_mtar_format
 
 from ..py_foxwrap import fwrap_metadata
 
-from .blender_operators_export import MTAR_OT_ExportAnimationToMTAR
-from . import blender_panel_shared
+from .operators_export import MTAR_OT_ExportAnimationToMTAR
+from . import panel_shared
 
 
 def draw_export_page(layout: UILayout, context: Context) -> None:
@@ -66,7 +66,7 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
     if settings_props.show_advanced_settings:
         adv_box = box_rig.box()
         adv_box.alert = True
-        blender_panel_shared.draw_bool_prop_checkbox_icon(adv_box, export_props, "use_nla")
+        panel_shared.draw_bool_prop_checkbox_icon(adv_box, export_props, "use_nla")
 
     # Show info about NLA status and compute export_count
     animinfo_box = box_rig.box()
@@ -135,7 +135,7 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
         mtar_box = box_export.box()
         mtar_box.prop(props, "mapping_filepath", text="", icon='TEXT')
 
-        selected_count = blender_panel_shared.draw_gani_selection_filter(
+        selected_count = panel_shared.draw_gani_selection_filter(
             layout,
             props,
             export_props,
@@ -149,7 +149,7 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
 
             # FCurve cleaning controls (advanced setting)
             row = adv_box.row(align=True)
-            blender_panel_shared.draw_bool_prop_checkbox_icon(row, export_props, 'export_clean_fcurves')
+            panel_shared.draw_bool_prop_checkbox_icon(row, export_props, 'export_clean_fcurves')
 
             sub = row.row(align=True)
             sub.enabled = export_props.export_clean_fcurves and export_props.export_decimate_fcurves
@@ -157,19 +157,19 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
 
             # Force highest bit encoding option
             row2 = adv_box.row()
-            blender_panel_shared.draw_bool_prop_checkbox_icon(row2, export_props, "force_highest_bit_encoding")
+            panel_shared.draw_bool_prop_checkbox_icon(row2, export_props, "force_highest_bit_encoding")
 
         if settings_props.show_advanced_settings:
             adv_box = box_export.box()
             adv_box.alert = True
 
             # Custom path hash export option
-            blender_panel_shared.draw_bool_prop_checkbox_icon(adv_box, export_props, "treat_hashes_as_names")
+            panel_shared.draw_bool_prop_checkbox_icon(adv_box, export_props, "treat_hashes_as_names")
             # Always show base path — it applies to invalid paths and NLA fallbacks regardless of the flag above
             adv_box.prop(export_props, "custom_path_base", text="")
 
             # Export info file option
-            blender_panel_shared.draw_bool_prop_checkbox_icon(adv_box, export_props, "info_file")
+            panel_shared.draw_bool_prop_checkbox_icon(adv_box, export_props, "info_file")
 
         
 
@@ -183,14 +183,14 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
         col.enabled = can_export
         col.operator("mtar.export_animation", text="Export Animation", icon='EXPORT')
 
-        blender_panel_shared.draw_progress_bar(box_button, props)
+        panel_shared.draw_progress_bar(box_button, props)
 
         # Show an estimated export duration based on GANI count
         display_count = selected_count if selected_count is not None else export_count
         if display_count is not None and display_count > 0:
             warn_box = box_button.box()
             warn_box.label(text=f"Exporting {display_count} animations.")
-            blender_panel_shared.draw_estimated_operation_time(warn_box, display_count, 1)
+            panel_shared.draw_estimated_operation_time(warn_box, display_count, 1)
 
         if not export_props.armature:
             warn_box.alert = True
