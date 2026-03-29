@@ -10,7 +10,7 @@ from bpy.types import Operator, Context
 
 from ..py_core.core_logging import Debug
 
-from ..blender_properties import get_effective_import_bake_decimate_error
+from ..py_core.core_blender_properties import get_effective_import_bake_decimate_error
 
 from ..py_utilities import util_blender_state, util_parsing, util_blender_animation
 
@@ -97,7 +97,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                     Debug.log(f"  - Bones: {frig_data.bone_list.bone_count}")
                     Debug.log(f"  - Segments: {frig_data.header.segment_count}")
                     
-                except (OSError, ValueError) as e:
+                except Exception as e:
                     Debug.report_and_log(self, 'ERROR', f"Failed to load FRIG file: {str(e)}")
                     traceback.print_exc()
                     Debug.stop_timer("Import Operator")
@@ -125,7 +125,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                         Debug.log(f"Loaded {len(track_mapping)} track mapping(s)")
                     if transform_constraints:
                         Debug.log(f"Loaded {len(transform_constraints)} transform constraint(s)")
-                except Exception as e:  # noqa: E722
+                except Exception as e:
                     Debug.report_and_log(self, 'WARNING', f"Failed to load track mapping file: {str(e)}")
         
         # Get custom rig if specified
@@ -242,7 +242,7 @@ class MTAR_OT_ImportAnimationFromMTAR(Operator):
                     Debug.stop_timer("Import Operator")
                     return {'FINISHED'}
 
-            except (OSError, ValueError) as e:  # noqa: E722
+            except Exception as e:
                 Debug.report_and_log(self, 'ERROR', f"Failed to import MTAR: {str(e)}")
                 traceback.print_exc()
                 Debug.stop_timer("Import Operator")

@@ -3,6 +3,8 @@ Parsing utilities for user input.
 """
 from typing import List, Set
 
+from ..py_core.core_logging import Debug
+
 
 # Precision used when serializing float values to metadata strings
 # (e.g. motion event float_params, GANI params stored in Blender action custom properties).
@@ -92,26 +94,26 @@ def parse_index_selection(selection_str: str, max_index: int) -> List[int]:
                 end = int(end_str.strip())
                 
                 if start < 0 or end >= max_index:
-                    raise ValueError(f"Range {start}-{end} out of bounds (valid range: 0-{max_index-1})")
+                    Debug.raise_error(f"Range {start}-{end} out of bounds (valid range: 0-{max_index-1})", ValueError)
                 if start > end:
-                    raise ValueError(f"Invalid range: {start}-{end} (start > end)")
+                    Debug.raise_error(f"Invalid range: {start}-{end} (start > end)", ValueError)
                 
                 indices = set(range(start, end + 1))
             except ValueError as e:
                 if "invalid literal" in str(e):
-                    raise ValueError(f"Invalid range format: '{part}' (expected format: START-END)") from e
-                raise
+                    Debug.raise_error(f"Invalid range format: '{part}' (expected format: START-END)", ValueError)
+                Debug.raise_error(str(e), ValueError)
         else:
             # Single index
             try:
                 index = int(part.strip())
                 if index < 0 or index >= max_index:
-                    raise ValueError(f"Index {index} out of bounds (valid range: 0-{max_index-1})")
+                    Debug.raise_error(f"Index {index} out of bounds (valid range: 0-{max_index-1})", ValueError)
                 indices = {index}
             except ValueError as e:
                 if "invalid literal" in str(e):
-                    raise ValueError(f"Invalid index: '{part}' (expected integer)") from e
-                raise
+                    Debug.raise_error(f"Invalid index: '{part}' (expected integer)", ValueError)
+                Debug.raise_error(str(e), ValueError)
         
         # Add to appropriate set
         if is_exclusion:

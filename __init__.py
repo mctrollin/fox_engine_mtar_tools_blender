@@ -13,20 +13,21 @@ from .py_core.core_logging import Debug
 from .py_frontend import panel_import
 from .py_frontend import panel_export
 from .py_frontend import panel
-from . import blender_properties
+from .py_core import core_blender_properties
 
 blender_debug_module = None
 _debug_registered = False
 
 
 bl_info = {
-    "name": "Fox Engine MTAR Importer and Exporter",
-    "description": "Import and Export MTAR animations from Metal Gear Solid V",
+    "name": "Fox MTAR",
+    "description": "Import and export MTAR animations from Metal Gear Solid V.",
     "author": "rollin",
     "version": (1, 0),
     "blender": (3, 0, 0),
     "location" : "View3D Panel",
     "category": "Import-Export",
+    "tracker_url": "https://github.com/mctrollin/fox_engine_mtar_tools_blender/issues",
 }
 
 
@@ -117,7 +118,7 @@ class MTAR_AddonPreferences(bpy.types.AddonPreferences):
 
 def register() -> None:
     # Register properties first
-    blender_properties.register()
+    core_blender_properties.register()
 
     # Register panels (includes their own classes)
     panel_import.register()
@@ -183,7 +184,7 @@ def unregister() -> None:
     panel_import.unregister()
 
     # Unregister properties last
-    blender_properties.unregister()
+    core_blender_properties.unregister()
 
 if __name__ == "__main__":
     register()

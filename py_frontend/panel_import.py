@@ -8,7 +8,7 @@ from bpy.types import Context, UILayout
 
 from ..py_foxwrap.fwrap_mtar_reader import MtarReader
 
-from .operators_import import MTAR_OT_GenerateTrackMappingTemplateFile, MTAR_OT_ImportAnimationFromMTAR
+from .operators_mtar_import import MTAR_OT_GenerateTrackMappingTemplateFile, MTAR_OT_ImportAnimationFromMTAR
 
 from . import panel_shared
 

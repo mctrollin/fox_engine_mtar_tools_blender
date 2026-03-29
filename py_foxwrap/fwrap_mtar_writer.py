@@ -232,7 +232,7 @@ class MtarWriter:
             ValueError: if action is missing mtar_const.TABL_PATH or lookup fails.
         """
         if not action or mtar_const.TABL_PATH not in action.keys():
-            raise ValueError("Could not determine GANI path hash: action has no Path metadata")
+            Debug.raise_error("Could not determine GANI path hash: action has no Path metadata", ValueError)
 
         path_value = str(action[mtar_const.TABL_PATH])
         if util_hashing.is_gani_path_a_hash(path_value):
@@ -244,21 +244,24 @@ class MtarWriter:
                 try:
                     return util_hashing.parse_gani_hash_str(results['with_extension_dec'])
                 except ValueError:
-                    raise ValueError(f"Could not parse path hash from computed result: {results['with_extension_dec']}")
-            raise ValueError(f"Could not compute hash for path '{path_value}': {error}")
+                    Debug.raise_error(
+                        f"Could not parse path hash from computed result: {results['with_extension_dec']}",
+                        ValueError
+                    )
+            Debug.raise_error(f"Could not compute hash for path '{path_value}': {error}", ValueError)
 
         if _is_valid_asset_path(path_value):
             path_to_hash = path_value if path_value.endswith('.gani') else f"{path_value}.gani"
             success, results, error = tools_hash_generator.hash_animation_name_from_blender_context(path_to_hash)
             if success and results.get('with_extension_dec'):
                 return util_hashing.parse_gani_hash_str(results['with_extension_dec'])
-            raise ValueError(f"Could not compute hash for path '{path_to_hash}': {error}")
+            Debug.raise_error(f"Could not compute hash for path '{path_to_hash}': {error}", ValueError)
 
         combined = f"{self.export_custom_path_base}{path_value}.gani"
         success, results, error = tools_hash_generator.hash_animation_name_from_blender_context(combined)
         if success and results.get('with_extension_dec'):
             return util_hashing.parse_gani_hash_str(results['with_extension_dec'])
-        raise ValueError(f"Could not compute hash for path '{combined}': {error}")
+        Debug.raise_error(f"Could not compute hash for path '{combined}': {error}", ValueError)
 
     def compute_gani_path_hash(self, gani_data: GaniExportData) -> int:
         """Compute the path hash for a GANI from the export data.
@@ -274,7 +277,7 @@ class MtarWriter:
         if action:
             return self.compute_gani_path_hash_from_action(action)
 
-        raise ValueError("GANI path hash is not available; set gani_data.path_hash before writing")
+        Debug.raise_error("GANI path hash is not available; set gani_data.path_hash before writing", ValueError)
 
     
     def write(self) -> None:

@@ -179,8 +179,7 @@ class AnimKeyframe:
                     keyframes.append(AnimKeyframe(frame=frame_delta, value=vec))  # Store delta directly
         
         else:
-            raise ValueError(f"Unsupported segment type: {segment_type}")
-        
+            Debug.raise_error(f"Unsupported segment type: {segment_type}", ValueError)
         return keyframes
 
     @staticmethod
@@ -399,7 +398,7 @@ class AnimKeyframe:
             return buffer.getvalue()
         
         else:
-            raise ValueError(f"Unsupported track type: {track_type}")
+            Debug.raise_error(f"Unsupported track type: {track_type}", ValueError)
 
 
 @dataclass
@@ -422,7 +421,7 @@ class TrackHeader:
 
         data = br.read(cls.BASE_SIZE)
         if len(data) < cls.BASE_SIZE:
-            raise EOFError('Unexpected EOF while reading TrackHeader')
+            Debug.raise_error('Unexpected EOF while reading TrackHeader', EOFError)
         unit_count, segment_count, t_id, unknown_a, unknown_b, frame_count, frame_rate = struct.unpack(endian + 'IIHBBII', data)
 
         unit_offsets: List[int] = []
@@ -480,7 +479,7 @@ class TrackUnit:
         # Read base fields
         base = br.read(cls.BASE_SIZE)
         if len(base) < cls.BASE_SIZE:
-            raise EOFError('Unexpected EOF while reading TrackUnit base')
+            Debug.raise_error('Unexpected EOF while reading TrackUnit base', EOFError)
         name_int, segment_count, unit_flags, padding = struct.unpack(endian + 'IBBH', base)
 
         track_data: List[TrackData] = []
@@ -537,7 +536,7 @@ class TrackData:
         """
         seg_raw = br.read(cls.ENTRY_SIZE)
         if len(seg_raw) < cls.ENTRY_SIZE:
-            raise EOFError('Unexpected EOF while reading TrackData entry')
+            Debug.raise_error('Unexpected EOF while reading TrackData entry', EOFError)
         
         data_offset, ms_id, type_and_next, component_bit_size = struct.unpack(endian + 'ihBB', seg_raw)
         td_type = type_and_next & 0x0F
@@ -581,7 +580,7 @@ class Gani2TrackData:
         """Read a Gani2TrackData entry from a binary stream."""
         seg_raw = br.read(cls.ENTRY_SIZE)
         if len(seg_raw) < cls.ENTRY_SIZE:
-            raise EOFError('Unexpected EOF while reading Gani2TrackData')
+            Debug.raise_error('Unexpected EOF while reading Gani2TrackData', EOFError)
         # First byte is component_bit_size, next 3 bytes are data_offset (little-endian)
         component_bit_size = seg_raw[0]
         data_offset = int.from_bytes(seg_raw[1:4], 'little')
@@ -624,7 +623,7 @@ class TrackMiniHeader:
         # Read FrameCount (uint), Padding0 (ubyte), ParamCount (ubyte), Padding1 (ushort)
         data = br.read(8)
         if len(data) < 8:
-            raise EOFError('Unexpected EOF while reading TrackMiniHeader base')
+            Debug.raise_error('Unexpected EOF while reading TrackMiniHeader base', EOFError)
         frame_count, _pad0, param_count, _pad1 = struct.unpack('<IBBH', data)
 
         # Read params (Name:uint, Value:float) * param_count
@@ -632,7 +631,7 @@ class TrackMiniHeader:
         for _ in range(param_count):
             p_raw = br.read(8)
             if len(p_raw) < 8:
-                raise EOFError('Unexpected EOF while reading TrackMiniHeader params')
+                Debug.raise_error('Unexpected EOF while reading TrackMiniHeader params', EOFError)
             name, value = struct.unpack('<If', p_raw)
             params.append((name, value))
 
@@ -641,7 +640,7 @@ class TrackMiniHeader:
         for _ in range(unit_count):
             b = br.read(1)
             if len(b) < 1:
-                raise EOFError('Unexpected EOF while reading UnitFlags')
+                Debug.raise_error('Unexpected EOF while reading UnitFlags', EOFError)
             unit_flags.append(b[0])
 
         # Align to 4 bytes
@@ -833,13 +832,13 @@ class EventUnitInfo:
         # Read name (4 bytes)
         name_data = br.read(4)
         if len(name_data) < 4:
-            raise EOFError('Unexpected EOF while reading EventUnitInfo name')
+            Debug.raise_error('Unexpected EOF while reading EventUnitInfo name', EOFError)
         name_int = struct.unpack('<I', name_data)[0]
 
         # Read counts (4 bytes: 1 byte packed + 3 count bytes)
         counts_data = br.read(4)
         if len(counts_data) < 4:
-            raise EOFError('Unexpected EOF while reading EventUnitInfo counts')
+            Debug.raise_error('Unexpected EOF while reading EventUnitInfo counts', EOFError)
         
         packed_byte = counts_data[0]
         time_section_count = packed_byte & 0x3F  # Lower 6 bits
@@ -893,7 +892,7 @@ class EventUnitInfo:
             for _ in range(string_param_count):
                 str_data = br.read(8)
                 if len(str_data) < 8:
-                    raise EOFError('Unexpected EOF while reading string param')
+                    Debug.raise_error('Unexpected EOF while reading string param', EOFError)
                 # Read as two uints forming a uint64
                 param_a, param_b = struct.unpack('<II', str_data)
                 param_hash = param_a | (param_b << 32)
@@ -1131,7 +1130,7 @@ class EvpData:
         # Read EvpData header
         data = br.read(8)
         if len(data) < 8:
-            raise EOFError('Unexpected EOF while reading EvpData')
+            Debug.raise_error('Unexpected EOF while reading EvpData', EOFError)
         category_name, unit_count, cache_offset = struct.unpack(endian + 'IHH', data)
 
         # Read unit offsets
@@ -1139,7 +1138,7 @@ class EvpData:
         if unit_count > 0:
             offsets_data = br.read(unit_count * 4)
             if len(offsets_data) < unit_count * 4:
-                raise EOFError('Unexpected EOF while reading EvpData unit offsets')
+                Debug.raise_error('Unexpected EOF while reading EvpData unit offsets', EOFError)
             unit_offsets = list(struct.unpack(f'{endian}{unit_count}I', offsets_data))
 
         # Read each EventUnitInfo
@@ -1269,14 +1268,14 @@ class EvpHeader:
         # Read header (version, count, padding)
         header_data = br.read(8)
         if len(header_data) < 8:
-            raise EOFError('Unexpected EOF while reading EvpHeader')
+            Debug.raise_error('Unexpected EOF while reading EvpHeader', EOFError)
         version, count, padding = struct.unpack(endian + 'IhH', header_data)  # I=uint, h=short, H=ushort
 
         # Read entry offsets
         entry_offsets = []
         offsets_data = br.read(count * 4)
         if len(offsets_data) < count * 4:
-            raise EOFError('Unexpected EOF while reading EvpHeader entry offsets')
+            Debug.raise_error('Unexpected EOF while reading EvpHeader entry offsets', EOFError)
         entry_offsets = list(struct.unpack(f'{endian}{count}I', offsets_data))
 
         # Read each EvpData entry

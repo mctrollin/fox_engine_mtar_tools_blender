@@ -651,7 +651,7 @@ def bake_and_clean_export_fcurves(armature: bpy.types.Object,
     except Exception as e:
         bpy.data.actions.remove(processed_action)
         armature.animation_data.action = action
-        raise e
+        Debug.raise_error(f"FCurve bake-to-linear failed: {e}", RuntimeError)
     finally:
         # Always restore original action on armature
         armature.animation_data.action = action

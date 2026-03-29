@@ -2,7 +2,7 @@
 Utilities for handling Fox Engine hash values and rig type name mappings.
 """
 import os
-from typing import Optional, Dict, Set, Tuple
+from typing import Optional, Dict, Set
 
 from . import util_hashing_cityhash
 
@@ -297,8 +297,8 @@ def parse_gani_hash_str(s: str) -> int:
     try:
         # int(s, 0) auto-detects base: 0x prefix → hex, otherwise → decimal
         return int(s, 0)
-    except (ValueError, AttributeError) as e:
-        raise ValueError(f"Invalid hash string: '{s}'") from e
+    except (ValueError, AttributeError):
+        Debug.raise_error(f"Invalid hash string: '{s}'", ValueError)
 
 
 def parse_hash_string(s: str) -> int:
@@ -319,8 +319,8 @@ def parse_hash_string(s: str) -> int:
     s = s.strip()
     try:
         return int(s, 0)
-    except (ValueError, AttributeError) as e:
-        raise ValueError(f"Invalid hash string: '{s}'") from e
+    except (ValueError, AttributeError):
+        Debug.raise_error(f"Invalid hash string: '{s}'", ValueError)
 
 
 def is_hash_string(s: str) -> bool:

@@ -163,7 +163,7 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
                     Debug.stop_timer("Export Operator")
                     return {'CANCELLED'}
                 
-            except Exception as e:  # noqa: E722
+            except Exception as e:
                 Debug.report_and_log(self, 'ERROR', f"Failed to load mapping file: {str(e)}")
                 traceback.print_exc()
                 Debug.stop_timer("Export Operator")
@@ -208,7 +208,7 @@ class MTAR_OT_ExportAnimationToMTAR(Operator):
                         Debug.stop_timer("Export Operator")
                         return {'CANCELLED'}
             
-            except (OSError, ValueError) as e:  # noqa: E722
+            except Exception as e:
                 Debug.report_and_log(self, 'ERROR', f"Export failed: {str(e)}")
                 traceback.print_exc()
                 Debug.stop_timer("Export Operator")

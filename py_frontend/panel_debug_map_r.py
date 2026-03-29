@@ -367,7 +367,7 @@ class MTAR_OT_DebugAnalyzeMapR(bpy.types.Operator):
             
             Debug.report_and_log(self, 'INFO', f"Map_R parameter: {map_r_param}")
             
-        except (RuntimeError, KeyError, AttributeError) as e:
+        except Exception as e:
             Debug.report_and_log(self, 'ERROR', f"Debug map_r analysis error: {str(e)}")
             props.debug_log = f"✗ Error: {str(e)}"
         
@@ -555,7 +555,7 @@ class MTAR_OT_DebugApplyInvertedRestPose(bpy.types.Operator):
             Debug.report_and_log(self, 'INFO', f"Applied inverted rest pose to '{bone_name}'")
             props.debug_log = "✓ Applied inverted rest pose to verify extraction"
             
-        except (RuntimeError, KeyError, AttributeError) as e:
+        except Exception as e:
             Debug.report_and_log(self, 'ERROR', f"Error: {str(e)}")
             props.debug_log = f"✗ Error: {str(e)}"
         
@@ -612,7 +612,7 @@ class MTAR_OT_DebugApplyMappedRotation(bpy.types.Operator):
             Debug.report_and_log(self, 'INFO', f"Applied mapped rotation to '{bone_name}'")
             props.debug_log = "✓ Applied mapped rotation to bone"
             
-        except (RuntimeError, KeyError, AttributeError) as e:
+        except Exception as e:
             Debug.report_and_log(self, 'ERROR', f"Apply mapped rotaton error: {str(e)}")
             props.debug_log = f"✗ Error: {str(e)}"
         

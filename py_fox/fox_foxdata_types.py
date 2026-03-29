@@ -17,6 +17,8 @@ from typing import BinaryIO, Tuple
 from enum import IntEnum
 import struct
 
+from ..py_core.core_logging import Debug
+
 
 class FoxDataNodeType(IntEnum):
     """Node type flags used in FoxDataNode.flags."""
@@ -80,7 +82,7 @@ class FoxDataHeader:
         # Read 4 bytes as little-endian uint to check magic
         raw4 = br.read(4)
         if len(raw4) < 4:
-            raise EOFError('Unexpected EOF while reading FoxDataHeader for endian detection')
+            Debug.raise_error('Unexpected EOF while reading FoxDataHeader for endian detection', EOFError)
         
         le_version = struct.unpack('<I', raw4)[0]
         
@@ -94,7 +96,7 @@ class FoxDataHeader:
         br.seek(pos)
         data = br.read(cls.SIZE)
         if len(data) < cls.SIZE:
-            raise EOFError('Unexpected EOF while reading FoxDataHeader')
+            Debug.raise_error('Unexpected EOF while reading FoxDataHeader', EOFError)
         
         # Unpack: 6 uints (24 bytes) + 8 bytes padding
         fmt = endian + 'IIIIII8x'
@@ -186,7 +188,7 @@ class FoxDataNode:
         """
         data = br.read(cls.SIZE)
         if len(data) < cls.SIZE:
-            raise EOFError('Unexpected EOF while reading FoxDataNode')
+            Debug.raise_error('Unexpected EOF while reading FoxDataNode', EOFError)
         
         # Unpack: 10 fields (40 bytes) + 8 bytes padding
         # fmt: 2 uint, 1 uint, 1 int, 1 uint, 5 int = IIIIIIIIII (but mixed)

@@ -5,6 +5,8 @@ import struct
 import math
 from typing import List, BinaryIO
 
+from ..py_core.core_logging import Debug
+
 
 def write_bits(buffer: bytearray, bit_pos: int, value: int, bit_size: int) -> int:
     """Write up to 32 bits to buffer starting at bit_pos (little-endian bit order).
@@ -86,7 +88,7 @@ def write_unaligned_quaternion(buffer: bytearray, bit_pos: int, quat: List[float
         keyframe).
     """
     if bit_size not in (12, 13, 15):
-        raise ValueError(f"Unsupported quaternion bit size: {bit_size}")
+        Debug.raise_error(f"Unsupported quaternion bit size: {bit_size}", ValueError)
     
     qx, qy, qz, qw = quat
     

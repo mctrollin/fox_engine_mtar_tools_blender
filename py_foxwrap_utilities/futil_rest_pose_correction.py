@@ -83,7 +83,7 @@ def _apply_rest_pose_correction_to_target(target, rest_pose_dict) -> list:
         return _apply_rest_pose_correction_to_track_blob(target, rest_pose_dict)
     if isinstance(target, BoneParameters):
         return _apply_rest_pose_correction_to_bone_parameters(target, rest_pose_dict)
-    raise TypeError('target must be TrackDataBlobWrapper or BoneParameters')
+    Debug.raise_error('target must be TrackDataBlobWrapper or BoneParameters', TypeError)
 
 
 def extract_rest_pose_from_custom_rig(all_gani_data: List[GaniImportData], custom_rig: Optional[bpy.types.Object]) -> None:

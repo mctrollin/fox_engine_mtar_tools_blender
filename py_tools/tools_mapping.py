@@ -56,7 +56,7 @@ def _load_mapping_sources(frig_filepath: Optional[str], mtar_filepath: Optional[
         unit_defs = [None] * len(layout_units)  # type: ignore[var-assign]
         track_count = len(layout_units)
     else:
-        raise ValueError("Cannot determine track count - provide either FRIG or MTAR layout information")
+        Debug.raise_error("Cannot determine track count - provide either FRIG or MTAR layout information", ValueError)
 
     return unit_defs, layout_units, track_count
 
@@ -74,7 +74,7 @@ def _determine_output_path(frig_filepath: Optional[str], mtar_filepath: Optional
 
     output_path = os.path.join(base_dir, f"{base_name}_track_mapping.txt")
     if os.path.exists(output_path):
-        raise OSError(f"Mapping file already exists: {output_path}")
+        Debug.raise_error(f"Mapping file already exists: {output_path}", OSError)
     return output_path
 
 

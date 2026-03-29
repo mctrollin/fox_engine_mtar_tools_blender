@@ -66,7 +66,7 @@ class GaniReader:
         foxdata_header, endian = FoxDataHeader.read(br)
         
         if endian == '>':
-            raise NotImplementedError("Big-endian GANI format not yet supported")
+            Debug.raise_error("Big-endian GANI format not yet supported", NotImplementedError)
         
         Debug.log(f"Reading old-format GANI at offset 0x{gani_start:X}: version={foxdata_header.version}, "
                   f"nodes_offset=0x{foxdata_header.nodes_offset:X}")
@@ -79,7 +79,7 @@ class GaniReader:
         # --- Find ROOT (always first node, but use search for safety) ---
         root_result = self._find_node_by_hash(file_data, nodes_start, gani_const.FOXDATA_HASH_ROOT, endian)
         if root_result is None:
-            raise ValueError("GANI has no ROOT node")
+            Debug.raise_error("GANI has no ROOT node", ValueError)
         root_node, root_node_pos = root_result
         
         # Check ROOT node itself for unexpected parameters
@@ -134,7 +134,7 @@ class GaniReader:
                 child_pos += child_node.next_node_offset
         
         if motion_node is None:
-            raise ValueError("GANI ROOT has no MOTION child — no animation data")
+            Debug.raise_error("GANI ROOT has no MOTION child — no animation data", ValueError)
         
         # --- Enumerate MOTION's children ---
         if motion_node.child_node_offset == 0:

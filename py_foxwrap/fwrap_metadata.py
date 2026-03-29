@@ -1012,7 +1012,7 @@ def get_segments_for_track_type(track_type: str, count: Optional[int] = None) ->
 
     if track_type == 'MULTI_LOCAL_ORIENTATION':
         if count is None:
-            raise ValueError("MULTI_LOCAL_ORIENTATION requires 'count' parameter")
+            Debug.raise_error("MULTI_LOCAL_ORIENTATION requires 'count' parameter", ValueError)
         return [{'type': 'rotation', 'data_type': 'quat'}] * count
 
     return type_segments.get(track_type, [])
@@ -1602,7 +1602,7 @@ def parse_map_r_parameter(param_value: str) -> Optional[List[dict]]:
                     negate = True
                     axis_str = axis_str[1:]
                 if axis_str not in ['x', 'y', 'z']:
-                    raise ValueError
+                    Debug.raise_error("Invalid map_r axis value, expected x/y/z", ValueError)
                 axis_mapping.append({'axis': axis_str, 'negate': negate})
             return axis_mapping
     except ValueError:

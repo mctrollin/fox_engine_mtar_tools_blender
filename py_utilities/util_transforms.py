@@ -751,20 +751,14 @@ class TransformsCache:
                 return frame_data[1], frame_data[0]
 
         # If we get here, the bone is missing or cannot be evaluated.
-        raise TransformsCacheError(
-            f"TransformsCache missing local transform for bone='{bone_name}' frame={frame}. "
-            "Make sure you are using a correct mapping file."
-        )
+        Debug.raise_error( f"TransformsCache missing local transform for bone='{bone_name}' frame={frame}. Using correct mapping file?", TransformsCacheError)
 
     def get_world(self, bone_name: str, frame: int, space_bone: Optional[str] = None):
         """Return (location, rotation) in world or custom bone space for a bone at a frame."""
         bone_frame_data = self._data.get(bone_name, {}).get(frame)
         if not bone_frame_data:
             if not self._compute_and_cache_frame(bone_name, frame):
-                raise TransformsCacheError(
-                    f"TransformsCache missing world transform for bone='{bone_name}' frame={frame}. "
-                    "Make sure you are using a correct mapping file."
-                )
+                Debug.raise_error( f"TransformsCache missing world transform for bone='{bone_name}' frame={frame}. Using correct mapping file?", TransformsCacheError)
             bone_frame_data = self._data.get(bone_name, {}).get(frame)
 
         if not space_bone:
@@ -773,10 +767,7 @@ class TransformsCache:
         space_frame_data = self._data.get(space_bone, {}).get(frame)
         if not space_frame_data:
             if not self._compute_and_cache_frame(space_bone, frame):
-                raise TransformsCacheError(
-                    f"TransformsCache missing world transform for space_bone='{space_bone}' frame={frame}. "
-                    "Make sure you are using a correct mapping file."
-                )
+                Debug.raise_error(f"TransformsCache missing world transform for space_bone='{space_bone}' frame={frame}. Using correct mapping file?", TransformsCacheError)
             space_frame_data = self._data.get(space_bone, {}).get(frame)
 
         bone_rel_mat = bone_frame_data[4]
@@ -795,7 +786,7 @@ class TransformsCache:
         data = self._object_data.get(frame)
         if data:
             return data[0]
-        raise TransformsCacheError(f"TransformsCache missing object location for frame={frame}")
+        Debug.raise_error(f"TransformsCache missing object location for frame={frame}", TransformsCacheError)
 
     def get_object_rotation(self, frame: int) -> Optional[Quaternion]:
         """Return the armature object's world-space rotation at *frame*, or ``None``."""
@@ -807,4 +798,4 @@ class TransformsCache:
         data = self._object_data.get(frame)
         if data:
             return data[1]
-        raise TransformsCacheError(f"TransformsCache missing object rotation for frame={frame}")
+        Debug.raise_error(f"TransformsCache missing object rotation for frame={frame}", TransformsCacheError)

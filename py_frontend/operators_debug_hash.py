@@ -352,10 +352,10 @@ class MTAR_OT_GenerateHash(Operator):
             props.hash_generator_py_hash_legacy_dec = str(h_leg)
 
             props.hash_generator_py_error = ""
-        except Exception as exc:
+        except Exception as e:
             self._clear_py_results(props)
-            props.hash_generator_py_error = str(exc)
-            Debug.report_and_log(self, 'ERROR', f"Python hash failed: {exc}")
+            props.hash_generator_py_error = str(e)
+            Debug.report_and_log(self, 'ERROR', f"Python hash failed: {e}")
 
     def _run_exe(self, context: Context, props) -> None:
         """Compute hash variants using the external executable (if configured)."""

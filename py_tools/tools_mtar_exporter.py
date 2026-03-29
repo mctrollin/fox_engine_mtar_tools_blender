@@ -12,7 +12,7 @@ import bpy
 
 from ..py_core.core_logging import Debug
 
-from .. import blender_properties
+from ..py_core import core_blender_properties
 
 from ..py_utilities import util_transforms, util_blender_animation, util_parsing, util_blender_armature, util_fcurve_processing
 
@@ -805,7 +805,7 @@ def export_mtar(context: bpy.types.Context,
     force_highest_bit_encoding = export_props.force_highest_bit_encoding
 
     # Determine whether to run FCurve cleaning based on UI toggles
-    export_clean_threshold = blender_properties.get_effective_export_fcurve_clean_threshold(export_props)
+    export_clean_threshold = core_blender_properties.get_effective_export_fcurve_clean_threshold(export_props)
 
     # Capture original animation state before any processing
     original_armature_action = None

@@ -8,8 +8,6 @@ import bpy
 from bpy.types import PropertyGroup
 from bpy.props import StringProperty, PointerProperty, IntProperty, BoolProperty, FloatProperty, EnumProperty
 
-from .py_fox import fox_mtar_constants as mtar_const
-
 
 # Helper to add relative path support based on Blender version
 def _file_path_kwargs(**kwargs):
@@ -335,7 +333,7 @@ class MTAR_PG_ExportProperties(PropertyGroup):
     treat_hashes_as_names: BoolProperty(
         name="Treat Hashes as Names",
         description=(
-            f"When enabled, raw hash integers stored in {mtar_const.TABL_PATH} are treated as path name "
+            f"When enabled, raw hash integers stored in fox_mtar_constants are treated as path name "
             "components: the base path below is prepended and the result is re-hashed via "
             "the hash generator. "
             "Has no effect on valid /Assets/ paths (always hashed) or on invalid non-/Assets/ "

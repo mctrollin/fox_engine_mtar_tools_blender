@@ -13,7 +13,7 @@ from bpy.types import Operator, Context
 
 from ..py_core.core_logging import Debug
 
-from ..blender_properties import get_effective_import_bake_decimate_error
+from ..py_core.core_blender_properties import get_effective_import_bake_decimate_error
 
 from ..py_utilities import util_blender_animation, util_fcurve_processing
 
@@ -177,8 +177,8 @@ class MTAR_OT_DebugRunBake(Operator):
                                         blender_bone_skip_map=blender_bone_skip_map,
                                     )
                                     Debug.log(f"  Post-bake decimation: decimated={dec_res.get('fcurves_decimated', 0)}")
-                            except Exception as opt_e:
-                                Debug.log_warning(f"Post-bake optimize failed for '{strip.name}': {opt_e}")
+                            except Exception as e:
+                                Debug.log_warning(f"Post-bake optimize failed for '{strip.name}': {e}")
                         else:
                             Debug.log_warning(f"Failed to bake strip '{strip.name}': {bake_result.get('message')}")
 
@@ -194,8 +194,8 @@ class MTAR_OT_DebugRunBake(Operator):
                                         if tn in source_arm.animation_data.nla_tracks:
                                             source_arm.animation_data.nla_tracks[tn].mute = was
                                     Debug.log("  Restored source NLA mute states after legacy bake")
-                        except Exception as restore_err:
-                            Debug.log_warning(f"Error restoring source armature state after legacy bake: {restore_err}")
+                        except Exception as e:
+                            Debug.log_warning(f"Error restoring source armature state after legacy bake: {e}")
 
                 if success_count > 0:
                     baked_bones = set()

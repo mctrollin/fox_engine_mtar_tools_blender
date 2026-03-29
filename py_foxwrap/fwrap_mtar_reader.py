@@ -205,7 +205,7 @@ class MtarReader:
             ValueError: If gani_indices is empty
         """
         if not gani_indices:
-            raise ValueError("gani_indices cannot be empty")
+            Debug.raise_error("gani_indices cannot be empty", ValueError)
         
         # Read entire file into memory
         with open(self.filepath, 'rb') as f:
@@ -223,7 +223,7 @@ class MtarReader:
         max_index = header.file_count
         for idx in gani_indices:
             if idx < 0 or idx >= max_index:
-                raise IndexError(f"GANI index {idx} out of range (file has {max_index} GANIs)")
+                Debug.raise_error(f"GANI index {idx} out of range (file has {max_index} GANIs)", IndexError)
         
         # Read CommonInfo if present (new format only; old format embeds layout in each GANI)
         if header.common_info_offset != 0:
@@ -234,9 +234,10 @@ class MtarReader:
         
         # Guard: new-format MTAR must have CommonInfo
         if self.is_new_format and self.common_info is None:
-            raise ValueError(
+            Debug.raise_error(
                 f"New-format MTAR (flags=0x{header.flags:04X}) has no CommonInfo — "
-                "cannot read without shared layout track"
+                "cannot read without shared layout track",
+                ValueError
             )
         
         # Get file header size based on format version

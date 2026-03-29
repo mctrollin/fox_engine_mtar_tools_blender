@@ -11,7 +11,7 @@ from ..py_fox.fox_mtar_types import is_new_mtar_format
 
 from ..py_foxwrap import fwrap_metadata
 
-from .operators_export import MTAR_OT_ExportAnimationToMTAR
+from .operators_mtar_export import MTAR_OT_ExportAnimationToMTAR
 from . import panel_shared
 
 
