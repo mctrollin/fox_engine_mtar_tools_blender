@@ -3,16 +3,13 @@ import traceback
 
 import bpy
 from bpy.props import BoolProperty, StringProperty
-# from bpy_extras.io_utils import ImportHelper
-# from bpy.types import Context
 
 from .py_core.core_logging import Debug
+from .py_core import core_blender_properties
 
-# from .py_tools.tools_mtar_importer import import_mtar
 from .py_frontend import panel_import
 from .py_frontend import panel_export
 from .py_frontend import panel
-from .py_core import core_blender_properties
 
 blender_debug_module = None
 _debug_registered = False

@@ -1,0 +1,47 @@
+schema_version = "1.0.0"
+
+id = "fox_mtar"
+version = "1.0.0"
+type = "add-on"
+name = "Fox MTAR"
+tagline = "Import and export MTAR animations from Metal Gear Solid V"
+maintainer = "rollin"
+location  = "View3D Panel"
+category = "Import-Export"
+# website = ""
+tracker_url = "https://github.com/mctrollin/fox_engine_mtar_tools_blender/issues"
+
+tags = ["Animation"]
+
+blender_version_min = "4.2.0"
+
+# License conforming to https://spdx.org/licenses/ (use "SPDX: prefix)
+# https://docs.blender.org/manual/en/dev/advanced/extensions/licenses.html
+license = [
+  "SPDX:GPL-3.0-or-later",
+]
+copyright = [
+  "2026 rollin",
+]
+
+# platforms = ["windows-x64", "macos-arm64", "linux-x64"]
+
+[permissions]
+files = "Import/export MTAR from/to disk - main purpose of addon"
+clipboard = "Copy/paste info like gani paths and indices - productivity tool"
+
+# # https://docs.blender.org/manual/en/dev/advanced/extensions/command_line_arguments.html#command-line-args-extension-build
+[build]
+paths_exclude_pattern = [
+  "__pycache__/",
+  "/.github/",
+  "/.git/",
+  "/.vscode/",
+  "/copilot/",
+  "/Resources/",
+  "/Tests/",
+  "/*.zip",
+  "/*.gitignore",
+  "/*.bat",
+  "/*.code-workspace",
+]
