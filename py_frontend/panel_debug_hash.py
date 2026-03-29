@@ -81,7 +81,7 @@ def draw_unhash_path(layout: UILayout, context: Context) -> None:
     unhash_path_box.label(text="Unhash PathCode64", icon='HAND')
     row = unhash_path_box.row(align=True)
     row.prop(props, "unhash_path_input", text="")
-    row.operator("mtar.unhash_path", text="", icon='VIEWZOOM')
+    row.operator("mtar.unhash_path", text="", icon='PLAY')
     row.operator("mtar.clear_unhash_path", text="", icon='X')
     if props.unhash_path_result:
         result_box = unhash_path_box.box()
@@ -102,7 +102,7 @@ def draw_unhash_str32(layout: UILayout, context: Context) -> None:
     unhash_str32_box.label(text="Unhash StrCode32", icon='HAND')
     row = unhash_str32_box.row(align=True)
     row.prop(props, "unhash_strcode32_input", text="")
-    row.operator("mtar.unhash_strcode32", text="", icon='VIEWZOOM')
+    row.operator("mtar.unhash_strcode32", text="", icon='PLAY')
     row.operator("mtar.clear_unhash_strcode32", text="", icon='X')
     if props.unhash_strcode32_result:
         result_box = unhash_str32_box.box()

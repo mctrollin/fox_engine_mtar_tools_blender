@@ -25,7 +25,12 @@ def draw_nla_page(layout: UILayout, context: Context) -> None:
     col.label(text="Use paths (hash/string), indices (hN/dN)",)
     col.label(text="Use ! prefix to exclude entries",)
 
+    has_armature = bool(context.active_object and context.active_object.type == 'ARMATURE')
+    if not has_armature:
+        cfg_box.label(text="Requires selected armature!", icon='INFO')
+
     box_filtered = cfg_box.box()
+    box_filtered.enabled = has_armature
     row = box_filtered.row(align=True)
     row.operator("mtar.debug_copy_nla_path_by_filter", text="Paths", icon='COPYDOWN')
     row.operator("mtar.debug_copy_nla_d_by_filter", text="dN", icon='COPYDOWN')
@@ -37,6 +42,7 @@ def draw_nla_page(layout: UILayout, context: Context) -> None:
     row.operator("mtar.debug_unmute_nla_by_filter", text="Unmute", icon='HIDE_OFF')
 
     box_all = cfg_box.box()
+    box_all.enabled = has_armature
     row = box_all.row(align=True)
     row.operator("mtar.debug_mute_all_nla", text="Mute All", icon='HIDE_ON')
     row.operator("mtar.debug_unmute_all_nla", text="Unmute All", icon='HIDE_OFF')
