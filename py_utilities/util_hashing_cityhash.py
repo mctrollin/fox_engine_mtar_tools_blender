@@ -100,7 +100,7 @@ def _hash_len16(u: int, v: int) -> int:
 def _hash_len0_to16(s: bytes, offset: int = 0) -> int:
     """HashLen0To16 — CityHash v1.0.3.
     
-    Hash strings of 0–16 bytes. Ported from Atvaark CityHash.cs.
+    Hash strings of 0-16 bytes. Ported from Atvaark CityHash.cs.
     
     Args:
         s: Input bytes.
@@ -130,10 +130,10 @@ def _hash_len0_to16(s: bytes, offset: int = 0) -> int:
 def _hash_len17_to32(s: bytes) -> int:
     """HashLen17To32 — CityHash v1.0.3.
     
-    Hash strings of 17–32 bytes. Ported from Atvaark CityHash.cs.
+    Hash strings of 17-32 bytes. Ported from Atvaark CityHash.cs.
     
     Args:
-        s: Input bytes (must be 17–32 bytes).
+        s: Input bytes (must be 17-32 bytes).
     
     Returns:
         64-bit hash of s.
@@ -199,10 +199,10 @@ def _weak_hash_len32_with_seeds_bytes(s: bytes, offset: int,
 def _hash_len33_to64(s: bytes) -> int:
     """HashLen33To64 — CityHash v1.0.3.
     
-    Hash strings of 33–64 bytes. Ported from Atvaark CityHash.cs.
+    Hash strings of 33-64 bytes. Ported from Atvaark CityHash.cs.
     
     Args:
-        s: Input bytes (must be 33–64 bytes).
+        s: Input bytes (must be 33-64 bytes).
     
     Returns:
         64-bit hash of s.
@@ -473,7 +473,7 @@ def hash_file_extension(ext: str) -> int:
     """Fox Engine extension-only hash (-d -he).
     
     Hash a file extension string (without leading dot) to a 13-bit type ID.
-    Used to pack the type-id into bits 51–63 of hash_file_name_with_ext.
+    Used to pack the type-id into bits 51-63 of hash_file_name_with_ext.
     
     Args:
         ext: Bare extension string, e.g., 'mtar', 'gani', 'fpk' (NO leading dot).
@@ -504,7 +504,7 @@ def hash_file_name_with_ext(file_path: str) -> int:
         file_path: Full file path, e.g., '/Assets/mgo/motion/.../foo.gani'.
     
     Returns:
-        64-bit hash: 13-bit type-id (bits 51–63) | 50-bit path hash (bits 0–49)
+        64-bit hash: 13-bit type-id (bits 51-63) | 50-bit path hash (bits 0-49)
         with possible META_FLAG at bit 50.
     
     Note:
@@ -518,7 +518,7 @@ def hash_file_name_with_ext(file_path: str) -> int:
     
     Example:
         hash_file_name_with_ext("/Assets/mgo/motion/bodies/enem/enemasr.gani")
-        → 64-bit hash with 13-bit 'gani' type-id packed into bits 51–63
+        → 64-bit hash with 13-bit 'gani' type-id packed into bits 51-63
     """
     # Normalise: backslash → forward slash (matches DenormalizeFilePath)
     file_path = file_path.replace('\\', '/')

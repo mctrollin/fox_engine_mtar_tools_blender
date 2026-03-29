@@ -81,7 +81,7 @@ def generate_mapping_template(frig_filepath: Optional[str], mtar_filepath: Optio
         unit_defs = [None] * track_count  # type: ignore[var-assign]
     else:
         raise ValueError(
-            "Cannot determine track count – provide either FRIG or MTAR layout information"
+            "Cannot determine track count - provide either FRIG or MTAR layout information"
         )
 
     # choose output path

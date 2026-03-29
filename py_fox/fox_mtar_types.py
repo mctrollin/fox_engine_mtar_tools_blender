@@ -145,13 +145,13 @@ class MtarTableList:
         if not (0 <= self.tracks_data_size <= 0xFFFF):
             Debug.log_warning(
                 f"MtarTableList.write: tracks_data_size={self.tracks_data_size} exceeds ushort range "
-                f"(0–65535) for path=0x{self.path:016X}. Value will be truncated. "
+                f"(0-65535) for path=0x{self.path:016X}. Value will be truncated. "
                 f"The GANI blob is likely too large for the old-format ushort field."
             )
         if not (0 <= self.unknown <= 0xFFFF):
             Debug.log_warning(
                 f"MtarTableList.write: unknown={self.unknown} exceeds ushort range "
-                f"(0–65535) for path=0x{self.path:016X}."
+                f"(0-65535) for path=0x{self.path:016X}."
             )
         bw.write(struct.pack('<QIHH',
             self.path,

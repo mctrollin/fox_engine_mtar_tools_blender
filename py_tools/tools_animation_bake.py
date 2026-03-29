@@ -792,7 +792,7 @@ def _bake_armature_nla_strips_to_keyframes(rig_armature: bpy.types.Object,
             # overall progress based on strip count
             pass
     
-    # done baking strips – move main progress to the end of the bake band so the
+    # done baking strips - move main progress to the end of the bake band so the
     # post‑processing phase can begin
     Debug.update_progress(76.0, "Bake complete, performing post-processing...")
 
