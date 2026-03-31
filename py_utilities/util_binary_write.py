@@ -184,46 +184,55 @@ def write_unaligned_quaternion(buffer: bytearray, bit_pos: int, quat: List[float
 
 def write_anim_half(f: BinaryIO, value: float) -> None:
     """Write an AnimHalf (Fox Engine 16-bit half-precision float) to file.
-    
+
     AnimHalf is a custom 16-bit float format used by Fox Engine.
-    This is the reverse of read_anim_half().
-    
-    Conversion algorithm (reverse of anim_common.bt read):
-    The read algorithm is:
-        num1 = (value & 0x7C00)  # Extract exponent bits 10-14
+    This is the exact inverse of read_anim_half().
+
+    The read formula (from anim_common.bt) decodes as follows:
+        num1 = (value & 0x7C00)              # 5-bit exponent field (bits 10-14)
         if num1 > 0:
-            num1 = (num1 + 0x1dc00) << 13
+            num1 = (num1 + 0x1dc00) << 13   # bias: float32_exp_biased = exp5 + 119
         num1 |= ((value & 0x8000) << 16) | ((value & 0x3FF) << 13)
         result = interpret num1 as float32
-    
-    The write algorithm reverses this process.
-    
+
+    Inverse derivation:
+        float32_exp_biased = exp5 + 119  =>  exp5 = float32_exp_biased - 119
+        mantissa is the upper 10 bits of the 23-bit float32 mantissa (rounded).
+
+    Out-of-range handling (mirrors IEEE-754 half behaviour):
+        exp5 < 1  => underflow, write ±0
+        exp5 > 31 => overflow, write ±max representable value
+
     Args:
         f: File object to write to
-        value: Float value to write
+        value: Float value to encode and write
     """
-    # Convert float to uint32 bits
+    if value == 0.0:
+        f.write(struct.pack('<H', 0))
+        return
+
     float_bits = struct.unpack('<I', struct.pack('<f', value))[0]
-    
-    # Extract components from float32
-    sign = (float_bits >> 31) & 0x1  # Bit 31
-    mantissa_float = (float_bits >> 13) & 0x3FF  # Bits 13-22 -> AnimHalf bits 0-9
-    
-    # Extract and convert exponent
-    # Read does: num1 = (value & 0x7C00); if num1 > 0: num1 = (num1 + 0x1dc00) << 13
-    # So we need to reverse: (num1 >> 13) - 0x1dc00 if num1 > 0, else 0
-    exp_shifted = (float_bits >> 13) & 0x7C00  # Bits 13-27, mask to bits 10-14 range
-    if exp_shifted > 0x1dc00:
-        exp_half = (exp_shifted - 0x1dc00) >> 13  # Reverse the +0x1dc00 and <<13
+
+    sign       = (float_bits >> 31) & 0x1
+    float_exp  = (float_bits >> 23) & 0xFF   # 8-bit biased exponent
+    float_mant = float_bits & 0x7FFFFF       # 23-bit mantissa
+
+    # Invert: float_exp_biased = exp5 + 119
+    exp5 = float_exp - 119
+
+    # Round mantissa from 23 bits to 10 bits (round-half-up)
+    mant10 = (float_mant + 0x1000) >> 13
+    if mant10 > 0x3FF:          # rounding carried into next exponent
+        mant10 = 0
+        exp5 += 1
+
+    if exp5 < 1:                # underflow -> ±0
+        anim_half_value = sign << 15
+    elif exp5 > 31:             # overflow -> ±max representable
+        anim_half_value = (sign << 15) | (31 << 10) | 0x3FF
     else:
-        exp_half = 0
-    
-    # Pack into 16-bit AnimHalf format
-    # Bit 15: sign
-    # Bits 10-14: exponent (5 bits)
-    # Bits 0-9: mantissa (10 bits)
-    anim_half_value = (sign << 15) | ((exp_half & 0x1F) << 10) | (mantissa_float & 0x3FF)
-    
+        anim_half_value = (sign << 15) | (exp5 << 10) | mant10
+
     f.write(struct.pack('<H', anim_half_value))
 
 
@@ -261,6 +270,7 @@ def write_vector3(f: BinaryIO, vec: List[float], component_bit_size: int = 32) -
         # Empty vector (no data written)
         return
     elif component_bit_size == 16:
+        # This is a VectorAnimH3
         # Write as AnimHalf (2 bytes per component)
         write_anim_half(f, vec[0])
         write_anim_half(f, vec[1])
@@ -279,6 +289,7 @@ def write_vector4(f: BinaryIO, vec: List[float], component_bit_size: int = 32) -
         component_bit_size: Bit size per component (16 for AnimHalf, 32 for float)
     """
     if component_bit_size == 16:
+        # This is a VectorAnimH4
         # Write as AnimHalf (2 bytes per component)
         write_anim_half(f, vec[0])
         write_anim_half(f, vec[1])
