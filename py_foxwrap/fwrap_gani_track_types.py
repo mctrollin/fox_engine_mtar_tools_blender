@@ -6,7 +6,7 @@ from ..py_core.core_logging import Debug
 
 from ..py_utilities import util_binary_write
 
-from ..py_fox.fox_gani_enums import _DIFF_SEGMENT_TYPES
+from ..py_fox.fox_gani_enums import DIFF_SEGMENT_TYPES
 from ..py_fox.fox_gani_types import TrackHeader, TrackUnit, TrackUnitFlags, TrackData, TrackDataBlob, AnimKeyframe
 from ..py_fox.fox_frig_types import RigUnitType
 
@@ -315,7 +315,7 @@ class TrackUnitWrapper:
         """
         if not self.segments_track_data:
             return True
-        return all(seg.data_blob.type in _DIFF_SEGMENT_TYPES for seg in self.segments_track_data)
+        return all(seg.data_blob.type in DIFF_SEGMENT_TYPES for seg in self.segments_track_data)
     
     @property
     def is_looped(self) -> bool:

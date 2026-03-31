@@ -22,7 +22,7 @@ class SegmentType(IntEnum):
     QUAT_DIFF = 5
     VECTOR_DIFF = 6
 
-_DIFF_SEGMENT_TYPES = frozenset({SegmentType.QUAT_DIFF, SegmentType.VECTOR_DIFF})
+DIFF_SEGMENT_TYPES = frozenset({SegmentType.QUAT_DIFF, SegmentType.VECTOR_DIFF})
 
 def get_highest_bit_size_for_segment(segment_type: SegmentType) -> int:
     """Return the highest available bit encoding for a given segment type.
