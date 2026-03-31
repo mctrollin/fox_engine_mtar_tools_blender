@@ -382,6 +382,13 @@ def load_gani_filter_list(filter_path: str, gani_hash_dict: Optional[Dict[int, s
                             else:
                                 allowed_hashes.add(mapped_hash)
 
+    except UnicodeDecodeError as e:
+        warning_message = (
+            f"Failed to read GANI filter file '{filter_path}' as UTF-8. "
+            f"Check encoding and remove non-UTF8 bytes. Error at byte {e.start} ({e.reason})."
+        )
+        Debug.log_warning(warning_message)
+        raise ValueError(warning_message) from e
     except OSError as e:
         Debug.log_warning(f"Failed to read GANI filter file '{filter_path}': {e}")
 
