@@ -198,6 +198,7 @@ def _sample_fcurves_to_linear(armature: bpy.types.Object, action: bpy.types.Acti
         # Bake selected FCurves with LINEAR interpolation, frame step of 1.
         # FCurves must be selected by the caller before calling this function.
         bpy.ops.anim.channels_bake(
+            use_scene_range=False,
             range=(frame_start, frame_end),
             step=1,
             remove_outside_range=True,
