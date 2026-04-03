@@ -126,7 +126,7 @@ def get_effective_export_fcurve_clean_threshold(export_props: 'MTAR_PG_ExportPro
     if not export_props:
         return 0.0
     return export_props.export_fcurve_clean_threshold if (
-        export_props.export_clean_fcurves and export_props.export_decimate_fcurves
+        export_props.export_clean_fcurves
     ) else 0.0
 
 
@@ -369,12 +369,6 @@ class MTAR_PG_ExportProperties(PropertyGroup):
     export_clean_fcurves: BoolProperty(
         name="Clean",
         description="Remove redundant keyframes after baking (keeps only original frames).",
-        default=True,
-    )
-
-    export_decimate_fcurves: BoolProperty(
-        name="Decimate",
-        description="When enabled, allows cleaning to run (controlled by the threshold setting).",
         default=True,
     )
 

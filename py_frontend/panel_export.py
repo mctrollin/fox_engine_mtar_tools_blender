@@ -152,7 +152,7 @@ def draw_export_page(layout: UILayout, context: Context) -> None:
             panel_shared.draw_bool_prop_checkbox_icon(row, export_props, 'export_clean_fcurves')
 
             sub = row.row(align=True)
-            sub.enabled = export_props.export_clean_fcurves and export_props.export_decimate_fcurves
+            sub.enabled = export_props.export_clean_fcurves
             sub.prop(export_props, 'export_fcurve_clean_threshold', text=' ', icon='IPO_LINEAR')
 
             # Force highest bit encoding option
