@@ -1483,7 +1483,7 @@ def get_bone_keyframe_numbers_from_action(
                     
                     # Convert to export coordinate system (absolute for NLA, action-relative for active)
                     export_frame = action_relative_frame + frame_offset
-                    
+
                     # Filter by export range
                     if frame_start <= export_frame <= frame_end:
                         keyframe_frames.add(export_frame)
@@ -1505,7 +1505,7 @@ def get_bone_keyframe_numbers_from_action(
     
     # Validate and add mandatory start frame
     if frame_start not in keyframe_frames:
-        Debug.log_warning(f"No keyframe at frame_start {frame_start} for bone '{bone_name}' {segment_type}. Sampling from frame_start.")
+        Debug.log_warning(f"No keyframe at frame_start ({frame_start}) for bone ('{bone_name}') segment type ({str(segment_type)}). Sampling from frame_start.")
     keyframe_frames.add(frame_start)
     
     # Add end frame for animated tracks (static tracks have only start frame)
