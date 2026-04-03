@@ -35,6 +35,7 @@ from .operators_debug_nla import (
 from .operators_debug_bake import (
     MTAR_OT_DebugRunBake,
     MTAR_OT_DebugSetupGraphContext,
+    MTAR_OT_DebugBakeCleanFcurves,
 )
 from .operators_debug_hash import (
     MTAR_PG_DebugHashProperties,
@@ -105,6 +106,7 @@ classes = (
     # Bake
     MTAR_OT_DebugRunBake,
     MTAR_OT_DebugSetupGraphContext,
+    MTAR_OT_DebugBakeCleanFcurves,
     # Hash
     MTAR_PG_DebugHashProperties,
     MTAR_OT_ValidateHashGeneratorExe,

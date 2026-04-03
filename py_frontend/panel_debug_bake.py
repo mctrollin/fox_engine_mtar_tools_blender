@@ -36,3 +36,15 @@ def draw_bake_page(layout: UILayout, context: Context) -> None:
     row.enabled = bool(props.debug_armature)
     row.operator("mtar.debug_setup_graph_context", text="Setup Graph Context", icon='GRAPH')
     debug_box.label(text="Sets up graph editor for manual testing", icon='INFO')
+
+    clean_box = layout.box()
+    clean_box.label(text="Bake + Clean FCurves", icon='FCURVE')
+    export_props = context.scene.mtar_properties.export_props
+    col = clean_box.column(align=True)
+    col.prop(export_props, "export_clean_fcurves")
+    col.prop(export_props, "export_fcurve_clean_threshold")
+    clean_box.label(text="Destructive — modifies active action in-place", icon='ERROR')
+    row = clean_box.row(align=True)
+    row.scale_y = 1.3
+    row.enabled = bool(props.debug_armature)
+    row.operator("mtar.debug_bake_clean_fcurves", text="Bake + Clean FCurves", icon='FCURVE')

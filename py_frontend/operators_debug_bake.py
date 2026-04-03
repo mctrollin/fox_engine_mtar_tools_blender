@@ -13,7 +13,7 @@ from bpy.types import Operator, Context
 
 from ..py_core.core_logging import Debug
 
-from ..py_core.core_blender_properties import get_effective_import_bake_decimate_error
+from ..py_core.core_blender_properties import get_effective_import_bake_decimate_error, get_effective_export_fcurve_clean_threshold
 
 from ..py_utilities import util_blender_animation, util_fcurve_processing
 
@@ -242,6 +242,65 @@ class MTAR_OT_DebugRunBake(Operator):
             return {'CANCELLED'}
 
         Debug.update_progress(100, "Bake complete")
+        return {'FINISHED'}
+
+
+class MTAR_OT_DebugBakeCleanFcurves(Operator):
+    """Bake non-linear FCurves to linear and clean redundant keyframes in-place (matches export FCurve processing)."""
+    bl_idname = "mtar.debug_bake_clean_fcurves"
+    bl_label = "Debug: Bake + Clean FCurves"
+    bl_description = ("Bake non-linear FCurves to linear keyframes and remove redundant keyframes in-place. "
+                      "Uses the same FCurve clean threshold as the export settings. This is destructive")
+
+    def execute(self, context: Context) -> set:
+        props = context.scene.mtar_debug_transform_properties
+
+        if not props.debug_armature:
+            Debug.report_and_log(self, 'ERROR', "No target armature selected")
+            return {'CANCELLED'}
+
+        armature = props.debug_armature
+
+        if not armature.animation_data or not armature.animation_data.action:
+            Debug.report_and_log(self, 'ERROR', f"Armature '{armature.name}' has no active action")
+            return {'CANCELLED'}
+
+        export_props = context.scene.mtar_properties.export_props
+        threshold = get_effective_export_fcurve_clean_threshold(export_props)
+
+        original_action = armature.animation_data.action
+        original_name = original_action.name
+
+        try:
+            result = util_fcurve_processing.bake_and_clean_export_fcurves(
+                armature=armature,
+                fcurve_clean_threshold=threshold
+            )
+        except Exception as e:
+            Debug.report_and_log(self, 'ERROR', f"Bake+clean FCurves failed: {e}")
+            return {'CANCELLED'}
+
+        processed_action = result['action']
+        fcurves_baked: int = result['fcurves_baked']
+        fcurves_cleaned: int = result['fcurves_cleaned']
+        fcurves_already_linear: int = result['fcurves_already_linear']
+
+        if processed_action is original_action:
+            # All FCurves were already linear — nothing was processed
+            Debug.report_and_log(self, 'INFO',
+                f"No non-linear FCurves found in '{original_name}' — nothing to bake (already_linear={fcurves_already_linear})")
+            return {'FINISHED'}
+
+        # processed_action is a copy — assign it to armature (destructive: replaces original)
+        util_blender_animation.assign_action_to_datablock(
+            armature, processed_action, slot_name=util_blender_animation.MTAR_ARMATURE_SLOT_NAME
+        )
+        # Rename the processed copy to the original name, then delete the original
+        processed_action.name = original_name
+        bpy.data.actions.remove(original_action)
+
+        Debug.report_and_log(self, 'INFO',
+            f"Bake+clean '{original_name}': baked={fcurves_baked}, cleaned={fcurves_cleaned}, already_linear={fcurves_already_linear}")
         return {'FINISHED'}
 
 
