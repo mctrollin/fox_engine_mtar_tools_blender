@@ -45,122 +45,130 @@ PROP_NO_SKL_LIST     = "gfox_no_skl_list"      # 1 = original GANI had no SKL_LI
 
 # Action property key helpers #############################################################
 
-def _make_track_property_key(track_idx: int, track_name: str) -> str:
+def _make_track_property_key(track_idx: int) -> str:
     """Create a custom property key for track metadata.
-    
-    Format: track_<padded_idx>_<track_name>
+
+    Format: track_<padded_idx>
     Uses zero-padding to ensure alphabetical sort matches numeric order.
-    
+    The track name and all other data are stored in the property value.
+
     Args:
         track_idx: Index of the track (0-based)
-        track_name: Name of the track
-        
+
     Returns:
-        Property key string (e.g., "track_000_SKL_000_ROOT")
+        Property key string (e.g., "track_000")
     """
-    return f"{TRACK_PROP_PREFIX}{track_idx:03d}_{track_name}"
+    return f"{TRACK_PROP_PREFIX}{track_idx:03d}"
 
 
-def _parse_track_property_key(key: str) -> Optional[Tuple[int, str]]:
+def _parse_track_property_key(key: str) -> Optional[int]:
     """Parse a track metadata property key.
-    
-    Format: track_<padded_idx>_<track_name>
-    
+
+    Format: track_<padded_idx>
+    Any suffix after the index is silently ignored for backward compatibility
+    with the old format (``track_<idx>_<track_name>``).
+
     Args:
         key: Property key string
-        
+
     Returns:
-        Tuple of (track_idx, track_name) if valid, None otherwise
+        track_idx if valid, None otherwise
     """
     if not key.startswith(TRACK_PROP_PREFIX):
         return None
-    
-    parts = key.split('_', 2)
-    if len(parts) == 3 and parts[1].isdigit():
-        track_idx = int(parts[1])
-        track_name = parts[2]
-        return (track_idx, track_name)
-    
+    suffix = key[len(TRACK_PROP_PREFIX):]
+    idx_str = suffix.split('_', 1)[0]
+    if idx_str.isdigit():
+        return int(idx_str)
     return None
 
 
-def make_event_property_key(event_idx: int, category_name: str) -> str:
+def make_event_property_key(event_idx: int) -> str:
     """Create a custom property key for motion event metadata.
-    
-    Format: event_<padded_idx>_<category>
+
+    Format: event_<padded_idx>
     Uses zero-padding to ensure alphabetical sort matches numeric order.
-    
+    All event data (name, category, parameters) is stored in the property value.
+
     Args:
         event_idx: Index of the event (0-based)
-        category_name: Category name (e.g., "ag", "sd", "fx")
-        
+
     Returns:
-        Property key string (e.g., "event_000_ag")
+        Property key string (e.g., "event_000")
     """
-    return f"{EVENT_PROP_PREFIX}{event_idx:03d}_{category_name}"
+    return f"{EVENT_PROP_PREFIX}{event_idx:03d}"
 
 
-def _parse_event_property_key(key: str) -> Optional[Tuple[int, str]]:
+def _parse_event_property_key(key: str) -> Optional[int]:
     """Parse a motion event metadata property key.
-    
-    Format: event_<padded_idx>_<category>
-    
+
+    Format: event_<padded_idx>
+    The suffix after the prefix must be entirely numeric digits.
+
     Args:
         key: Property key string
-        
+
     Returns:
-        Tuple of (event_idx, category_name) if valid, None otherwise
+        event_idx if valid, None otherwise
     """
     if not key.startswith(EVENT_PROP_PREFIX):
         return None
-    
-    parts = key.split('_', 2)
-    if len(parts) == 3 and parts[1].isdigit():
-        event_idx = int(parts[1])
-        category_name = parts[2]
-        return (event_idx, category_name)
-    
+    suffix = key[len(EVENT_PROP_PREFIX):]
+    if suffix.isdigit():
+        return int(suffix)
     return None
 
 
-def iter_track_properties(action: bpy.types.Action) -> List[Tuple[int, str, str]]:
+def iter_track_properties(action: bpy.types.Action) -> List[Tuple[int, str]]:
     """Iterate through all track metadata properties on an action.
-    
+
     Args:
         action: Blender action to read properties from
-        
+
     Returns:
-        List of tuples (track_idx, track_name, property_value) sorted by track_idx
+        List of tuples (track_idx, property_value) sorted by track_idx
     """
     results = []
     for key in action.keys():
         parsed = _parse_track_property_key(key)
-        if parsed:
-            track_idx, track_name = parsed
-            results.append((track_idx, track_name, action[key]))
-    
-    # Sort by track index
+        if parsed is not None:
+            results.append((parsed, action[key]))
     results.sort(key=lambda x: x[0])
     return results
 
 
-def iter_event_properties(action: bpy.types.Action) -> List[Tuple[int, str, str]]:
+def get_track_name_to_index(action: bpy.types.Action) -> Dict[str, int]:
+    """Build a ``{track_name: track_idx}`` mapping from action track properties.
+
+    Raises:
+        ValueError: If any track property is missing the ``name=`` field.
+    """
+    result: Dict[str, int] = {}
+    for track_idx, metadata_str in iter_track_properties(action):
+        parsed = _parse_track_metadata_generic(metadata_str)
+        if not parsed or not parsed.get('track_name'):
+            raise ValueError(
+                f"Track property at index {track_idx} is missing 'name=' field: '{metadata_str}'"
+            )
+        result[parsed['track_name']] = track_idx
+    return result
+
+
+def iter_event_properties(action: bpy.types.Action) -> List[Tuple[int, str]]:
     """Iterate through all motion event properties on an action.
-    
+
     Args:
         action: Blender action to read properties from
-        
+
     Returns:
-        List of tuples (event_idx, category_name, property_value) sorted by event_idx
+        List of tuples (event_idx, property_value) sorted by event_idx
     """
     results = []
     for key in action.keys():
         parsed = _parse_event_property_key(key)
-        if parsed:
-            event_idx, category_name = parsed
-            results.append((event_idx, category_name, action[key]))
-    
-    # Sort by event index
+        if parsed is not None:
+            results.append((parsed, action[key]))
+
     results.sort(key=lambda x: x[0])
     return results
 
@@ -585,7 +593,7 @@ def store_track_metadata_on_action(
             metadata_parts.append(f"type={track_meta.rig_unit_type.name}")
 
         metadata_value = f"name={track_name} ; {' ; '.join(metadata_parts)}"
-        property_key = _make_track_property_key(track_idx, track_name)
+        property_key = _make_track_property_key(track_idx)
         action[property_key] = metadata_value
         action.id_properties_ui(property_key).update(
             description=f"Track metadata for {track_name}"
@@ -600,66 +608,23 @@ def store_track_metadata_on_action(
             )
 
 
-def get_all_track_metadata_from_action(action: bpy.types.Action) -> Dict[str, TrackMetaData]:
-    """Parse all track structure metadata from layout track action.
-    
-    The layout track defines the shared structure for all animations:
-    - Track names and order
-    - Segment types per track
-    - Default unit flags
-    
+def _build_track_metadata_from_parsed(parsed: dict, fox_track_name: str) -> TrackMetaData:
+    """Construct a :class:`TrackMetaData` from a dict returned by :func:`_parse_track_metadata_generic`.
+
     Args:
-        layout_action: The layout track action containing structure metadata
-        
+        parsed: Dict from ``_parse_track_metadata_generic`` (must include ``track_name``).
+        fox_track_name: Fox bone name (used for warning messages only).
+
     Returns:
-        Dictionary mapping fox_track_name -> TrackMetaData
+        :class:`TrackMetaData` instance.
     """
-    metadata_dict = {}
-    
-    # Iterate through track properties using utility function
-    for track_idx, fox_track_name, metadata_str in iter_track_properties(action):
-        # We already have the metadata_str, but get_track_metadata_from_action does the parsing
-        # Call it to parse the metadata string
-        metadata = build_track_metadata_from_action(action, fox_track_name)
-        if metadata:
-            metadata_dict[fox_track_name] = metadata
-            Debug.log(f"    Parsed track {track_idx}: {fox_track_name} ({len(metadata.segment_types)} segments)")
-    
-    Debug.log(f"  Parsed {len(metadata_dict)} track(s) from layout action")
-    return metadata_dict
-
-
-def build_track_metadata_from_action(layout_action: bpy.types.Action, fox_track_name: str) -> Optional[TrackMetaData]:
-    """Retrieve track metadata for one track from a layout action."""
-    metadata_str = None
-    property_key = None
-
-    for key in layout_action.keys():
-        parsed = _parse_track_property_key(key)
-        if parsed:
-            _, track_name = parsed
-            if track_name == fox_track_name:
-                property_key = key
-                metadata_str = layout_action[key]
-                break
-
-    if metadata_str is None:
-        return None
-
-    if not isinstance(metadata_str, str):
-        Debug.log_warning(f"      Warning: Custom property '{property_key}' is not valid metadata")
-        return None
-
-    parsed = _parse_track_metadata_generic(metadata_str)
-    if not parsed:
-        Debug.log_warning(f"      Warning: Failed to parse metadata for track '{fox_track_name}'")
-        return None
-
     rig_unit_type = None
     if parsed['rig_unit_type']:
         rig_unit_type = RigUnitType.parse_from_string(parsed['rig_unit_type'])
         if rig_unit_type is None:
-            Debug.log_warning(f"      Warning: Unknown rig unit type '{parsed['rig_unit_type']}' in track '{fox_track_name}'")
+            Debug.log_warning(
+                f"      Warning: Unknown rig unit type '{parsed['rig_unit_type']}' in track '{fox_track_name}'"
+            )
 
     track_name_val = parsed['track_name']
     name_hash = util_hashing.hash_or_parse_name(track_name_val)
@@ -671,8 +636,58 @@ def build_track_metadata_from_action(layout_action: bpy.types.Action, fox_track_
         component_bit_sizes=parsed['component_bit_sizes'],
         unit_flags=parsed['unit_flags'],
         flags_list=parsed['flags_list'],
-        rig_unit_type=rig_unit_type
+        rig_unit_type=rig_unit_type,
     )
+
+
+def get_all_track_metadata_from_action(action: bpy.types.Action) -> Dict[str, TrackMetaData]:
+    """Parse all track structure metadata from layout track action.
+
+    The layout track defines the shared structure for all animations:
+    - Track names and order
+    - Segment types per track
+    - Default unit flags
+
+    Args:
+        action: The layout track action containing structure metadata
+
+    Returns:
+        Dictionary mapping fox_track_name -> TrackMetaData
+    """
+    metadata_dict = {}
+
+    for track_idx, metadata_str in iter_track_properties(action):
+        if not isinstance(metadata_str, str):
+            raise ValueError(f"Track property at index {track_idx} has invalid type: {type(metadata_str)}")
+        parsed = _parse_track_metadata_generic(metadata_str)
+        if not parsed or not parsed.get('track_name'):
+            raise ValueError(
+                f"Track property at index {track_idx} is missing 'name=' field: '{metadata_str}'"
+            )
+        fox_track_name = parsed['track_name']
+        metadata = _build_track_metadata_from_parsed(parsed, fox_track_name)
+        if metadata:
+            metadata_dict[fox_track_name] = metadata
+            Debug.log(f"    Parsed track {track_idx}: {fox_track_name} ({len(metadata.segment_types)} segments)")
+
+    Debug.log(f"  Parsed {len(metadata_dict)} track(s) from layout action")
+    return metadata_dict
+
+
+def build_track_metadata_from_action(layout_action: bpy.types.Action, fox_track_name: str) -> Optional[TrackMetaData]:
+    """Retrieve track metadata for one track from a layout action."""
+    for track_idx, metadata_str in iter_track_properties(layout_action):
+        if not isinstance(metadata_str, str):
+            raise ValueError(f"Track property at index {track_idx} has invalid type: {type(metadata_str)}")
+        parsed = _parse_track_metadata_generic(metadata_str)
+        if not parsed or not parsed.get('track_name'):
+            raise ValueError(
+                f"Track property at index {track_idx} is missing 'name=' field: '{metadata_str}'"
+            )
+        if parsed['track_name'] == fox_track_name:
+            return _build_track_metadata_from_parsed(parsed, fox_track_name)
+
+    return None
 
 
 def build_track_metadata_from_fcurves(bone_name: str, action: bpy.types.Action) -> Optional[TrackMetaData]:
@@ -1209,24 +1224,26 @@ def _extract_fcurves_metadata_from_action(action: bpy.types.Action, bone_name: s
     unit_flags = 0
     found_metadata = False
 
-    for _, track_name, metadata_str in iter_track_properties(action):
-        if track_name != bone_name:
+    for _, metadata_str in iter_track_properties(action):
+        if not isinstance(metadata_str, str):
+            raise ValueError(f"Track property has invalid type: {type(metadata_str)}")
+        parsed = _parse_action_track_metadata(metadata_str)
+        if not parsed or not parsed.get('track_name'):
+            raise ValueError(f"Track property is missing 'name=' field: '{metadata_str}'")
+        if parsed['track_name'] != bone_name:
             continue
 
         found_metadata = True
-        if isinstance(metadata_str, str):
-            parsed = _parse_action_track_metadata(metadata_str)
-            if parsed:
-                if parsed.get('component_bit_sizes'):
-                    component_bit_sizes = parsed['component_bit_sizes']
-                if parsed.get('flags'):
-                    flag_enums = [
-                        TrackUnitFlags[name]
-                        for name in parsed['flags']
-                        if name in TrackUnitFlags.__members__
-                    ]
-                    if flag_enums:
-                        unit_flags = TrackUnitFlags.track_unit_flags_to_int(flag_enums)
+        if parsed.get('component_bit_sizes'):
+            component_bit_sizes = parsed['component_bit_sizes']
+        if parsed.get('flags'):
+            flag_enums = [
+                TrackUnitFlags[name]
+                for name in parsed['flags']
+                if name in TrackUnitFlags.__members__
+            ]
+            if flag_enums:
+                unit_flags = TrackUnitFlags.track_unit_flags_to_int(flag_enums)
         break
 
     return component_bit_sizes, unit_flags, found_metadata
@@ -1288,21 +1305,24 @@ def _extract_fox_bone_to_rig_unit_type_mapping(layout_action: bpy.types.Action, 
         return bone_to_type
     
     # Parse all track metadata properties (auto-filters by 'track_' prefix)
-    for _, fox_track_name, metadata_str in iter_track_properties(layout_action):
+    for _, metadata_str in iter_track_properties(layout_action):
+        if not isinstance(metadata_str, str):
+            raise ValueError(f"Track property has invalid type: {type(metadata_str)}")
+        parsed_meta = _parse_action_track_metadata(metadata_str)
+        if not parsed_meta or not parsed_meta.get('track_name'):
+            raise ValueError(f"Track property is missing 'name=' field: '{metadata_str}'")
+        fox_track_name = parsed_meta['track_name']
         try:
-            if not isinstance(metadata_str, str):
-                continue
-
             # Parse rig unit type using lightweight parser
             rig_unit_type = _parse_track_type_from_metadata(metadata_str)
-            
+
             if rig_unit_type is None:
                 Debug.log_warning(f"Could not parse rig unit type from metadata: {metadata_str}")
                 continue  # Skip unparseable types - do not add to dict
-            
+
             # Store mapping (only if type was successfully parsed)
             bone_to_type[fox_track_name] = rig_unit_type
-            
+
         except Exception as e:
             Debug.log_warning(f"Failed to parse track metadata for '{fox_track_name}': {e}")
             continue

@@ -23,6 +23,7 @@ class MTAR_PG_DebugPanelProperties(bpy.types.PropertyGroup):
             ('BAKE', "Bake", "Animation bake tools"),
             ('TRANSFORM', "Transform", "Transform inspector"),
             ('MAP_R', "Map R", "Map_R parameter debug"),
+            ('META', "Meta", "Shared metadata debug tools"),
         ],
         default='TRANSFORM'
     )

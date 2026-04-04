@@ -48,10 +48,8 @@ def build_track_segment_bone_mapping_from_file(mapping_filepath: str,
     Debug.log("\nBuilding track mapping from mapping file and layout action metadata...")
     
     # Parse track indices from layout action custom properties using utility function
-    track_name_to_idx = {}
-    for track_idx, track_name, _ in fwrap_metadata.iter_track_properties(layout_action):
-        track_name_to_idx[track_name] = track_idx
-    
+    track_name_to_idx = fwrap_metadata.get_track_name_to_index(layout_action)
+
     Debug.log(f"  Found {len(track_name_to_idx)} track(s) in layout action")
     for track_name, track_idx in sorted(track_name_to_idx.items(), key=lambda x: x[1]):
         Debug.log(f"    Track {track_idx}: {track_name}")

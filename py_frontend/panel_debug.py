@@ -10,7 +10,11 @@ for bones at specific frames, useful for verifying export/import transform corre
 import bpy
 from bpy.types import Panel, Context
 
-from . import panel_debug_bake, panel_debug_hash, panel_debug_map_r, panel_debug_nla, panel_debug_transform
+from . import panel_debug_bake, panel_debug_hash, panel_debug_map_r, panel_debug_meta, panel_debug_nla, panel_debug_transform
+from .operators_debug_meta import (
+    MTAR_OT_UpgradeEventsFromMtar,
+    MTAR_OT_RenameTrackPropertyKeys,
+)
 from .operators_debug_transform import (
     MTAR_PG_DebugTransformProperties,
     MTAR_OT_InspectWorldSpaceTransform,
@@ -80,6 +84,8 @@ class MTAR_PT_DebugMainPanel(Panel):
             panel_debug_bake.draw_bake_page(layout, context)
         elif tab == 'MAP_R':
             panel_debug_map_r.draw_map_r_page(layout, context)
+        elif tab == 'META':
+            panel_debug_meta.draw_meta_page(layout, context)
 
 
 # Registration
@@ -122,6 +128,9 @@ classes = (
     MTAR_OT_ClearUnhashStrCode32,
     #
     MTAR_PT_DebugMainPanel,
+    # Meta
+    MTAR_OT_UpgradeEventsFromMtar,
+    MTAR_OT_RenameTrackPropertyKeys,
 )
 
 def register() -> None:

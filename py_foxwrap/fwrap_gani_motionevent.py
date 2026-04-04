@@ -17,7 +17,7 @@ from ..py_fox import fox_gani_constants as gani_const
 from ..py_fox.fox_gani_types import EvpHeader, EvpData, EventUnitInfo, TimeSection
 from ..py_fox.fox_hash_types import StrCode32
 
-from .fwrap_metadata import make_event_property_key, iter_event_properties
+from .fwrap_metadata import EVENT_PROP_PREFIX, make_event_property_key, iter_event_properties
 
 
 def store_motion_events_on_action(action: bpy.types.Action, motion_events: Optional[EvpHeader]) -> None:
@@ -87,12 +87,12 @@ def store_motion_events_on_action(action: bpy.types.Action, motion_events: Optio
             metadata_value = ' ; '.join(all_parts)
 
             # Store as custom property using standardized key format
-            property_key = make_event_property_key(event_index, category_name)
+            property_key = make_event_property_key(event_index)
             action[property_key] = metadata_value
 
             # Set custom property metadata for UI display
             action.id_properties_ui(property_key).update(
-                description=f"Motion event: {category_name}_{event_name}"
+                description=f"Motion event {event_index}: {event_name} (category {category_name})"
             )
 
             # Create NLA markers for each time section
@@ -100,8 +100,8 @@ def store_motion_events_on_action(action: bpy.types.Action, motion_events: Optio
                 start_frame = time_section.start_frame
                 end_frame = time_section.end_frame
 
-                # Create marker name: <category>_<event_name> (include section index if multiple)
-                base_marker_name = f"{category_name}_{event_name}"
+                # Create marker name: <event_index>_<event_name> (include section index if multiple)
+                base_marker_name = f"{event_index}_{event_name}"
                 if len(event.time_sections) > 1:
                     base_marker_name += f"_{section_idx}"
 
@@ -153,7 +153,7 @@ def read_motion_events_from_action(action: bpy.types.Action) -> Optional[EvpHead
     # Group events by category
     categories: Dict[str, List[tuple]] = {}  # category -> list of (event_name, params, frames)
 
-    for _event_idx, category_name_from_key, metadata_str in event_properties_list:
+    for event_idx, metadata_str in event_properties_list:
         if not isinstance(metadata_str, str):
             continue
 
@@ -170,8 +170,11 @@ def read_motion_events_from_action(action: bpy.types.Action) -> Optional[EvpHead
         if not event_name:
             continue
 
-        # Category from value; fall back to the key-derived category name
-        category_name = kv.get('category', category_name_from_key)
+        # Category comes exclusively from the property value
+        category_name = kv.get('category', '')
+        if not category_name:
+            Debug.log_warning(f"  Event index {event_idx} has no 'category' field in its property value; skipping")
+            continue
 
         # Keep the readable event name for NLA marker lookup; compute hash for binary export.
         event_name_for_marker = event_name
@@ -197,55 +200,50 @@ def read_motion_events_from_action(action: bpy.types.Action) -> Optional[EvpHead
             except (ValueError, TypeError):
                 pass
 
-        # Find corresponding markers to get frame ranges
-        # Look for markers matching pattern:
-        # - <category>_<event_name>_start and _end (frame range)
-        # - <category>_<event_name> (single frame, infinite end)
-        # (or with section index: <category>_<event_name>_<idx>_start / <category>_<event_name>_<idx>)
+        # Find corresponding markers to get frame ranges.
+        # Marker naming (written by store_motion_events_on_action):
+        #   single section : {event_idx}_{event_name}_start / _end  (or just the base for infinite)
+        #   multiple sections: {event_idx}_{event_name}_0_start / _end, _1_start / _end, ...
         time_sections = []
+        base_marker_name = f"{event_idx}_{event_name_for_marker}"
 
-        # Build base marker name using the readable event name (before integer conversion)
-        base_marker_name = f"{category_name}_{event_name_for_marker}"
+        # Try non-indexed markers first (single-section write path)
+        start_marker = action.pose_markers.get(f"{base_marker_name}_start")
+        end_marker   = action.pose_markers.get(f"{base_marker_name}_end")
+        single_marker = action.pose_markers.get(base_marker_name)
 
-        # Find all matching marker pairs or single markers
-        section_idx = 0
-        while True:
-            # Prefer index-suffixed markers: <base>_<idx>_start / _end / <base>_<idx>
-            start_marker_name_idx = f"{base_marker_name}_{section_idx}_start"
-            end_marker_name_idx = f"{base_marker_name}_{section_idx}_end"
-            single_marker_name_idx = f"{base_marker_name}_{section_idx}"
+        if start_marker and end_marker:
+            time_sections.append(TimeSection(
+                start_frame=int(start_marker.frame),
+                end_frame=int(end_marker.frame)
+            ))
+        elif single_marker:
+            time_sections.append(TimeSection(
+                start_frame=int(single_marker.frame),
+                end_frame=-1
+            ))
+        else:
+            # No non-indexed markers found — try indexed (multi-section write path)
+            section_idx = 0
+            while True:
+                s_start = action.pose_markers.get(f"{base_marker_name}_{section_idx}_start")
+                s_end   = action.pose_markers.get(f"{base_marker_name}_{section_idx}_end")
+                s_single = action.pose_markers.get(f"{base_marker_name}_{section_idx}")
 
-            start_marker = action.pose_markers.get(start_marker_name_idx)
-            end_marker = action.pose_markers.get(end_marker_name_idx)
-            single_marker = action.pose_markers.get(single_marker_name_idx)
-
-            # Fallback for section_idx == 0: try non-indexed marker names (single-section writer case)
-            if section_idx == 0 and not (start_marker or end_marker or single_marker):
-                start_marker_name = f"{base_marker_name}_start"
-                end_marker_name = f"{base_marker_name}_end"
-                single_marker_name = base_marker_name
-
-                start_marker = action.pose_markers.get(start_marker_name)
-                end_marker = action.pose_markers.get(end_marker_name)
-                single_marker = action.pose_markers.get(single_marker_name)
-
-            if start_marker and end_marker:
-                # Found a start/end pair
-                time_sections.append(TimeSection(
-                    start_frame=int(start_marker.frame),
-                    end_frame=int(end_marker.frame)
-                ))
-                section_idx += 1
-            elif single_marker:
-                # Found a single marker (infinite end)
-                time_sections.append(TimeSection(
-                    start_frame=int(single_marker.frame),
-                    end_frame=-1
-                ))
-                section_idx += 1
-            else:
-                # No more sections found
-                break
+                if s_start and s_end:
+                    time_sections.append(TimeSection(
+                        start_frame=int(s_start.frame),
+                        end_frame=int(s_end.frame)
+                    ))
+                    section_idx += 1
+                elif s_single:
+                    time_sections.append(TimeSection(
+                        start_frame=int(s_single.frame),
+                        end_frame=-1
+                    ))
+                    section_idx += 1
+                else:
+                    break
 
         # Events without time sections are allowed (time_section_count = 0)
         if not time_sections:
@@ -332,3 +330,80 @@ def read_motion_events_from_action(action: bpy.types.Action) -> Optional[EvpHead
     Debug.log(f"Reconstructed EvpHeader with {evp_header.count} categor(ies), version={version}")
 
     return evp_header
+
+
+def clear_motion_events_from_action(action: bpy.types.Action) -> None:
+    """Remove all motion event custom properties and their associated pose markers from an action.
+
+    Handles both old-style markers ({category}_{event_name}_start/end) and new-style
+    ({event_idx}_{event_name}_start/end) by reading the name field from property values.
+    Also removes the EVPH_VERSION property.
+
+    Args:
+        action: The Blender action to clear motion event data from
+    """
+    markers_to_remove: set = set()
+    keys_to_remove = []
+
+    for key in action.keys():
+        if not key.startswith(EVENT_PROP_PREFIX):
+            continue
+        # Accept both old format (event_000_something) and new format (event_000).
+        # The first token after the prefix must be numeric digits.
+        suffix = key[len(EVENT_PROP_PREFIX):]
+        idx_str = suffix.split('_')[0]
+        if not idx_str.isdigit():
+            continue
+
+        keys_to_remove.append(key)
+        event_idx = int(idx_str)
+        metadata_str = action.get(key, '')
+        if not isinstance(metadata_str, str):
+            continue
+
+        # Parse name and category from the value string
+        kv: dict = {}
+        for part in metadata_str.split(';'):
+            part = part.strip()
+            if '=' not in part:
+                continue
+            k, v = part.split('=', 1)
+            kv[k.strip()] = v.strip()
+
+        event_name_raw = kv.get('name', '')
+        category_name = kv.get('category', '')
+
+        if not event_name_raw:
+            continue
+
+        # Collect old-style markers: {category}_{event_name}[_*]
+        if category_name:
+            old_base = f"{category_name}_{event_name_raw}"
+            for marker in action.pose_markers:
+                mn = marker.name
+                if mn == old_base or mn.startswith(old_base + '_'):
+                    markers_to_remove.add(mn)
+
+        # Collect new-style markers: {event_idx}_{event_name}[_*]
+        new_base = f"{event_idx}_{event_name_raw}"
+        for marker in action.pose_markers:
+            mn = marker.name
+            if mn == new_base or mn.startswith(new_base + '_'):
+                markers_to_remove.add(mn)
+
+    # Remove collected pose markers
+    for marker_name in markers_to_remove:
+        marker = action.pose_markers.get(marker_name)
+        if marker:
+            action.pose_markers.remove(marker)
+
+    # Remove event custom properties
+    for key in keys_to_remove:
+        if key in action:
+            del action[key]
+
+    # Remove the EvpHeader version property
+    if gani_const.EVPH_VERSION in action:
+        del action[gani_const.EVPH_VERSION]
+
+    Debug.log(f"Cleared {len(keys_to_remove)} event property/properties and {len(markers_to_remove)} marker(s) from action '{action.name}'")
