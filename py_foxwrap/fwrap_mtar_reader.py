@@ -185,27 +185,36 @@ class MtarReader:
         return [results_dict[idx] for idx in sorted(results_dict.keys())
                ]
 
-    def read_selected_ganis(self, gani_indices: List[int]) -> dict[int, GaniImportData]:
-        """Read specific GANI files by index from MTAR file.
-        
+    def read_selected_ganis(self, gani_header_indices: List[int]) -> dict[int, GaniImportData]:
+        """Read specific GANI files by header index from MTAR file.
+
+        Uses the **h (header) index** — the zero-based position of the GANI entry
+        in the MTAR file table (``MtarTableList`` / ``MtarTableList2`` array).
+        This corresponds to the ``hN`` component in NLA strip/action names.
+
+        .. warning::
+            Do NOT pass the **d (data) index** here.  The ``dN`` value in strip
+            names is a path-hash lookup slot and is unrelated to the file-table
+            position used by this method.
+
         This method reads entire GANI chunks into memory for requested indices,
         providing performance improvement for selective import (reads 510KB chunks
         vs 50MB full file when importing single animations).
-        
+
         Args:
-            gani_indices: List of zero-based GANI indices to read
-            
+            gani_header_indices: List of zero-based MTAR file-table (h) indices to read.
+
         Returns:
-            Dictionary mapping gani_index to a ``GaniImportData`` object containing
+            Dictionary mapping each h index to a ``GaniImportData`` object containing
             all the parsed animation data along with an optional ``file_header``
             pointing back to the enclosing MTAR table entry.
 
         Raises:
             IndexError: If any index is out of range
-            ValueError: If gani_indices is empty
+            ValueError: If gani_header_indices is empty
         """
-        if not gani_indices:
-            raise ValueError("gani_indices cannot be empty")
+        if not gani_header_indices:
+            raise ValueError("gani_header_indices cannot be empty")
         
         # Read entire file into memory
         with open(self.filepath, 'rb') as f:
@@ -221,9 +230,9 @@ class MtarReader:
         
         # Validate indices
         max_index = header.file_count
-        for idx in gani_indices:
+        for idx in gani_header_indices:
             if idx < 0 or idx >= max_index:
-                raise IndexError(f"GANI index {idx} out of range (file has {max_index} GANIs)")
+                raise IndexError(f"GANI header index {idx} out of range (file has {max_index} GANIs)")
         
         # Read CommonInfo if present (new format only; old format embeds layout in each GANI)
         if header.common_info_offset != 0:
@@ -244,7 +253,7 @@ class MtarReader:
         
         # Read selected GANIs
         results = {}
-        for gani_index in gani_indices:
+        for gani_index in gani_header_indices:
             # Read file header for this GANI
             file_header_offset = MtarHeader.SIZE + gani_index * file_header_size
             br.seek(file_header_offset)
